@@ -1,0 +1,6 @@
+{
+  "name": "Chick Jumpers",
+  "description": "2D retro pixel-art platform adventure spanning 30 levels from a cute hatching chick to a mighty armored adult chicken.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
