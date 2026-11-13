@@ -9,17 +9,107 @@ class AudioManager {
   private masterGain: GainNode | null = null;
   private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
+  private unlocked = false;
 
   constructor() {
-    // AudioContext will be initialized on first user interaction
+    this.attachMobileUnlockListeners();
+  }
+
+  private enableIOSPlaybackSession() {
+    try {
+      const nav = navigator as unknown as { audioSession?: { type: string } };
+      if (nav && nav.audioSession && nav.audioSession.type !== 'playback') {
+        nav.audioSession.type = 'playback';
+      }
+    } catch {
+      // Ignore on browsers without navigator.audioSession
+    }
+  }
+
+  private attachMobileUnlockListeners() {
+    if (typeof window === 'undefined') return;
+    const handleGesture = () => {
+      this.unlock();
+    };
+    const events: Array<keyof WindowEventMap> = [
+      'touchstart',
+      'touchend',
+      'pointerdown',
+      'mousedown',
+      'keydown',
+      'click',
+    ];
+    events.forEach(evt => {
+      window.addEventListener(evt, handleGesture, { capture: true, passive: true });
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.ctx) {
+        if (this.ctx.state !== 'running') {
+          this.unlocked = false;
+          this.ctx.resume().catch(() => {});
+        }
+      }
+    });
+
+    window.addEventListener('pageshow', () => {
+      if (this.ctx && this.ctx.state !== 'running') {
+        this.unlocked = false;
+        this.ctx.resume().catch(() => {});
+      }
+    });
+  }
+
+  public unlock() {
+    this.enableIOSPlaybackSession();
+    this.initContext();
+    if (!this.ctx) return;
+
+    const resumePromise =
+      this.ctx.state !== 'running'
+        ? this.ctx.resume().catch(() => {})
+        : Promise.resolve();
+
+    if (!this.unlocked) {
+      try {
+        const buffer = this.ctx.createBuffer(1, 1, 22050);
+        const source = this.ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this.ctx.destination);
+        source.start(0);
+      } catch {
+        // Ignore silent-buffer unlock failures
+      }
+    }
+
+    resumePromise.then(() => {
+      if (!this.ctx) return;
+      if (this.ctx.state === 'running') {
+        this.unlocked = true;
+        if (this.musicEnabled && this.currentMusicTheme && this.musicInterval === null) {
+          this.playMusic(this.currentMusicTheme);
+        }
+      }
+    });
   }
 
   private initContext() {
+    if (typeof window === 'undefined') return;
     if (!this.ctx) {
+      this.enableIOSPlaybackSession();
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
       this.ctx = new AudioCtx();
+      this.ctx.onstatechange = () => {
+        if (this.ctx && this.ctx.state === 'running') {
+          this.unlocked = true;
+        } else if (this.ctx && this.ctx.state !== 'running') {
+          this.unlocked = false;
+        }
+      };
+
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = 0.8;
+      this.masterGain.gain.value = 0.85;
       this.masterGain.connect(this.ctx.destination);
 
       this.musicGain = this.ctx.createGain();
@@ -27,23 +117,25 @@ class AudioManager {
       this.musicGain.connect(this.masterGain);
 
       this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.value = this.soundEnabled ? 0.7 : 0;
+      this.sfxGain.gain.value = this.soundEnabled ? 0.75 : 0;
       this.sfxGain.connect(this.masterGain);
     }
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+    if (this.ctx.state !== 'running') {
+      this.ctx.resume().catch(() => {});
     }
   }
 
   public setSoundEnabled(enabled: boolean) {
     this.soundEnabled = enabled;
+    if (enabled) this.unlock();
     if (this.sfxGain) {
-      this.sfxGain.gain.value = enabled ? 0.7 : 0;
+      this.sfxGain.gain.value = enabled ? 0.75 : 0;
     }
   }
 
   public setMusicEnabled(enabled: boolean) {
     this.musicEnabled = enabled;
+    if (enabled) this.unlock();
     if (this.musicGain) {
       this.musicGain.gain.value = enabled ? 0.35 : 0;
     }
@@ -1318,7 +1410,7 @@ class AudioManager {
     const stepMs = (60 / bpm / 2) * 1000;
 
     this.musicInterval = window.setInterval(() => {
-      if (!this.ctx || !this.musicGain || !this.musicEnabled) return;
+      if (!this.ctx || !this.musicGain || !this.musicEnabled || this.ctx.state !== 'running') return;
 
       const now = this.ctx.currentTime;
       const melodyNote = melody[step % melody.length];

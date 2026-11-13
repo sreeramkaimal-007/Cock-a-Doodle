@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, ArrowRight, ArrowUp, Sword, Shield, Maximize2, Minimize2, Pause, ChevronUp, ChevronDown } from 'lucide-react';
+import { audio } from '../game/audio';
 
 interface TouchControlsProps {
   onInput: (controls: { left?: boolean; right?: boolean; jump?: boolean; attack?: boolean; block?: boolean }) => void;
@@ -51,6 +52,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
       e.preventDefault();
       e.stopPropagation();
+      audio.unlock();
       e.currentTarget.setPointerCapture?.(e.pointerId);
       setKey(key, true);
     },
