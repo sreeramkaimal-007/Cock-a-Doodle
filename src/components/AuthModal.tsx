@@ -98,7 +98,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
       } else if (err.code === 'auth/weak-password') {
         setErrorMsg('Password should be at least 6 characters.');
       } else if (err.code === 'auth/operation-not-allowed') {
-        setErrorMsg('Email/Password sign-in is disabled in Firebase Console. Enable it in Authentication -> Sign-in method, or use Google Sign-In below.');
+        setErrorMsg('Email/Password sign-in is disabled in Firebase Console. Enable Email/Password under Authentication -> Sign-in method, or use Google Sign-In below.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setErrorMsg(`Domain "${window.location.hostname}" is not authorized in Firebase Console. Add it under Authentication -> Settings -> Authorized domains.`);
       } else {
         setErrorMsg(err.message || 'Failed to register account.');
       }
@@ -139,7 +141,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
       } else if (err.code === 'auth/too-many-requests') {
         setErrorMsg('Too many failed attempts. Please wait a few minutes.');
       } else if (err.code === 'auth/operation-not-allowed') {
-        setErrorMsg('Email/Password sign-in is disabled in Firebase Console. Enable it in Authentication -> Sign-in method, or use Google Sign-In below.');
+        setErrorMsg('Email/Password sign-in is disabled in Firebase Console. Enable Email/Password under Authentication -> Sign-in method, or use Google Sign-In below.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setErrorMsg(`Domain "${window.location.hostname}" is not authorized in Firebase Console. Add it under Authentication -> Settings -> Authorized domains.`);
       } else {
         setErrorMsg(err.message || 'Login failed. Please check credentials.');
       }
@@ -226,7 +230,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
       }
     } catch (err: any) {
       console.error('Google login error:', err);
-      setErrorMsg(err.message || 'Google sign in failed.');
+      if (err.code === 'auth/unauthorized-domain') {
+        setErrorMsg(`Domain "${window.location.hostname}" is not authorized in Firebase Console. Add it under Authentication -> Settings -> Authorized domains.`);
+      } else if (err.code === 'auth/popup-blocked') {
+        setErrorMsg('Popup was blocked by your browser. Please allow popups for this site and try again.');
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setErrorMsg('Sign-in popup was closed before completing.');
+      } else {
+        setErrorMsg(err.message || 'Google sign in failed.');
+      }
     } finally {
       setLoading(false);
     }
@@ -491,6 +503,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
               className="w-full mt-1 py-2.5 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:to-amber-400 border-[2.5px] border-black text-slate-950 font-pixel-arcade text-[9.5px] sm:text-[10.5px] font-bold shadow-[3px_3px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer disabled:opacity-50"
             >
               {loading ? 'CREATING ACCOUNT...' : 'REGISTER & SEND EMAIL ▶'}
+            </button>
+
+            <div className="relative my-2 text-center">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-700" />
+              </div>
+              <span className="relative px-2 bg-slate-900 font-pixel text-[7.5px] text-slate-400">
+                OR QUICK SIGN-IN
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading}
+              className="w-full py-2 bg-slate-800 hover:bg-slate-700 border-2 border-black text-slate-200 font-pixel text-[8.5px] sm:text-[9.5px] shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] transition-transform cursor-pointer flex items-center justify-center gap-2"
+            >
+              <span>SIGN IN WITH GOOGLE</span>
             </button>
           </form>
         )}
