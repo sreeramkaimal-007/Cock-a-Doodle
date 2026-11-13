@@ -6,6 +6,9 @@ declare global {
   }
 }
 
+const DEFAULT_ADSENSE_CLIENT_ID = 'ca-pub-3743078627568874';
+const DEFAULT_ADSENSE_SLOT_ID = '8859422748';
+
 interface AdBannerProps {
   slotId?: string;
   format?: 'auto' | 'horizontal' | 'rectangle';
@@ -31,12 +34,12 @@ function ensureAdSenseScript(clientId: string) {
 
 export const AdBanner: React.FC<AdBannerProps> = ({
   slotId,
-  format = 'horizontal',
+  format = 'auto',
   className = '',
 }) => {
   const pushedRef = useRef(false);
-  const clientId = (import.meta.env.VITE_ADSENSE_CLIENT_ID || '').trim();
-  const resolvedSlot = (slotId || '').trim();
+  const clientId = (import.meta.env.VITE_ADSENSE_CLIENT_ID || DEFAULT_ADSENSE_CLIENT_ID).trim();
+  const resolvedSlot = (slotId || DEFAULT_ADSENSE_SLOT_ID).trim();
 
   useEffect(() => {
     if (!clientId || !resolvedSlot || pushedRef.current) return;
@@ -46,7 +49,7 @@ export const AdBanner: React.FC<AdBannerProps> = ({
       window.adsbygoogle.push({});
       pushedRef.current = true;
     } catch {
-      // Ignore AdSense push errors when blocked by ad blockers
+      // Ignore AdSense push errors when blocked by ad blockers or preview environments
     }
   }, [clientId, resolvedSlot]);
 
@@ -59,7 +62,7 @@ export const AdBanner: React.FC<AdBannerProps> = ({
       <span className="font-pixel text-[7px] text-slate-500 tracking-widest mb-1 uppercase">
         Advertisement
       </span>
-      <div className="w-full min-h-[60px] max-h-[100px] overflow-hidden rounded-xl border border-slate-700/70 bg-slate-950/80 flex items-center justify-center">
+      <div className="w-full min-h-[60px] overflow-hidden rounded-xl border border-slate-700/70 bg-slate-950/80 flex items-center justify-center">
         <ins
           className="adsbygoogle block w-full"
           style={{ display: 'block', textAlign: 'center' }}

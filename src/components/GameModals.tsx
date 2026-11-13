@@ -1774,10 +1774,10 @@ export const GameModals: React.FC<ModalProps> = ({
           {/* Tablet & Mobile Scroll Helper */}
           <TabletScrollButtons containerRef={menuScrollRef} className="mt-3" />
 
-          {/* Policy-Compliant AdSense Slot (Only renders when VITE_ADSENSE_CLIENT_ID & SLOT are configured) */}
+          {/* Policy-Compliant AdSense Slot */}
           <AdBanner
-            slotId={import.meta.env.VITE_ADSENSE_SLOT_MENU}
-            format="horizontal"
+            slotId={import.meta.env.VITE_ADSENSE_SLOT_MENU || '8859422748'}
+            format="auto"
             className="mt-3"
           />
 
@@ -2583,8 +2583,8 @@ export const GameModals: React.FC<ModalProps> = ({
           </div>
 
           <AdBanner
-            slotId={import.meta.env.VITE_ADSENSE_SLOT_INTERMISSION}
-            format="horizontal"
+            slotId={import.meta.env.VITE_ADSENSE_SLOT_INTERMISSION || '8859422748'}
+            format="auto"
             className="mt-3"
           />
 
@@ -2665,8 +2665,8 @@ export const GameModals: React.FC<ModalProps> = ({
           </div>
 
           <AdBanner
-            slotId={import.meta.env.VITE_ADSENSE_SLOT_INTERMISSION}
-            format="horizontal"
+            slotId={import.meta.env.VITE_ADSENSE_SLOT_INTERMISSION || '8859422748'}
+            format="auto"
             className="mt-3"
           />
         </div>
