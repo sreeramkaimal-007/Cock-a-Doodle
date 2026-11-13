@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Music, Pause, Shield, Sword, Gamepad2 } from 'lucide-react';
+import { Volume2, VolumeX, Music, Pause, Shield, Sword, Gamepad2, Home, LogOut } from 'lucide-react';
 import { GrowthStage, ArmorType, SwordType } from '../game/types';
 import { PixelChick, PixelJuvenile, PixelRooster, PixelCrown } from './PixelIcons';
 
@@ -21,6 +21,8 @@ interface GameHUDProps {
   onToggleMusic: () => void;
   onToggleTouchControls: () => void;
   onPause: () => void;
+  onReturnToMenu: () => void;
+  onLogOut?: () => void;
 }
 
 // Retro 8-bit Pixelated Flame Icon Component
@@ -245,6 +247,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onToggleMusic,
   onToggleTouchControls,
   onPause,
+  onReturnToMenu,
+  onLogOut,
 }) => {
   const isFireResistActive = fireResistTimer > 0;
 
@@ -285,7 +289,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         </div>
 
         {/* Top Right: Pixelated Coins Counter & Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto">
+        <div className="flex items-center flex-wrap justify-end gap-1.5 sm:gap-2 pointer-events-auto">
           {/* Pixel Coins Counter */}
           <div className="flex items-center gap-1.5 bg-slate-900 border-[3px] border-black px-2.5 sm:px-3 py-1.5 shadow-[3px_3px_0_#000000]">
             <PixelCoin className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
@@ -332,9 +336,32 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             onClick={onPause}
             className="w-8 h-8 sm:w-9 sm:h-9 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-yellow-400 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center shrink-0"
             aria-label="Pause Game"
+            title="Pause Game"
           >
             <Pause className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
           </button>
+
+          <button
+            onClick={onReturnToMenu}
+            className="h-8 sm:h-9 px-2 sm:px-2.5 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-yellow-400 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+            aria-label="Back to Menu"
+            title="Back to Menu"
+          >
+            <Home className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
+            <span className="hidden md:inline font-pixel text-[8px] text-yellow-300">MENU</span>
+          </button>
+
+          {onLogOut && (
+            <button
+              onClick={onLogOut}
+              className="h-8 sm:h-9 px-2 sm:px-2.5 bg-red-950 border-[2.5px] border-black hover:bg-red-900 text-red-200 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+              aria-label="Log Out"
+              title="Log Out"
+            >
+              <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-300" />
+              <span className="hidden sm:inline font-pixel text-[8px] text-red-200">LOG OUT</span>
+            </button>
+          )}
         </div>
       </div>
 

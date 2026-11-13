@@ -1262,7 +1262,7 @@ export const GameModals: React.FC<ModalProps> = ({
       previewStage === 'baby' ? 'none' : (previewStage === 'juvenile' ? 'iron' : 'gold');
 
     return wrapWithPopup(
-      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-5 z-40 overflow-y-auto">
+      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center pt-14 px-3 pb-3 sm:pt-14 sm:px-5 sm:pb-5 z-40 overflow-y-auto">
         <div className="w-full max-w-2xl bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-amber-500/80 rounded-3xl p-4 sm:p-6 flex flex-col items-center shadow-[0_0_50px_rgba(245,158,11,0.25)] max-h-[92vh] overflow-y-auto">
           
           <div className="flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-400 text-amber-300 text-xs font-pixel tracking-wider mb-2">
@@ -1488,7 +1488,7 @@ export const GameModals: React.FC<ModalProps> = ({
   // --- Main Menu: Colorful Retro Typography & Detailed Buttons ---
   if (currentScreen === 'MENU') {
     return wrapWithPopup(
-      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-start sm:justify-center p-3 sm:p-5 z-40 overflow-y-auto overscroll-contain">
+      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-start sm:justify-center pt-14 px-3 pb-3 sm:pt-14 sm:px-5 sm:pb-5 z-40 overflow-y-auto overscroll-contain">
         <div ref={menuScrollRef} className="w-full max-w-md my-auto bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 border-2 border-amber-400/80 rounded-3xl shadow-[0_0_60px_rgba(245,158,11,0.3)] p-4 sm:p-6 flex flex-col items-center text-center relative overflow-y-auto max-h-[94vh]">
           
           {/* Subtle Golden Glow Accents */}
@@ -1808,7 +1808,7 @@ export const GameModals: React.FC<ModalProps> = ({
     ];
 
     return wrapWithPopup(
-      <div ref={levelScrollRef} className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col p-4 sm:p-6 z-40 overflow-y-auto">
+      <div ref={levelScrollRef} className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col pt-14 px-4 pb-4 sm:pt-16 sm:px-6 sm:pb-6 z-40 overflow-y-auto">
         <div className="max-w-4xl mx-auto w-full">
           <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
             <div>
@@ -1887,7 +1887,7 @@ export const GameModals: React.FC<ModalProps> = ({
   // --- How To Play & Guide ---
   if (currentScreen === 'HOW_TO_PLAY') {
     return wrapWithPopup(
-      <div ref={howToPlayScrollRef} className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col p-4 sm:p-6 z-40 overflow-y-auto">
+      <div ref={howToPlayScrollRef} className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col pt-14 px-4 pb-4 sm:pt-16 sm:px-6 sm:pb-6 z-40 overflow-y-auto">
         <div className="max-w-2xl mx-auto w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8">
           <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
             <h2 className="font-pixel text-xl text-amber-400">
@@ -2000,7 +2000,7 @@ export const GameModals: React.FC<ModalProps> = ({
     const currentDiff = saveData.difficulty || 'normal';
 
     return wrapWithPopup(
-      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-4 z-40 overflow-y-auto">
+      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center pt-14 px-3 pb-3 sm:pt-14 sm:px-4 sm:pb-4 z-40 overflow-y-auto">
         <div ref={settingsScrollRef} className="w-full max-w-md my-auto bg-slate-900 border-[3px] border-black rounded-2xl p-5 sm:p-6 flex flex-col max-h-[92vh] overflow-y-auto shadow-[0_4px_0_#000000]">
           {/* Header */}
           <div className="flex items-center justify-between pb-3 border-b-2 border-black mb-4">
@@ -2904,7 +2904,7 @@ export const GameModals: React.FC<ModalProps> = ({
     };
 
     return wrapWithPopup(
-      <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-5 z-40 overflow-y-auto">
+      <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pt-14 px-3 pb-3 sm:pt-14 sm:px-5 sm:pb-5 z-40 overflow-y-auto">
         <div className="w-full max-w-2xl bg-gradient-to-b from-amber-950/80 via-slate-900 to-slate-950 border-2 border-yellow-400 rounded-3xl p-4 sm:p-6 shadow-[0_0_60px_rgba(245,158,11,0.35)] flex flex-col max-h-[94vh] overflow-y-auto relative">
           
           {/* Header Banner */}
@@ -3483,7 +3483,7 @@ export const GameModals: React.FC<ModalProps> = ({
     const unclaimedCount = countUnclaimedQuests(saveData);
 
     return wrapWithPopup(
-      <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-5 z-40 overflow-y-auto">
+      <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pt-14 px-3 pb-3 sm:pt-14 sm:px-5 sm:pb-5 z-40 overflow-y-auto">
         <div className="w-full max-w-2xl bg-gradient-to-b from-amber-950/80 via-slate-900 to-slate-950 border-2 border-yellow-400 rounded-3xl p-4 sm:p-6 shadow-[0_0_60px_rgba(245,158,11,0.35)] flex flex-col max-h-[94vh] overflow-y-auto relative">
           
           {/* Header */}

@@ -12,6 +12,7 @@ import { TouchControls } from './components/TouchControls';
 
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { ArrowLeft, LogOut } from 'lucide-react';
 import { auth, db } from './game/firebase';
 import { AuthModal } from './components/AuthModal';
 
@@ -32,8 +33,11 @@ export default function App() {
   const [playerHealth, setPlayerHealth] = useState<number>(3);
   const [playerStage, setPlayerStage] = useState<GrowthStage>('baby');
   const [playerFireResistTimer, setPlayerFireResistTimer] = useState<number>(0);
-  const [isTouchDevice, setIsTouchDevice] = useState<boolean>(false);
-  const [showTouchControls, setShowTouchControls] = useState<boolean>(false);
+  const [showTouchControls, setShowTouchControls] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024;
+  });
+  const userToggledTouchRef = useRef<boolean>(false);
   const containerRef = useRef<HTMLElement | null>(null);
 
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -110,13 +114,23 @@ export default function App() {
     }
   }, []);
 
-  // Detect touch device & device orientation flip to trigger full screen
+  // Detect touch device & device orientation flip to trigger full screen + mobile cursors
   useEffect(() => {
+    const isMobileOrTouch = () =>
+      'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024;
+
     const checkTouch = () => {
-      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024;
-      setIsTouchDevice(isTouch);
+      if (!userToggledTouchRef.current && isMobileOrTouch()) {
+        setShowTouchControls(true);
+      }
     };
     checkTouch();
+
+    const handleFirstTouch = () => {
+      if (!userToggledTouchRef.current) {
+        setShowTouchControls(true);
+      }
+    };
 
     const handleFullscreenChange = () => {
       setIsFullscreen(Boolean(document.fullscreenElement));
@@ -126,19 +140,21 @@ export default function App() {
       checkTouch();
       // When phone or tablet is flipped to landscape, request full screen!
       const isLandscape = window.innerWidth > window.innerHeight || (window.screen?.orientation && window.screen.orientation.type.includes('landscape'));
-      if (isLandscape && ('ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024)) {
+      if (isLandscape && isMobileOrTouch()) {
         if (!document.fullscreenElement) {
           document.documentElement.requestFullscreen?.().catch(() => {});
         }
       }
     };
 
+    window.addEventListener('touchstart', handleFirstTouch, { passive: true });
     window.addEventListener('resize', handleOrientation);
     window.addEventListener('orientationchange', handleOrientation);
     window.screen?.orientation?.addEventListener?.('change', handleOrientation);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     return () => {
+      window.removeEventListener('touchstart', handleFirstTouch);
       window.removeEventListener('resize', handleOrientation);
       window.removeEventListener('orientationchange', handleOrientation);
       window.screen?.orientation?.removeEventListener?.('change', handleOrientation);
@@ -1101,8 +1117,13 @@ export default function App() {
             showTouchControls={showTouchControls}
             onToggleSound={handleToggleSound}
             onToggleMusic={handleToggleMusic}
-            onToggleTouchControls={() => setShowTouchControls(p => !p)}
+            onToggleTouchControls={() => {
+              userToggledTouchRef.current = true;
+              setShowTouchControls(p => !p);
+            }}
             onPause={() => setScreen('PAUSED')}
+            onReturnToMenu={() => setScreen('MENU')}
+            onLogOut={handleLogOut}
           />
 
           {/* On-Screen Touch / Click Controls */}
@@ -1163,6 +1184,32 @@ export default function App() {
         currentUser={currentUser}
         onLogOut={handleLogOut}
       />
+
+      {/* Persistent Top-Right Corner Back to Menu & Log Out Bar on all non-gameplay screens */}
+      {currentUser && currentUser.emailVerified && screen !== 'PLAYING' && (
+        <div className="fixed top-2.5 right-3 sm:top-4 sm:right-5 z-[55] flex items-center gap-2 pointer-events-auto">
+          {screen !== 'MENU' && (
+            <button
+              type="button"
+              onClick={() => setScreen('MENU')}
+              className="px-2.5 py-1.5 bg-slate-900/95 hover:bg-slate-800 border-2 border-amber-400 text-yellow-300 font-pixel text-[8px] sm:text-[9px] shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] cursor-pointer flex items-center gap-1.5"
+              title="Back to Main Menu"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-yellow-400" />
+              <span>BACK TO MENU</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleLogOut}
+            className="px-2.5 py-1.5 bg-red-950/95 hover:bg-red-900 border-2 border-red-500 text-red-200 font-pixel text-[8px] sm:text-[9px] shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] cursor-pointer flex items-center gap-1.5"
+            title="Log out of account"
+          >
+            <LogOut className="w-3.5 h-3.5 text-red-300" />
+            <span>LOG OUT</span>
+          </button>
+        </div>
+      )}
 
       {/* Registration & Login Gate: Must be registered & email verified before playing */}
       {authLoading ? (
