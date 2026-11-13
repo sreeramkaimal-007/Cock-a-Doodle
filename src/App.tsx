@@ -10,6 +10,11 @@ import { GameHUD } from './components/GameHUD';
 import { GameModals } from './components/GameModals';
 import { TouchControls } from './components/TouchControls';
 
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db } from './game/firebase';
+import { AuthModal } from './components/AuthModal';
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<GameEngine | null>(null);
@@ -29,10 +34,73 @@ export default function App() {
   const [playerFireResistTimer, setPlayerFireResistTimer] = useState<number>(0);
   const [isTouchDevice, setIsTouchDevice] = useState<boolean>(false);
   const [showTouchControls, setShowTouchControls] = useState<boolean>(false);
-  const [transitioningWorldLevel, setTransitioningWorldLevel] = useState<number | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
 
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  // Firebase Authentication & Verification Gate
+  const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+
+  // Listen to Firebase Auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+
+      if (user && user.emailVerified) {
+        try {
+          const userDocRef = doc(db, 'users', user.uid);
+          const snap = await getDoc(userDocRef);
+          if (snap.exists()) {
+            const remote = snap.data();
+            setSaveData(prev => ({
+              ...prev,
+              unlockedLevel: typeof remote.unlockedLevel === 'number' ? remote.unlockedLevel : prev.unlockedLevel,
+              totalCoins: typeof remote.totalCoins === 'number' ? remote.totalCoins : prev.totalCoins,
+              gender: remote.gender === 'hen' ? 'hen' : (remote.gender === 'rooster' ? 'rooster' : prev.gender),
+              armor: remote.armor || prev.armor,
+              sword: remote.sword || prev.sword,
+              selectedSkin: remote.selectedSkin || prev.selectedSkin,
+              hasShield: remote.hasShield !== undefined ? Boolean(remote.hasShield) : prev.hasShield,
+              hasCompletedGame: remote.hasCompletedGame !== undefined ? Boolean(remote.hasCompletedGame) : prev.hasCompletedGame,
+            }));
+          } else {
+            // Write initial cloud profile
+            await setDoc(userDocRef, {
+              userId: user.uid,
+              email: user.email || '',
+              displayName: user.displayName || '',
+              unlockedLevel: 1,
+              totalCoins: 0,
+              gender: 'rooster',
+              armor: 'none',
+              sword: 'none',
+              selectedSkin: 'classic',
+              hasShield: false,
+              hasCompletedGame: false,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        } catch (err) {
+          console.error('Failed to sync save with Firestore:', err);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogOut = useCallback(async () => {
+    try {
+      await signOut(auth);
+      setCurrentUser(null);
+      setScreen('MENU');
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  }, []);
 
   const handleToggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -78,11 +146,31 @@ export default function App() {
     };
   }, []);
 
-  // Save changes to localStorage
+  // Save changes to localStorage and sync to Firestore
   const updateSaveData = useCallback((updater: (prev: SaveData) => SaveData) => {
     setSaveData(prev => {
       const next = updater(prev);
       saveSaveData(next);
+
+      // Sync persistent progress to Firestore for verified users
+      if (auth.currentUser && auth.currentUser.emailVerified) {
+        const uid = auth.currentUser.uid;
+        setDoc(doc(db, 'users', uid), {
+          userId: uid,
+          email: auth.currentUser.email || '',
+          displayName: auth.currentUser.displayName || '',
+          unlockedLevel: next.unlockedLevel,
+          totalCoins: next.totalCoins,
+          gender: next.gender,
+          armor: next.armor,
+          sword: next.sword,
+          selectedSkin: next.selectedSkin,
+          hasShield: Boolean(next.hasShield),
+          hasCompletedGame: Boolean(next.hasCompletedGame),
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch(err => console.error('Firestore save sync error:', err));
+      }
+
       return next;
     });
   }, []);
@@ -111,11 +199,13 @@ export default function App() {
     if (!level) return;
     if (levelId === 30 || level.cockatrice) {
       const cockatrice = engineRef.current?.level.cockatrice;
-      const isBossFlownAway = Boolean(
+      const isBossNormalized = Boolean(
         cockatrice && cockatrice.state === 'defeated' &&
-        (cockatrice.defeatSubState === 'fly_away' || cockatrice.defeatSubState === 'escaped')
+        ((cockatrice.defeatSubState === 'exploding_ashes' && (cockatrice.defeatTimer ?? 0) >= 0.55) ||
+          cockatrice.defeatSubState === 'fly_away' ||
+          cockatrice.defeatSubState === 'escaped')
       );
-      if (isBossFlownAway) {
+      if (isBossNormalized) {
         // "when we defeat the boss the music changes into the same music from level 1"
         audio.playMusic('coop');
       } else {
@@ -212,12 +302,18 @@ export default function App() {
           });
           setCoinsEarned(earnedCoins);
 
-          // When finishing every level in one world (Levels 5, 9, 10, 19, 29):
-          // Automatically trigger the waiting screen that loads, finishes, and moves on to the next world!
-          const isWorldEnd = completedLevelId === 5 || completedLevelId === 9 || completedLevelId === 10 || completedLevelId === 19 || completedLevelId === 29;
-          if (isWorldEnd) {
-            setTransitioningWorldLevel(completedLevelId);
-            setScreen('WORLD_WAITING');
+          // Route evolution milestones (9 -> 10 Juvenile, 19 -> 20 Adult) directly to EVOLUTION,
+          // and all other cleared stages directly to LEVEL_CLEAR (no percentage loading modal)
+          if (completedLevelId === 9) {
+            setActiveLevelId(10);
+            setEvolutionStage('juvenile');
+            audio.playEvolution();
+            setScreen('EVOLUTION');
+          } else if (completedLevelId === 19) {
+            setActiveLevelId(20);
+            setEvolutionStage('adult');
+            audio.playEvolution();
+            setScreen('EVOLUTION');
           } else {
             setScreen('LEVEL_CLEAR');
           }
@@ -290,7 +386,7 @@ export default function App() {
 
     setActiveLevelId(levelId);
     setCoinsEarned(0);
-    setPlayerHealth(3);
+    setPlayerHealth(engineRef.current.player.health);
     setPlayerStage(engineRef.current.player.stage);
     updateMusicForLevel(levelId);
   }, [updateSaveData, updateMusicForLevel]);
@@ -308,6 +404,8 @@ export default function App() {
       activatedCheckpointIds: [],
       levelCoinsCollected: {},
       hasVisitedShop: false,
+      hasSeenSamLevel1Joke: false,
+      hasClaimedBossReward: false,
       shopClosedUntil: Date.now() + 2 * 60 * 60 * 1000,
     }));
     setActiveLevelId(1);
@@ -343,6 +441,8 @@ export default function App() {
         activatedCheckpointIds: [],
         levelCoinsCollected: {},
         hasVisitedShop: false,
+        hasSeenSamLevel1Joke: false,
+        hasClaimedBossReward: false,
       }));
     } else {
       setActiveLevelId(levelId);
@@ -360,43 +460,11 @@ export default function App() {
     audio.playChest();
   }, [updateSaveData]);
 
-  // World transition waiting screen completion handler
-  const handleWorldTransitionComplete = useCallback(() => {
-    const fromLvl = transitioningWorldLevel || activeLevelId;
-    const nextLvl = fromLvl + 1;
-    setTransitioningWorldLevel(null);
-
-    if (nextLvl > 30) {
-      endingProgressRef.current = 0;
-      setScreen('ENDING_CINEMATIC');
-      return;
-    }
-
-    // Always keep activeLevelId synchronized with next level
-    setActiveLevelId(nextLvl);
-
-    // World 2 -> World 3 (Lv 10) introduces Juvenile Chicken
-    // World 4 -> World 5 (Lv 20) introduces Adult Chicken
-    if (nextLvl === 10) {
-      setEvolutionStage('juvenile');
-      audio.playEvolution();
-      setScreen('EVOLUTION');
-    } else if (nextLvl === 20) {
-      setEvolutionStage('adult');
-      audio.playEvolution();
-      setScreen('EVOLUTION');
-    } else {
-      initLevelEngine(nextLvl);
-      setScreen('PLAYING');
-    }
-  }, [transitioningWorldLevel, activeLevelId, initLevelEngine]);
-
   // Next level handler
   const handleNextLevel = useCallback(() => {
-    // If clicking "CONTINUE ADVENTURE!" on the EVOLUTION screen, start the evolved level directly!
+    // If clicking "CONTINUE ADVENTURE!" on the EVOLUTION screen, show the 1% -> 100% world loading screen first!
     if (screen === 'EVOLUTION') {
-      initLevelEngine(activeLevelId);
-      setScreen('PLAYING');
+      setScreen('WORLD_LOADING');
       return;
     }
 
@@ -404,20 +472,49 @@ export default function App() {
     if (nextLvl > 30) {
       endingProgressRef.current = 0;
       setScreen('ENDING_CINEMATIC');
-    } else if (activeLevelId === 5 || activeLevelId === 9 || activeLevelId === 10 || activeLevelId === 19 || activeLevelId === 29) {
-      setTransitioningWorldLevel(activeLevelId);
-      setScreen('WORLD_WAITING');
+    } else if (nextLvl === 10) {
+      setActiveLevelId(10);
+      setEvolutionStage('juvenile');
+      audio.playEvolution();
+      setScreen('EVOLUTION');
+    } else if (nextLvl === 20) {
+      setActiveLevelId(20);
+      setEvolutionStage('adult');
+      audio.playEvolution();
+      setScreen('EVOLUTION');
     } else {
-      initLevelEngine(nextLvl);
-      setScreen('PLAYING');
+      const currWorld = LEVELS.find(l => l.id === activeLevelId)?.world;
+      const nextWorld = LEVELS.find(l => l.id === nextLvl)?.world;
+      if (nextWorld && currWorld && nextWorld !== currWorld) {
+        setActiveLevelId(nextLvl);
+        setScreen('WORLD_LOADING');
+      } else {
+        initLevelEngine(nextLvl);
+        setScreen('PLAYING');
+      }
     }
   }, [screen, activeLevelId, initLevelEngine]);
+
+  const handleFinishWorldLoading = useCallback(() => {
+    initLevelEngine(activeLevelId);
+    setScreen('PLAYING');
+  }, [activeLevelId, initLevelEngine]);
 
   // Restart level handler
   const handleRestartLevel = useCallback(() => {
     initLevelEngine(activeLevelId);
     setScreen('PLAYING');
   }, [activeLevelId, initLevelEngine]);
+
+  // Respawn handler (on Level 30 returns straight to the spot where Silkie Sam drops the weapons)
+  const handleRespawn = useCallback(() => {
+    if (activeLevelId === 30 && engineRef.current) {
+      engineRef.current.respawnAtSamSpot();
+      setScreen('PLAYING');
+    } else {
+      handleRestartLevel();
+    }
+  }, [activeLevelId, handleRestartLevel]);
 
   // Level select handler
   const handleSelectLevel = useCallback((lvlId: number) => {
@@ -530,6 +627,18 @@ export default function App() {
     }));
   }, [updateSaveData]);
 
+  const handleClaimBossReward = useCallback(() => {
+    updateSaveData(prev => {
+      if (prev.hasClaimedBossReward) return prev;
+      return {
+        ...prev,
+        totalCoins: prev.totalCoins + 1000000,
+        hasClaimedBossReward: true,
+      };
+    });
+    audio.playPowerUp();
+  }, [updateSaveData]);
+
   const handleBuySkin = useCallback((skinId: string, cost: number): boolean => {
     if (saveData.totalCoins < cost) return false;
     audio.playCoin();
@@ -599,7 +708,7 @@ export default function App() {
       screen === 'LEVEL_CLEAR' ||
       screen === 'QUESTS_BADGES' ||
       screen === 'SHOP' ||
-      screen === 'WORLD_WAITING'
+      screen === 'WORLD_LOADING'
     ) {
       audio.playMusic('waiting');
     } else if (screen === 'PLAYING') {
@@ -626,38 +735,40 @@ export default function App() {
       engineRef.current.setInput({ left, right, jump, attack, block });
     };
 
+    const isFormField = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Never intercept or preventDefault keys when Auth gate is open or user is typing in a form field
+      if (!currentUser || !currentUser.emailVerified || isFormField(e.target)) {
+        return;
+      }
+
       const code = e.code.toLowerCase();
       const key = e.key.toLowerCase();
 
-      // Intro skip key
+      // Intro continue key (only available once loading hits 100%)
       if (screen === 'INTRO_CINEMATIC') {
-        if (code === 'space' || code === 'enter' || code === 'escape' || key === ' ' || key === 'enter' || key === 'escape') {
+        if (introProgressRef.current >= 1.0 && (code === 'space' || code === 'enter' || code === 'escape' || key === ' ' || key === 'enter' || key === 'escape')) {
           e.preventDefault();
           handleStartGame(1, false);
         }
         return;
       }
 
-      // Ending cutscene return key
+      // Ending cutscene return key (only once return button is visible)
       if (screen === 'ENDING_CINEMATIC') {
-        if (code === 'space' || code === 'enter' || code === 'escape' || key === ' ' || key === 'enter' || key === 'escape') {
+        if (endingProgressRef.current >= 0.85 && (code === 'space' || code === 'enter' || code === 'escape' || key === ' ' || key === 'enter' || key === 'escape')) {
           e.preventDefault();
           setScreen('MENU');
         }
         return;
       }
 
-      // World transition skip key
-      if (screen === 'WORLD_WAITING') {
-        if (code === 'space' || code === 'enter' || key === ' ' || key === 'enter') {
-          e.preventDefault();
-          handleWorldTransitionComplete();
-        }
-        return;
-      }
-
-      if (code === 'escape' || key === 'escape') {
+      if (code === 'escape' || key === 'escape' || code === 'keyp' || key === 'p') {
         e.preventDefault();
         if (screen === 'PLAYING') setScreen('PAUSED');
         else if (screen === 'PAUSED') setScreen('PLAYING');
@@ -672,27 +783,36 @@ export default function App() {
 
       if ((code === 'keye' || key === 'e') && screen === 'PLAYING') {
         e.preventDefault();
+        if (!saveData.hasCompletedGame && saveData.shopClosedUntil && Date.now() < saveData.shopClosedUntil) {
+          audio.playHurt();
+          return;
+        }
         setScreen('SHOP');
         return;
       }
 
-      if (
-        code === 'keya' || code === 'arrowleft' || key === 'a' || key === 'arrowleft' ||
-        code === 'keyd' || code === 'arrowright' || key === 'd' || key === 'arrowright' ||
-        code === 'space' || code === 'keyw' || code === 'arrowup' || key === ' ' || key === 'w' || key === 'arrowup' ||
-        code === 'keyx' || code === 'keyk' || key === 'x' || key === 'k' ||
-        code === 'keyc' || code === 'arrowdown' || code === 'keys' || key === 'c' || key === 's' ||
-        code === 'shiftleft' || code === 'shiftright' || key === 'shift'
-      ) {
-        e.preventDefault();
-      }
+      if (screen === 'PLAYING') {
+        if (
+          code === 'keya' || code === 'arrowleft' || key === 'a' || key === 'arrowleft' ||
+          code === 'keyd' || code === 'arrowright' || key === 'd' || key === 'arrowright' ||
+          code === 'space' || code === 'keyw' || code === 'arrowup' || key === ' ' || key === 'w' || key === 'arrowup' ||
+          code === 'keyx' || code === 'keyk' || key === 'x' || key === 'k' ||
+          code === 'keyc' || code === 'arrowdown' || code === 'keys' || key === 'c' || key === 's' ||
+          code === 'shiftleft' || code === 'shiftright' || key === 'shift'
+        ) {
+          e.preventDefault();
+        }
 
-      keysHeld.add(code);
-      keysHeld.add(key);
-      updateControlsFromKeys();
+        keysHeld.add(code);
+        keysHeld.add(key);
+        updateControlsFromKeys();
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      if (!currentUser || !currentUser.emailVerified || isFormField(e.target)) {
+        return;
+      }
       const code = e.code.toLowerCase();
       const key = e.key.toLowerCase();
 
@@ -716,7 +836,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [screen, handleStartGame, handleRestartLevel]);
+  }, [screen, handleStartGame, handleRestartLevel, currentUser, saveData.hasCompletedGame, saveData.shopClosedUntil]);
 
   // Touch controls input bridge
   const handleTouchInput = useCallback((controls: { left?: boolean; right?: boolean; jump?: boolean; attack?: boolean; block?: boolean }) => {
@@ -762,7 +882,7 @@ export default function App() {
       lastTimeRef.current = timestamp;
 
       if (screen === 'INTRO_CINEMATIC') {
-        introProgressRef.current += dt * 0.22;
+        introProgressRef.current = Math.min(1.0, introProgressRef.current + dt * 0.25);
         renderer.clear();
         renderer.renderEggIntro(
           introProgressRef.current, 
@@ -771,10 +891,6 @@ export default function App() {
           !!saveData.hasCompletedGame,
           saveData.selectedSkin || 'classic'
         );
-
-        if (introProgressRef.current >= 1.0) {
-          handleStartGame(1, false);
-        }
       } else if (screen === 'ENDING_CINEMATIC') {
         endingProgressRef.current += dt * 0.15;
         renderer.clear();
@@ -792,14 +908,15 @@ export default function App() {
 
         renderer.clear();
         const cockatrice = engine.level.cockatrice;
-        const isBossFlownAway = Boolean(
+        const isBossNormalized = Boolean(
           cockatrice && cockatrice.state === 'defeated' &&
-          (cockatrice.defeatSubState === 'fly_away' || cockatrice.defeatSubState === 'escaped')
+          ((cockatrice.defeatSubState === 'exploding_ashes' && (cockatrice.defeatTimer ?? 0) >= 0.55) ||
+            cockatrice.defeatSubState === 'fly_away' ||
+            cockatrice.defeatSubState === 'escaped')
         );
-        // The sky will ONLY turn from red to blue when we defeat the boss and when he speaks then flies off!
-        // In World 4 & 5 (and World 1, 2), sky is bright/blue and animals cheer if game is completed.
+        // The sky turns from red back to normal right as the Cockatrice explodes into bright ashes!
         const isSkyBlue = engine.level.id === 30
-          ? isBossFlownAway
+          ? isBossNormalized
           : Boolean(saveData.hasCompletedGame);
         renderer.renderBackground(engine.level.theme, engine.camera, engine.time, engine.level.id, isSkyBlue);
 
@@ -812,9 +929,12 @@ export default function App() {
         if (engine.level.id === 1) {
           renderer.renderStartingCoop(engine.level.spawnPoint, engine.camera, engine.time, engine.level.platforms);
 
-          // Silkie Sam Shop Stand Outside: ONLY on Level 1 with upgraded dialogue bubble and animated merchant model
+          // Silkie Sam Shop Stand Outside: ONLY on Level 1 with Level 1 joke progression (silent on revisits!)
           const hasRewardSkin = Boolean(saveData.unlockedSkins?.includes('thanksgiving_roast'));
           const isClosed = Boolean(!saveData.hasCompletedGame && saveData.shopClosedUntil && Date.now() < saveData.shopClosedUntil);
+          const samLevel1Speech = engine.samLevel1State === 'line1'
+            ? 'guess what...'
+            : (engine.samLevel1State === 'line2' ? '67 :p' : null);
           renderer.renderSilkieSamOutsideShop(
             engine.player,
             engine.camera,
@@ -822,7 +942,8 @@ export default function App() {
             Boolean(saveData.hasCompletedGame),
             hasRewardSkin,
             isClosed,
-            Boolean(saveData.hasVisitedShop)
+            Boolean(saveData.hasVisitedShop),
+            samLevel1Speech
           );
         }
 
@@ -883,8 +1004,9 @@ export default function App() {
         renderer.renderParticles(engine.particles, engine.camera);
         renderer.renderFloatingTexts(engine.floatingTexts, engine.camera);
 
-        // Centered Boss Health Bar on top of screen
+        // Bright blinding explosion flash when Cockatrice bursts into ashes
         if (engine.level.cockatrice) {
+          renderer.renderBossAshExplosionFlash(engine.level.cockatrice);
           renderer.renderBossBar(engine.level.cockatrice, engine.time);
         }
 
@@ -909,7 +1031,18 @@ export default function App() {
         cancelAnimationFrame(reqAnimRef.current);
       }
     };
-  }, [screen, handleStartGame, saveData.gender, saveData.armor, saveData.sword, saveData.selectedSkin]);
+  }, [
+    screen,
+    handleStartGame,
+    saveData.gender,
+    saveData.armor,
+    saveData.sword,
+    saveData.selectedSkin,
+    saveData.hasCompletedGame,
+    saveData.unlockedSkins,
+    saveData.shopClosedUntil,
+    saveData.hasVisitedShop,
+  ]);
 
   const currentLevelData = LEVELS.find(l => l.id === activeLevelId) || LEVELS[0];
 
@@ -918,12 +1051,21 @@ export default function App() {
       ref={containerRef}
       tabIndex={0}
       className="relative w-screen h-screen overflow-hidden bg-slate-950 font-body select-none outline-none"
-      onClick={() => {
+      onClick={(e) => {
+        if (!currentUser || !currentUser.emailVerified) return;
+        const target = e.target as HTMLElement | null;
+        if (target && ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'LABEL', 'A'].includes(target.tagName)) {
+          return;
+        }
         containerRef.current?.focus();
         if (screen === 'INTRO_CINEMATIC') {
-          handleStartGame(1, false);
+          if (introProgressRef.current >= 1.0) {
+            handleStartGame(1, false);
+          }
         } else if (screen === 'ENDING_CINEMATIC') {
-          setScreen('MENU');
+          if (endingProgressRef.current >= 0.85) {
+            setScreen('MENU');
+          }
         } else if (screen === 'PLAYING' && engineRef.current) {
           engineRef.current.advanceBossDialogue();
         }
@@ -948,7 +1090,7 @@ export default function App() {
             worldName={currentLevelData.worldName}
             levelTitle={currentLevelData.title}
             health={playerHealth}
-            maxHealth={3}
+            maxHealth={3 + (saveData.upgrades?.extraHearts || 0)}
             coins={saveData.totalCoins + coinsEarned}
             stage={playerStage}
             armor={saveData.armor}
@@ -992,6 +1134,7 @@ export default function App() {
         onSelectGender={handleSelectGender}
         onResume={() => setScreen('PLAYING')}
         onRestartLevel={handleRestartLevel}
+        onRespawn={handleRespawn}
         onNextLevel={handleNextLevel}
         onSelectLevel={handleSelectLevel}
         onReturnToMenu={() => {
@@ -1010,14 +1153,31 @@ export default function App() {
         onClaimQuest={handleClaimQuest}
         onPurchaseUpgrade={handlePurchaseUpgrade}
         onMarkShopVisited={handleMarkShopVisited}
+        onClaimBossReward={handleClaimBossReward}
+        onFinishWorldLoading={handleFinishWorldLoading}
         onToggleShopStatus={handleToggleShopStatus}
         onBuySkin={handleBuySkin}
         onEquipSkin={handleEquipSkin}
         onUnlockSkin={handleUnlockSkin}
         onChangeDifficulty={handleChangeDifficulty}
-        transitioningWorldLevel={transitioningWorldLevel}
-        onWorldTransitionComplete={handleWorldTransitionComplete}
+        currentUser={currentUser}
+        onLogOut={handleLogOut}
       />
+
+      {/* Registration & Login Gate: Must be registered & email verified before playing */}
+      {authLoading ? (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 font-pixel text-yellow-400 gap-3">
+          <div className="w-8 h-8 border-4 border-yellow-400 border-t-transparent animate-spin" />
+          <span className="text-[10px] tracking-widest animate-pulse">CHECKING ADVENTURER PASSPORT...</span>
+        </div>
+      ) : (!currentUser || !currentUser.emailVerified) ? (
+        <AuthModal
+          currentUser={currentUser}
+          onAuthSuccess={(user) => {
+            setCurrentUser(user);
+          }}
+        />
+      ) : null}
     </main>
   );
 }

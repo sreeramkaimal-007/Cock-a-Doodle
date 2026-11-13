@@ -218,7 +218,7 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('c2_4', 1220, 440, 4),
     ],
     chests: [],
-    checkpoints: [cp('c2_cp', 890, 410)],
+    checkpoints: [cp('c2_cp', 960, 430)],
     hint: 'Hold jump slightly longer for maximum chick height.'
   },
   {
@@ -246,7 +246,7 @@ export const LEVELS: LevelConfig[] = [
       ...coinArc('c3_5', 1380, 440, 3, 40),
     ],
     chests: [],
-    checkpoints: [cp('c3_cp', 900, 340)],
+    checkpoints: [cp('c3_cp', 980, 360)],
     hint: 'Time your jumps cleanly across platforms to keep your speed.'
   },
   {
@@ -277,7 +277,7 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('c4_5', 1580, 440, 4),
     ],
     chests: [],
-    checkpoints: [cp('c4_cp', 930, 280)],
+    checkpoints: [cp('c4_cp', 990, 300)],
     hint: 'Barn beams are high, watch your steps!'
   },
   {
@@ -307,7 +307,7 @@ export const LEVELS: LevelConfig[] = [
     chests: [
       chest('c5_chest1', 860, 264, 'coins', 15),
     ],
-    checkpoints: [cp('c5_cp', 810, 270)],
+    checkpoints: [cp('c5_cp', 1090, 410)],
     hint: 'Walk up to treasure chests to open them and claim rewards!'
   },
 
@@ -339,7 +339,7 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('t6_5', 1850, 440, 3),
     ],
     chests: [],
-    checkpoints: [cp('t6_cp', 1050, 460)],
+    checkpoints: [cp('t6_cp', 1290, 480)],
     hint: 'Out in the open sunshine, watch for deep pits between hills.'
   },
   {
@@ -373,7 +373,7 @@ export const LEVELS: LevelConfig[] = [
     chests: [
       chest('t7_chest', 950, 164, 'heart', 1),
     ],
-    checkpoints: [cp('t7_cp', 890, 270)],
+    checkpoints: [cp('t7_cp', 960, 290)],
     hint: 'A secret high beam atop the hill holds an extra heart!'
   },
   {
@@ -403,7 +403,7 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('t8_4', 1880, 440, 4),
     ],
     chests: [],
-    checkpoints: [cp('t8_cp', 790, 400)],
+    checkpoints: [cp('t8_cp', 860, 420)],
     hint: 'Stay centered on moving platforms. You ride along with their motion!'
   },
   {
@@ -437,7 +437,7 @@ export const LEVELS: LevelConfig[] = [
     chests: [
       chest('t9_chest', 955, 174, 'iron_armor', 1),
     ],
-    checkpoints: [cp('t9_cp', 910, 310)],
+    checkpoints: [cp('t9_cp', 975, 330)],
     hint: 'A shiny treasure box above holds sturdy Iron Armor!'
   },
 
@@ -474,7 +474,7 @@ export const LEVELS: LevelConfig[] = [
     chests: [
       chest('j10_chest', 1080, 244, 'coins', 25),
     ],
-    checkpoints: [cp('j10_cp', 1340, 340)],
+    checkpoints: [cp('j10_cp', 1395, 360)],
     enemies: [
       wolf('j10_w1', 1060, 396, 990, 1240),
       wolf('j10_w2', 1820, 396, 1750, 2000),
@@ -486,7 +486,7 @@ export const LEVELS: LevelConfig[] = [
   {
     id: 11,
     world: 4,
-    worldName: 'World 4: the Jungle',
+    worldName: 'World 4: the Jungle lands',
     title: 'Teenage Awakening',
     subtitle: 'Golden Armor and Golden Sword equipped! Volcanoes awaken!',
     worldWidth: 2600,
@@ -515,13 +515,13 @@ export const LEVELS: LevelConfig[] = [
       volcano('v11_1', 940, 448, 1.5, 2.0, 2.5),
       volcano('v11_2', 1950, 448, 1.5, 2.0, 2.5),
     ],
-    checkpoints: [cp('jg11_cp', 1300, 400)],
+    checkpoints: [cp('jg11_cp', 1360, 420)],
     hint: 'Press X or K to strike with your Gold Sword! Watch volcanoes smoke before erupting!'
   },
   {
     id: 12,
     world: 4,
-    worldName: 'World 4: the Jungle',
+    worldName: 'World 4: the Jungle lands',
     title: 'The Lava Trail',
     subtitle: 'Time your jumps past chained volcanic vents and flaming lava.',
     worldWidth: 2800,
@@ -552,13 +552,13 @@ export const LEVELS: LevelConfig[] = [
       volcano('v12_2', 1650, 448, 1.6, 2.0, 2.0),
       volcano('v12_3', 1820, 448, 1.2, 1.8, 2.4),
     ],
-    checkpoints: [cp('jg12_cp', 1440, 460)],
+    checkpoints: [cp('jg12_cp', 1495, 480)],
     hint: 'Never rush past a smoking volcano vent; wait for cooldown!'
   },
   {
     id: 13,
     world: 4,
-    worldName: 'World 4: the Jungle',
+    worldName: 'World 4: the Jungle lands',
     title: 'The Rolling Giants',
     subtitle: 'Massive boulders roll along platforms. Leap over them!',
     worldWidth: 2800,
@@ -585,13 +585,13 @@ export const LEVELS: LevelConfig[] = [
       boulder('b13_1', 1100, 462, -2.6),
       boulder('b13_2', 2300, 462, -2.8),
     ],
-    checkpoints: [cp('jg13_cp', 1450, 340)],
+    checkpoints: [cp('jg13_cp', 1510, 360)],
     hint: 'Boulders cannot be stopped by your sword—jump high over them!'
   },
   {
     id: 14,
     world: 4,
-    worldName: 'World 4: the Jungle',
+    worldName: 'World 4: the Jungle lands',
     title: 'Fox Territory',
     subtitle: 'Cunning foxes stalk these ruins. Slay them or evade!',
     worldWidth: 2900,
@@ -619,13 +619,13 @@ export const LEVELS: LevelConfig[] = [
       fox('jg14_f1', 750, 458, 540, 1020),
       fox('jg14_f2', 1800, 458, 1570, 2120),
     ],
-    checkpoints: [cp('jg14_cp', 1330, 320)],
+    checkpoints: [cp('jg14_cp', 1180, 410)],
     hint: 'Foxes will charge when they spot you. Strike with X or K!'
   },
   {
     id: 15,
     world: 4,
-    worldName: 'World 4: the Jungle',
+    worldName: 'World 4: the Jungle lands',
     title: 'Jungle of Moving Platforms',
     subtitle: 'Cross bubbling magma pits on shifting basalt stone blocks.',
     worldWidth: 3000,
@@ -652,19 +652,19 @@ export const LEVELS: LevelConfig[] = [
     ],
     chests: [],
     enemies: [
-      fox('jg15_f1', 1300, 318, 1200, 1450),
+      fox('jg15_f1', 1370, 318, 1300, 1450),
     ],
     volcanoes: [
       volcano('v15_1', 780, 388, 1.5, 2.0, 2.2),
       volcano('v15_2', 1860, 388, 1.5, 2.0, 2.2),
     ],
-    checkpoints: [cp('jg15_cp', 1200, 320)],
+    checkpoints: [cp('jg15_cp', 1225, 340)],
     hint: 'Ride the moving basalt slabs carefully over lava pits.'
   },
   {
     id: 16,
     world: 4,
-    worldName: 'World 4: the Jungle',
+    worldName: 'World 4: the Jungle lands',
     title: 'The Boulder Run',
     subtitle: 'Outrun and leap over rolling boulders down a steep ruin terrace.',
     worldWidth: 3000,
@@ -676,7 +676,7 @@ export const LEVELS: LevelConfig[] = [
       p('jg16_f1', 0, 480, 420, 120, 'ruins'),
       p('jg16_step1', 500, 480, 550, 120, 'stone'),
       p('jg16_step2', 1130, 440, 500, 120, 'stone'),
-      p('jg16_p1', 1700, 380, 140, 24, 'stone'),
+      p('jg16_p1', 1685, 380, 185, 24, 'stone'),
       p('jg16_step3', 1910, 480, 550, 120, 'stone'),
       p('jg16_f2', 2530, 480, 470, 120, 'ruins'),
     ],
@@ -687,20 +687,20 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('jg16_4', 2600, 440, 4),
     ],
     chests: [
-      chest('jg16_c1', 1740, 354, 'coins', 35),
+      chest('jg16_c1', 1815, 354, 'coins', 35),
     ],
     boulders: [
       boulder('b16_1', 1000, 462, -3.0),
       boulder('b16_2', 1580, 422, -3.2),
       boulder('b16_3', 2400, 462, -3.0),
     ],
-    checkpoints: [cp('jg16_cp', 1710, 360)],
+    checkpoints: [cp('jg16_cp', 1725, 380)],
     hint: 'Time your jumps over boulders on every terrace!'
   },
   {
     id: 17,
     world: 4,
-    worldName: 'World 4: the Jungle',
+    worldName: 'World 4: the Jungle lands',
     title: 'The Fox Ambush',
     subtitle: 'Fox packs prowl the jungle ruins. Hidden treasure awaits aloft!',
     worldWidth: 3100,
@@ -713,7 +713,7 @@ export const LEVELS: LevelConfig[] = [
       p('jg17_f2', 530, 480, 650, 120, 'ruins'),
       p('jg17_high1', 800, 310, 150, 24, 'stone'),
       p('jg17_f3', 1260, 480, 700, 120, 'ruins'),
-      p('jg17_high2', 1540, 300, 150, 24, 'stone'),
+      p('jg17_high2', 1520, 300, 195, 24, 'stone'),
       p('jg17_f4', 2040, 480, 650, 120, 'ruins'),
       p('jg17_f5', 2760, 480, 340, 120, 'ruins'),
     ],
@@ -725,20 +725,20 @@ export const LEVELS: LevelConfig[] = [
     ],
     chests: [
       chest('jg17_c1', 850, 284, 'heart', 1),
-      chest('jg17_c2', 1590, 274, 'coins', 40),
+      chest('jg17_c2', 1660, 274, 'coins', 40),
     ],
     enemies: [
       fox('jg17_f1', 700, 458, 550, 1150),
       fox('jg17_f2', 1450, 458, 1280, 1920),
       fox('jg17_f3', 2250, 458, 2060, 2650),
     ],
-    checkpoints: [cp('jg17_cp', 1550, 280)],
+    checkpoints: [cp('jg17_cp', 1560, 300)],
     hint: 'Use high platforms to avoid ground foxes and claim twin treasure chests.'
   },
   {
     id: 18,
     world: 4,
-    worldName: 'World 4: the Jungle',
+    worldName: 'World 4: the Jungle lands',
     title: 'Volcano Escape',
     subtitle: 'Rumbling magma vents erupt across the entire escape causeway!',
     worldWidth: 3200,
@@ -771,13 +771,13 @@ export const LEVELS: LevelConfig[] = [
       boulder('b18_1', 900, 462, -2.8),
       boulder('b18_2', 2550, 462, -3.2),
     ],
-    checkpoints: [cp('jg18_cp', 2340, 480)],
+    checkpoints: [cp('jg18_cp', 1075, 410)],
     hint: 'Keep moving! Volcanoes and rolling rocks are relentless!'
   },
   {
     id: 19,
     world: 4,
-    worldName: 'World 4: the Jungle',
+    worldName: 'World 4: the Jungle lands',
     title: 'The Ultimate Jungle Test',
     subtitle: 'The supreme test of teenage courage! Volcanoes, foxes, and boulders!',
     worldWidth: 3300,
@@ -816,7 +816,7 @@ export const LEVELS: LevelConfig[] = [
       boulder('b19_1', 1150, 462, -3.0),
       boulder('b19_2', 2100, 462, -3.2),
     ],
-    checkpoints: [cp('jg19_cp', 1590, 460)],
+    checkpoints: [cp('jg19_cp', 2310, 410)],
     hint: 'Survive this final gauntlet to emerge as a mighty adult chicken!'
   },
 
@@ -824,7 +824,7 @@ export const LEVELS: LevelConfig[] = [
   {
     id: 20,
     world: 5,
-    worldName: 'World 5:the Snowy lands',
+    worldName: 'World 5: the Artic lands',
     title: 'The Adult Awakening',
     subtitle: 'You are now an adult chicken! Face colossal bears and thunderclouds!',
     worldWidth: 3200,
@@ -856,13 +856,13 @@ export const LEVELS: LevelConfig[] = [
       lightning('th20_1', 1050, 160, 1050, 480, 1.6, 0.5, 3.0),
       lightning('th20_2', 2300, 160, 2300, 480, 1.5, 0.5, 2.8),
     ],
-    checkpoints: [cp('st20_cp', 1420, 390)],
+    checkpoints: [cp('st20_cp', 1475, 410)],
     hint: 'Bears deal massive damage! Watch the red warning beam before lightning strikes!'
   },
   {
     id: 21,
     world: 5,
-    worldName: 'World 5:the Snowy lands',
+    worldName: 'World 5: the Artic lands',
     title: 'Bear Country',
     subtitle: 'Tread softly across narrow cliffs guarded by mountain bears.',
     worldWidth: 3200,
@@ -875,7 +875,7 @@ export const LEVELS: LevelConfig[] = [
       p('st21_p1', 480, 420, 130, 24, 'stone'),
       p('st21_b1_p', 670, 480, 560, 120, 'stone'),
       p('st21_m1', 1290, 400, 110, 22, 'stone', { isMoving: true, moveRangeX: 160, moveRangeY: 0, moveSpeed: 1.3, startX: 1290, startY: 400 }),
-      p('st21_p2', 1580, 350, 140, 24, 'stone'),
+      p('st21_p2', 1560, 350, 195, 24, 'stone'),
       p('st21_b2_p', 1780, 480, 600, 120, 'stone'),
       p('st21_f2', 2440, 480, 760, 120, 'stone'),
     ],
@@ -886,7 +886,7 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('st21_4', 2600, 440, 5),
     ],
     chests: [
-      chest('st21_c1', 1620, 324, 'heart', 1),
+      chest('st21_c1', 1700, 324, 'heart', 1),
     ],
     enemies: [
       bear('st21_b1', 900, 444, 700, 1180),
@@ -895,13 +895,13 @@ export const LEVELS: LevelConfig[] = [
     thunderclouds: [
       lightning('th21_1', 920, 160, 920, 480, 1.5, 0.5, 3.2),
     ],
-    checkpoints: [cp('st21_cp', 1590, 330)],
+    checkpoints: [cp('st21_cp', 1600, 350)],
     hint: 'Your gold sword can bring bears down, but timing attacks is critical!'
   },
   {
     id: 22,
     world: 5,
-    worldName: 'World 5:the Snowy lands',
+    worldName: 'World 5: the Artic lands',
     title: 'Thunder Valley',
     subtitle: 'Lightning forks relentlessly across the dark canyon floor.',
     worldWidth: 3200,
@@ -914,7 +914,7 @@ export const LEVELS: LevelConfig[] = [
       p('st22_f2', 460, 480, 500, 120, 'stone'),
       p('st22_p1', 1020, 410, 130, 24, 'stone'),
       p('st22_f3', 1210, 480, 550, 120, 'stone'),
-      p('st22_p2', 1820, 380, 140, 24, 'stone'),
+      p('st22_p2', 1800, 380, 195, 24, 'stone'),
       p('st22_f4', 2020, 480, 600, 120, 'stone'),
       p('st22_f5', 2680, 480, 520, 120, 'stone'),
     ],
@@ -925,20 +925,20 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('st22_4', 2800, 440, 4),
     ],
     chests: [
-      chest('st22_c1', 1860, 354, 'diamond_sword', 1),
+      chest('st22_c1', 1940, 354, 'diamond_sword', 1),
     ],
     thunderclouds: [
       lightning('th22_1', 680, 160, 680, 480, 1.4, 0.45, 2.5),
       lightning('th22_2', 1450, 160, 1450, 480, 1.3, 0.45, 2.3),
       lightning('th22_3', 2300, 160, 2300, 480, 1.5, 0.45, 2.6),
     ],
-    checkpoints: [cp('st22_cp', 1830, 360)],
+    checkpoints: [cp('st22_cp', 1840, 380)],
     hint: 'Get out of the pulsing red strike zone before lightning crashes down!'
   },
   {
     id: 23,
     world: 5,
-    worldName: 'World 5:the Snowy lands',
+    worldName: 'World 5: the Artic lands',
     title: 'The Falling Rocks',
     subtitle: 'Avalanches of boulders cascade down the misty mountain peaks.',
     worldWidth: 3300,
@@ -970,13 +970,13 @@ export const LEVELS: LevelConfig[] = [
     enemies: [
       bear('st23_b1', 1500, 444, 1320, 1800),
     ],
-    checkpoints: [cp('st23_cp', 1940, 350)],
+    checkpoints: [cp('st23_cp', 2005, 370)],
     hint: 'Boulders and a raging bear share the mountain trail. High jumps are essential!'
   },
   {
     id: 24,
     world: 5,
-    worldName: 'World 5:the Snowy lands',
+    worldName: 'World 5: the Artic lands',
     title: 'The Storm Bridge',
     subtitle: 'Traverse floating sky bridges while lightning strikes from above.',
     worldWidth: 3300,
@@ -1009,13 +1009,13 @@ export const LEVELS: LevelConfig[] = [
       lightning('th24_2', 1780, 160, 1780, 410, 1.5, 0.45, 2.7),
       lightning('th24_3', 2700, 160, 2700, 480, 1.4, 0.45, 2.5),
     ],
-    checkpoints: [cp('st24_cp', 1180, 310)],
+    checkpoints: [cp('st24_cp', 1355, 330)],
     hint: 'Do not linger on island perches when thunderclouds gather overhead!'
   },
   {
     id: 25,
     world: 5,
-    worldName: 'World 5:the Snowy lands',
+    worldName: 'World 5: the Artic lands',
     title: 'The Impossible Climb',
     subtitle: 'Towering cliff ledges and sheer vertical drops test your resolve.',
     worldWidth: 3400,
@@ -1030,7 +1030,7 @@ export const LEVELS: LevelConfig[] = [
       p('st25_p3', 820, 300, 120, 22, 'stone'),
       p('st25_p4', 1000, 240, 140, 22, 'stone'),
       p('st25_m1', 1210, 240, 100, 20, 'stone', { isMoving: true, moveRangeX: 140, moveRangeY: 0, moveSpeed: 1.4, startX: 1210, startY: 240 }),
-      p('st25_p5', 1420, 240, 140, 22, 'stone'),
+      p('st25_p5', 1400, 240, 195, 22, 'stone'),
       p('st25_p6', 1630, 300, 120, 22, 'stone'),
       p('st25_p7', 1820, 360, 120, 22, 'stone'),
       p('st25_p8', 2010, 420, 140, 22, 'stone'),
@@ -1046,7 +1046,7 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('st25_4', 2300, 440, 4),
     ],
     chests: [
-      chest('st25_c1', 1470, 214, 'coins', 50),
+      chest('st25_c1', 1540, 214, 'coins', 50),
     ],
     enemies: [
       bear('st25_b1', 2400, 444, 2240, 2680),
@@ -1054,13 +1054,13 @@ export const LEVELS: LevelConfig[] = [
     thunderclouds: [
       lightning('th25_1', 1000, 100, 1000, 240, 1.6, 0.45, 3.0),
     ],
-    checkpoints: [cp('st25_cp', 1430, 220)],
+    checkpoints: [cp('st25_cp', 1440, 240)],
     hint: 'Climb step by step. A missed jump means a long plunge!'
   },
   {
     id: 26,
     world: 5,
-    worldName: 'World 5:the Snowy lands',
+    worldName: 'World 5: the Artic lands',
     title: 'The Bear Ambush',
     subtitle: 'Grizzly bears block the mountain pass. Slay or outsmart them!',
     worldWidth: 3400,
@@ -1073,7 +1073,7 @@ export const LEVELS: LevelConfig[] = [
       p('st26_b1_p', 490, 480, 600, 120, 'stone'),
       p('st26_high1', 750, 330, 140, 24, 'stone'),
       p('st26_b2_p', 1160, 480, 650, 120, 'stone'),
-      p('st26_high2', 1420, 320, 150, 24, 'stone'),
+      p('st26_high2', 1400, 320, 195, 24, 'stone'),
       p('st26_b3_p', 1880, 480, 650, 120, 'stone'),
       p('st26_f2', 2600, 480, 800, 120, 'stone'),
     ],
@@ -1085,20 +1085,20 @@ export const LEVELS: LevelConfig[] = [
     ],
     chests: [
       chest('st26_c1', 800, 304, 'heart', 1),
-      chest('st26_c2', 1470, 294, 'coins', 45),
+      chest('st26_c2', 1540, 294, 'coins', 45),
     ],
     enemies: [
       bear('st26_b1', 700, 444, 510, 1050),
       bear('st26_b2', 1380, 444, 1180, 1780),
       bear('st26_b3', 2100, 444, 1900, 2500),
     ],
-    checkpoints: [cp('st26_cp', 1430, 300)],
+    checkpoints: [cp('st26_cp', 1440, 320)],
     hint: 'Use the elevated ledges to bypass bears safely or strike from above!'
   },
   {
     id: 27,
     world: 5,
-    worldName: 'World 5:the Snowy lands',
+    worldName: 'World 5: the Artic lands',
     title: 'The Thunderstorm Run',
     subtitle: 'Lightning, falling rocks, and collapsing platforms in a tempest!',
     worldWidth: 3500,
@@ -1132,13 +1132,13 @@ export const LEVELS: LevelConfig[] = [
       boulder('b27_1', 920, 462, -3.2),
       boulder('b27_2', 2880, 462, -3.4),
     ],
-    checkpoints: [cp('st27_cp', 1950, 360)],
+    checkpoints: [cp('st27_cp', 2010, 380)],
     hint: 'Never stop running when the clouds begin to flash!'
   },
   {
     id: 28,
     world: 5,
-    worldName: 'World 5:the Snowy lands',
+    worldName: 'World 5: the Artic lands',
     title: 'The Super Impossible Challenge',
     subtitle: 'Extremely difficult! Bears, lightning, precision jumps, and narrow perches.',
     worldWidth: 3600,
@@ -1154,7 +1154,7 @@ export const LEVELS: LevelConfig[] = [
       p('st28_bear_p1', 960, 480, 480, 120, 'stone'),
       p('st28_p3', 1500, 410, 95, 20, 'stone'),
       p('st28_m2', 1660, 320, 90, 20, 'stone', { isMoving: true, moveRangeX: 0, moveRangeY: 80, moveSpeed: 1.4, startX: 1660, startY: 320 }),
-      p('st28_p4', 1830, 320, 100, 20, 'stone'),
+      p('st28_p4', 1830, 320, 155, 20, 'stone'),
       p('st28_bear_p2', 2000, 480, 520, 120, 'stone'),
       p('st28_m3', 2590, 410, 95, 20, 'stone', { isMoving: true, moveRangeX: 160, moveRangeY: 0, moveSpeed: 1.6, startX: 2590, startY: 410 }),
       p('st28_p5', 2880, 370, 95, 20, 'stone'),
@@ -1167,7 +1167,7 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('st28_4', 3150, 440, 5),
     ],
     chests: [
-      chest('st28_c1', 1860, 294, 'heart', 1),
+      chest('st28_c1', 1938, 294, 'heart', 1),
     ],
     enemies: [
       bear('st28_b1', 1150, 444, 980, 1400),
@@ -1183,15 +1183,15 @@ export const LEVELS: LevelConfig[] = [
       boulder('b28_2', 2460, 462, -3.4),
     ],
     checkpoints: [
-      cp('st28_cp1', 810, 320),
-      cp('st28_cp2', 1840, 300),
+      cp('st28_cp1', 848, 340),
+      cp('st28_cp2', 1865, 320),
     ],
     hint: 'Checkpoints will save your progress across this brutal trial!'
   },
   {
     id: 29,
     world: 5,
-    worldName: 'World 5:the Snowy lands',
+    worldName: 'World 5: the Artic lands',
     title: 'The Last Test',
     subtitle: 'The darkest night before dawn. Break through to the Green Fields!',
     worldWidth: 3700,
@@ -1205,7 +1205,7 @@ export const LEVELS: LevelConfig[] = [
       p('st29_step1', 630, 480, 550, 120, 'stone'),
       p('st29_m1', 1240, 390, 100, 20, 'stone', { isMoving: true, moveRangeX: 160, moveRangeY: 0, moveSpeed: 1.5, startX: 1240, startY: 390 }),
       p('st29_step2', 1530, 480, 600, 120, 'stone'),
-      p('st29_p2', 2200, 400, 110, 22, 'stone'),
+      p('st29_p2', 2180, 400, 175, 22, 'stone'),
       p('st29_m2', 2380, 320, 100, 20, 'stone', { isMoving: true, moveRangeX: 0, moveRangeY: 80, moveSpeed: 1.4, startX: 2380, startY: 320 }),
       p('st29_step3', 2560, 480, 550, 120, 'stone'),
       p('st29_f2', 3170, 480, 530, 120, 'stone'),
@@ -1217,11 +1217,11 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('st29_4', 3300, 440, 5),
     ],
     chests: [
-      chest('st29_c1', 2220, 374, 'coins', 60),
+      chest('st29_c1', 2305, 374, 'coins', 60),
     ],
     enemies: [
       bear('st29_b1', 850, 444, 650, 1140),
-      bear('st29_b2', 1780, 444, 1550, 2090),
+      bear('st29_b2', 1840, 444, 1680, 2090),
     ],
     thunderclouds: [
       lightning('th29_1', 880, 160, 880, 480, 1.3, 0.4, 2.1),
@@ -1233,8 +1233,8 @@ export const LEVELS: LevelConfig[] = [
       boulder('b29_2', 3050, 462, -3.4),
     ],
     checkpoints: [
-      cp('st29_cp1', 1540, 460),
-      cp('st29_cp2', 2570, 460),
+      cp('st29_cp1', 1580, 480),
+      cp('st29_cp2', 2220, 400),
     ],
     hint: 'Victory is in sight! The green fields lie just beyond the mountain gate!'
   },
@@ -1245,7 +1245,7 @@ export const LEVELS: LevelConfig[] = [
     world: 6,
     worldName: 'World 6:the End',
     title: 'The Cockatrice Lair',
-    subtitle: 'Who dares to complete my challenges? Defeat the legendary Cockatrice!',
+    subtitle: 'who dares enter my realm? Defeat the legendary Cockatrice!',
     worldWidth: 1600,
     worldHeight: 600,
     spawnPoint: { x: 140, y: 420 },
@@ -1255,13 +1255,9 @@ export const LEVELS: LevelConfig[] = [
       // One giant continuous land platform across the entire arena so players can never fall in gaps
       p('gf30_giant_land', 0, 460, 1600, 140, 'grass'),
     ],
-    coins: [
-      ...coinLine('gf30_1', 180, 420, 3),
-      ...coinArc('gf30_2', 680, 410, 5, 30),
-      ...coinLine('gf30_3', 1260, 420, 3),
-    ],
+    coins: [],
     chests: [],
-    checkpoints: [cp('gf30_cp', 160, 460)],
+    checkpoints: [],
     silkieSam: {
       x: 270,
       y: -120,
@@ -1316,6 +1312,8 @@ export const LEVELS: LevelConfig[] = [
       wingAngle: 0,
       jawOpen: 0,
       bittenLandCraters: [],
+      summonWaveIndex: 0,
+      attacksSinceSummon: 0,
     },
     hint: 'Hold S or Down Arrow for 5 seconds to block the Inferno Flame! Counter his bites and claw slashes with your sword to defeat him!'
   }
@@ -1374,10 +1372,29 @@ export function getLevelConfig(id: number): LevelConfig {
       }
 
       if (bestPlat) {
-        // Center the checkpoint flag safely in the middle of this solid platform
-        // Never slightly off the edge!
-        cp.x = Math.round(bestPlat.x + bestPlat.width / 2);
+        // Anchor checkpoint firmly onto the solid platform without blindly overriding safe coordinates onto chests or hazards
         cp.y = bestPlat.y;
+        const margin = Math.min(34, Math.floor(bestPlat.width / 4));
+        const minX = Math.round(bestPlat.x + margin);
+        const maxX = Math.round(bestPlat.x + bestPlat.width - margin);
+        cp.x = Math.max(minX, Math.min(maxX, Math.round(cp.x)));
+
+        // Never place a checkpoint directly behind/beside a chest on the same platform
+        if (lvl.chests && lvl.chests.length > 0) {
+          const nearbyChest = lvl.chests.find(
+            ch => Math.abs((ch.y + ch.height) - bestPlat.y) <= 24 &&
+                  ch.x + ch.width >= bestPlat.x &&
+                  ch.x <= bestPlat.x + bestPlat.width
+          );
+          if (nearbyChest) {
+            const chestCenter = nearbyChest.x + nearbyChest.width / 2;
+            if (Math.abs(cp.x - chestCenter) < 58) {
+              const leftSpot = Math.max(minX, Math.round(nearbyChest.x - 42));
+              const rightSpot = Math.min(maxX, Math.round(nearbyChest.x + nearbyChest.width + 42));
+              cp.x = Math.abs(leftSpot - chestCenter) >= Math.abs(rightSpot - chestCenter) ? leftSpot : rightSpot;
+            }
+          }
+        }
       }
     });
   }

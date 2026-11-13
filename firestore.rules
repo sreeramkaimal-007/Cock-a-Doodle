@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Hardened Security Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Only email-verified players can perform persistent read/write operations
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerified() && request.auth.uid == userId;
+    }
+
+    // Validation Blueprint for UserProfile entity
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['userId', 'email'])
+        && data.keys().hasOnly([
+          'userId', 'email', 'displayName', 'unlockedLevel', 'totalCoins',
+          'gender', 'armor', 'sword', 'selectedSkin', 'unlockedSkins',
+          'unlockedBadges', 'upgrades', 'hasShield', 'hasCompletedGame',
+          'shopClosedUntil', 'createdAt', 'updatedAt'
+        ])
+        && data.userId is string && data.userId.size() <= 128
+        && data.email is string && data.email.size() <= 256
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 64))
+        && (!('unlockedLevel' in data) || (data.unlockedLevel is number && data.unlockedLevel >= 1 && data.unlockedLevel <= 30))
+        && (!('totalCoins' in data) || (data.totalCoins is number && data.totalCoins >= 0))
+        && (!('gender' in data) || (data.gender is string && (data.gender == 'rooster' || data.gender == 'hen')))
+        && (!('armor' in data) || (data.armor is string && (data.armor == 'none' || data.armor == 'iron' || data.armor == 'gold' || data.armor == 'diamond')))
+        && (!('sword' in data) || (data.sword is string && (data.sword == 'none' || data.sword == 'iron' || data.sword == 'gold' || data.sword == 'diamond' || data.sword == 'netherite')))
+        && (!('hasShield' in data) || data.hasShield is bool)
+        && (!('hasCompletedGame' in data) || data.hasCompletedGame is bool);
+    }
+
+    // --- User Profile & Game Save Collection ---
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false; // Blanket queries forbidden to protect user PII
+      
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().userId == userId
+        && incoming().userId == request.auth.uid;
+        
+      allow update: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().userId == existing().userId
+        && incoming().userId == request.auth.uid
+        && incoming().email == existing().email;
+        
+      allow delete: if isOwner(userId) && isValidId(userId);
+    }
+  }
+}

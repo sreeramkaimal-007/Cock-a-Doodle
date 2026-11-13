@@ -2478,7 +2478,8 @@ export class GameRenderer {
     hasCompletedGame: boolean = false,
     hasRewardSkin: boolean = false,
     isShopClosed: boolean = false,
-    hasVisitedShop: boolean = false
+    hasVisitedShop: boolean = false,
+    level1SpeechText: string | null = null
   ) {
     const ctx = this.ctx;
     const standX = 380;
@@ -2605,11 +2606,10 @@ export class GameRenderer {
     const samX = sx + counterW + 22;
     const samY = sy - 20;
 
-    // Check distance to player for speech & animated greeting
+    // Check speaking state from Level 1 Sam dialogue progression
     const pCenter = player.x + player.width / 2;
     const distToPlayer = Math.abs(pCenter - (standX + counterW / 2));
-    const isNearby = distToPlayer < 220;
-    const isSpeaking = isNearby;
+    const isSpeaking = level1SpeechText !== null && distToPlayer < 320;
 
     ctx.save();
     ctx.translate(samX, samY);
@@ -2759,29 +2759,27 @@ export class GameRenderer {
 
     ctx.restore(); // restore Sam
 
-    // 3. UPGRADED RETRO ARCADE DIALOGUE BUBBLE WHEN NEARBY
-    if (isNearby) {
-      let fullDialogue = hasVisitedShop 
-        ? "hello again! step inside to upgrade your sword, armor, & hearts!" 
-        : "welcome! step inside to upgrade your sword, armor, & hearts!";
-      if (hasCompletedGame) {
-        fullDialogue = hasRewardSkin ? "you were a legend" : "well i wanted to give you this for saving the day";
-      } else if (isShopClosed) {
-        fullDialogue = "sorry we are currently closed! please check back later!";
-      }
+    // 3. UPGRADED RETRO ARCADE DIALOGUE BUBBLE (Only shown during first Level 1 joke sequence, silent on revisits!)
+    if (level1SpeechText !== null) {
+      const fullDialogue = level1SpeechText;
 
-      const bubbleW = 340;
-      const bubbleH = 74;
-      const bx = samX - 90;
-      const by = sy - counterH - 68 - bubbleH;
+      const cursor = Math.floor(Date.now() / 250) % 2 === 0 ? '▮' : '';
+      const bubbleW = Math.min(390, this.canvas.width - 24);
+      const maxTextW = bubbleW - 76;
 
       ctx.save();
+      ctx.font = '700 9.5px "Silkscreen", monospace';
+      const wrappedLines = this.wrapDialogueText(ctx, `“${fullDialogue}${cursor}”`, maxTextW, 2);
+      const lineHeight = 13;
+      const bubbleH = Math.max(82, 42 + wrappedLines.length * lineHeight + 22);
+      const bx = Math.max(12, Math.min(this.canvas.width - bubbleW - 12, samX - bubbleW * 0.45));
+      const by = Math.max(58, sy - counterH - 68 - bubbleH);
 
       // Drop shadow
       ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
       ctx.fillRect(bx + 4, by + 4, bubbleW, bubbleH);
 
-      // Deep obsidian arcade gradient box
+      // Deep obsidian arcade box
       ctx.fillStyle = '#000000';
       ctx.fillRect(bx, by, bubbleW, bubbleH);
 
@@ -2810,35 +2808,36 @@ export class GameRenderer {
         ctx.fillRect(rx + 1, ry + 1, 2, 2);
       });
 
-      // Speech bubble pointer tail directed at Silkie Sam's head
+      // Speech bubble pointer tail directed at Silkie Sam's head (clamped cleanly to bubble bottom)
+      const tailX = Math.max(bx + 24, Math.min(bx + bubbleW - 24, samX));
       ctx.fillStyle = '#000000';
       ctx.beginPath();
-      ctx.moveTo(samX - 10, by + bubbleH);
-      ctx.lineTo(samX, by + bubbleH + 14);
-      ctx.lineTo(samX + 10, by + bubbleH);
+      ctx.moveTo(tailX - 10, by + bubbleH);
+      ctx.lineTo(tailX, by + bubbleH + 14);
+      ctx.lineTo(tailX + 10, by + bubbleH);
       ctx.closePath();
       ctx.fill();
 
       ctx.fillStyle = '#1e1b4b';
       ctx.beginPath();
-      ctx.moveTo(samX - 8, by + bubbleH - 1);
-      ctx.lineTo(samX, by + bubbleH + 11);
-      ctx.lineTo(samX + 8, by + bubbleH - 1);
+      ctx.moveTo(tailX - 8, by + bubbleH - 1);
+      ctx.lineTo(tailX, by + bubbleH + 11);
+      ctx.lineTo(tailX + 8, by + bubbleH - 1);
       ctx.closePath();
       ctx.fill();
 
       ctx.strokeStyle = '#facc15';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
-      ctx.moveTo(samX - 9, by + bubbleH);
-      ctx.lineTo(samX, by + bubbleH + 13);
-      ctx.lineTo(samX + 9, by + bubbleH);
+      ctx.moveTo(tailX - 9, by + bubbleH);
+      ctx.lineTo(tailX, by + bubbleH + 13);
+      ctx.lineTo(tailX + 9, by + bubbleH);
       ctx.stroke();
 
       // Framed Mini Silkie Portrait Icon
       const pSize = 44;
       const px = bx + 10;
-      const py = by + 14;
+      const py = by + Math.round((bubbleH - pSize) / 2);
 
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(px, py, pSize, pSize);
@@ -2908,29 +2907,66 @@ export class GameRenderer {
 
       // Merchant Name Tag
       ctx.textAlign = 'left';
-      ctx.font = '700 8.5px "Silkscreen", monospace';
+      ctx.font = '700 8px "Silkscreen", monospace';
       ctx.fillStyle = '#38bdf8';
-      ctx.fillText('SILKIE SAM - MASTER COOP MERCHANT', textX, by + 19);
+      ctx.fillText('SILKIE SAM - COOP MERCHANT', textX, by + 18);
 
-      // Spoken Dialogue
-      ctx.font = '700 10px "Silkscreen", monospace';
+      // Spoken Dialogue (wrapped cleanly inside bubble)
+      ctx.font = '700 9.5px "Silkscreen", monospace';
       ctx.fillStyle = '#fef08a';
       ctx.shadowColor = '#000000';
       ctx.shadowBlur = 3;
-
-      const cursor = Math.floor(Date.now() / 250) % 2 === 0 ? '▮' : '';
-      ctx.fillText(`“${fullDialogue}${cursor}”`, textX, by + 39);
+      wrappedLines.forEach((line, idx) => {
+        ctx.fillText(line, textX, by + 35 + idx * lineHeight);
+      });
       ctx.shadowBlur = 0;
 
-      // Action hint prompt badge
-      ctx.font = '700 8px "Silkscreen", monospace';
-      ctx.fillStyle = '#4ade80';
-      ctx.fillText('[ TAP UPGRADE SHOP BUTTON TO BROWSE GEAR ]', textX, by + 57);
+      // Action hint prompt badge reflecting open/closed status
+      ctx.font = '700 7.5px "Silkscreen", monospace';
+      ctx.fillStyle = isShopClosed ? '#fda4af' : '#4ade80';
+      const actionHint = isShopClosed
+        ? '[ SHOP CLOSED (2H) - CHECK SETTINGS ]'
+        : '[ PRESS E OR OPEN SHOP IN MENU ]';
+      ctx.fillText(actionHint, textX, by + bubbleH - 11);
 
       ctx.restore();
     }
 
     ctx.restore();
+  }
+
+  private wrapDialogueText(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    maxWidth: number,
+    maxLines: number = 2
+  ): string[] {
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let currentLine = '';
+
+    for (let i = 0; i < words.length; i++) {
+      const testLine = currentLine ? `${currentLine} ${words[i]}` : words[i];
+      if (ctx.measureText(testLine).width > maxWidth && currentLine) {
+        lines.push(currentLine);
+        currentLine = words[i];
+        if (lines.length >= maxLines - 1) {
+          const rest = [currentLine, ...words.slice(i + 1)].join(' ');
+          let trimmed = rest;
+          while (ctx.measureText(trimmed).width > maxWidth && trimmed.length > 4) {
+            trimmed = trimmed.slice(0, -4) + '...';
+          }
+          lines.push(trimmed);
+          return lines;
+        }
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+    return lines;
   }
 
   // --- Platforms & Detailed Colorful Obstacles ---
@@ -3624,7 +3660,7 @@ export class GameRenderer {
     ctx.scale(1, 1);
 
     // 2. Silkie Sam Character Model (Matching Shop Dialogue Profile in Full Color & Detail)
-    const isSpeaking = sam.state === 'talk_1' || sam.state === 'talk_2';
+    const isSpeaking = sam.state === 'talk_1' || sam.state === 'talk_2' || sam.state === 'talk_3';
 
     // Shadow under flying Silkie Sam
     ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
@@ -3826,19 +3862,23 @@ export class GameRenderer {
 
     // 3. UPGRADED DELUXE PIXELATED DIALOGUE SPEECH BUBBLE
     if (sam.state === 'talk_1' || sam.state === 'talk_2' || sam.state === 'talk_3' || sam.state === 'dropping_shield' || sam.state === 'dropping_sword') {
-      let fullText = "here take this!";
+      let fullText = "here take this";
       if (sam.state === 'talk_2' || sam.state === 'dropping_sword') {
-        fullText = "oh here is a sword..";
+        fullText = "oh here is a sword";
       } else if (sam.state === 'talk_3') {
-        fullText = " it’s very powerful!";
+        fullText = "good luck!";
       }
       const displayText = fullText.slice(0, sam.dialogueCharIndex);
 
       ctx.save();
-      const bubbleW = 230;
-      const bubbleH = 56;
-      const bx = sx + 32;
-      const by = sy - 60 + hoverBob;
+      const bubbleW = Math.min(265, this.canvas.width - 28);
+      ctx.font = '700 10px "Silkscreen", monospace';
+      const isTyping = sam.dialogueCharIndex < fullText.length;
+      const cursor = (isTyping && Math.floor(Date.now() / 200) % 2 === 0) ? '▮' : '';
+      const wrappedSamLines = this.wrapDialogueText(ctx, `“${displayText}${cursor}”`, bubbleW - 68, 2);
+      const bubbleH = wrappedSamLines.length > 1 ? 66 : 56;
+      const bx = Math.max(18, Math.min(this.canvas.width - bubbleW - 12, sx + 32));
+      const by = Math.max(58, sy - 60 + hoverBob);
 
       // 1. Pixel drop shadow
       ctx.fillStyle = '#000000';
@@ -3975,9 +4015,9 @@ export class GameRenderer {
       ctx.fillStyle = '#fef08a';
       ctx.shadowColor = '#000000';
       ctx.shadowBlur = 3;
-      const isTyping = sam.dialogueCharIndex < fullText.length;
-      const cursor = (isTyping && Math.floor(Date.now() / 200) % 2 === 0) ? '▮' : '';
-      ctx.fillText(`“${displayText}${cursor}”`, textX, by + 38);
+      wrappedSamLines.forEach((line, idx) => {
+        ctx.fillText(line, textX, by + 37 + idx * 12);
+      });
       ctx.shadowBlur = 0;
 
       ctx.restore();
@@ -5201,36 +5241,102 @@ export class GameRenderer {
       }
     }
 
+    // 2.5. Render Summoning Telegraph Runes & Active Summon Arena Banner
+    if (boss.state === 'prepare_summon') {
+      const waveType = boss.summonWaveType || 'wolf';
+      const offsets = waveType === 'bear' ? [-280, 280] : [-340, 20, 340];
+      const groundY = 460 - camera.y;
+      const pulse = 0.5 + Math.sin(time * 16) * 0.45;
+
+      ctx.save();
+      offsets.forEach((offset) => {
+        const rx = 800 + offset - camera.x;
+        if (rx < -80 || rx > this.canvas.width + 80) return;
+
+        ctx.fillStyle = `rgba(168, 85, 247, ${pulse * 0.32})`;
+        ctx.fillRect(rx - 28, groundY - 46, 56, 46);
+
+        ctx.strokeStyle = pulse > 0.5 ? '#c084fc' : '#f43f5e';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(rx - 30, groundY - 6, 60, 10);
+
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(rx - 4, groundY - 22 - Math.sin(time * 14) * 6, 8, 8);
+      });
+
+      const beastLabel = waveType === 'wolf' ? 'WOLVES' : (waveType === 'fox' ? 'FOXES' : 'BEARS');
+      ctx.textAlign = 'center';
+      ctx.font = '700 12px "Silkscreen", monospace';
+      ctx.fillStyle = pulse > 0.5 ? '#f5d0fe' : '#fde047';
+      ctx.shadowColor = '#7e22ce';
+      ctx.shadowBlur = 8;
+      ctx.fillText(`⚠ COCKATRICE SUMMONING ${beastLabel}! ⚠`, this.canvas.width / 2, 96);
+      ctx.restore();
+    } else if (boss.state === 'waiting_summons') {
+      const waveType = boss.summonWaveType || 'wolf';
+      const beastLabel = waveType === 'wolf' ? 'WOLVES' : (waveType === 'fox' ? 'FOXES' : 'BEARS');
+      const pulse = 0.65 + Math.sin(time * 8) * 0.35;
+      const bannerW = Math.min(480, this.canvas.width - 28);
+      const bannerX = (this.canvas.width - bannerW) / 2;
+      const bannerY = 82;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+      ctx.fillRect(bannerX, bannerY, bannerW, 26);
+      ctx.strokeStyle = `rgba(192, 132, 252, ${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(bannerX, bannerY, bannerW, 26);
+      ctx.textAlign = 'center';
+      ctx.font = '700 9.5px "Silkscreen", monospace';
+      ctx.fillStyle = '#fde047';
+      ctx.fillText(`⚔ DEFEAT ALL SUMMONED ${beastLabel} TO RESUME BATTLE! ⚔`, this.canvas.width / 2, bannerY + 17);
+      ctx.restore();
+    }
+
     // 3. Colossal Cockatrice Boss Model (Scaled, Magnificent & Fearsome!)
     const sx = boss.x - camera.x;
     const sy = boss.y - camera.y;
+    const isDefeated = boss.state === 'defeated';
+    const defeatSub = boss.defeatSubState;
+    const isExplodingAshes = isDefeated && defeatSub === 'exploding_ashes';
 
     if (sx + boss.width < -140 || sx > this.canvas.width + 140) return;
+
+    const explodeProgress = isExplodingAshes ? Math.min(1, (boss.defeatTimer || 0) / 0.85) : 0;
 
     ctx.save();
     const cx = sx + boss.width / 2;
     const cy = sy + boss.height / 2;
-    ctx.translate(cx, cy);
 
-    // Apply scale so the boss is huge and imposing!
-    const bossScale = 1.75;
-    ctx.scale(bossScale, bossScale);
+    if (!isExplodingAshes || explodeProgress < 0.95) {
+      ctx.save();
+      ctx.translate(cx, cy);
 
-    // Invulnerability blink
-    if (boss.invulnerableTimer > 0 && Math.sin(time * 35) > 0) {
-      ctx.globalAlpha = 0.45;
-    }
+      if (isExplodingAshes) {
+        const trembleX = Math.sin(time * 95) * (8 * (1 - explodeProgress));
+        const trembleY = Math.cos(time * 85) * (6 * (1 - explodeProgress));
+        ctx.translate(trembleX, trembleY);
+      }
 
-    const isLeft = boss.facing === 'left';
-    if (isLeft) ctx.scale(-1, 1);
+      // Apply scale so the boss is huge and imposing!
+      const bossScale = 1.75 * (isExplodingAshes ? (1 + explodeProgress * 0.18) : 1);
+      ctx.scale(bossScale, bossScale);
 
-    const isStunned = boss.state === 'stunned';
-    const isPreparingFire = boss.state === 'prepare_fire' || boss.state === 'inferno_flame';
-    const isDefeated = boss.state === 'defeated';
-    const defeatSub = boss.defeatSubState;
-    const isSlumpedLookingDown = isDefeated && (defeatSub === 'falling' || defeatSub === 'ground_talk_1');
-    const isEnragedLookingAtPlayer = isDefeated && defeatSub === 'ground_talk_2';
-    const isFlyingAway = isDefeated && defeatSub === 'fly_away';
+      // Dissolve alpha during bright ash explosion or invulnerability blink
+      if (isExplodingAshes) {
+        ctx.globalAlpha = Math.max(0, 1 - explodeProgress * 1.15);
+      } else if (boss.invulnerableTimer > 0 && Math.sin(time * 35) > 0) {
+        ctx.globalAlpha = 0.45;
+      }
+
+      const isLeft = boss.facing === 'left';
+      if (isLeft) ctx.scale(-1, 1);
+
+      const isStunned = boss.state === 'stunned';
+      const isPreparingFire = boss.state === 'prepare_fire' || boss.state === 'inferno_flame';
+      const isSlumpedLookingDown = false;
+      const isEnragedLookingAtPlayer = false;
+      const isFlyingAway = isDefeated && defeatSub === 'fly_away';
     
     // The boss ONLY gets burnt marks when we deflect his own fireballs at him!
     // 1 fireball deflected: 1 burnt mark
@@ -5683,18 +5789,31 @@ export class GameRenderer {
       ctx.moveTo(headX + 10, headY - 6);
       ctx.lineTo(headX + 2, headY + 2);
       ctx.stroke();
-    } else if (isSlumpedLookingDown) {
-      // Defeated on ground, looking down at the floor!
+    } else if (isDefeated) {
+      // Defeated Cockatrice keeps normal upright head and has wide-open shocked eyes!
+      const pupilShake = Math.sin(time * 42) * 0.7;
+      // Dark outer eye rim
       ctx.fillStyle = '#0f172a';
       ctx.beginPath();
-      ctx.arc(headX + 6, headY - 1, 6, 0, Math.PI * 2);
+      ctx.arc(headX + 6, headY - 3, 9.2, 0, Math.PI * 2);
       ctx.fill();
-      // Heavy drooped eyelid
-      ctx.fillStyle = '#047857';
-      ctx.fillRect(headX + 1, headY - 6, 12, 6);
-      // Downcast dull eye slit looking at floor
-      ctx.fillStyle = '#7f1d1d';
-      ctx.fillRect(headX + 5, headY + 1, 3, 3);
+      // Wide shocked white sclera
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(headX + 6, headY - 3, 7.8, 0, Math.PI * 2);
+      ctx.fill();
+      // Tiny trembling startled iris & pinprick pupil
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(headX + 7 + pupilShake, headY - 3, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(headX + 7 + pupilShake, headY - 3, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      // Crisp specular highlight
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(headX + 3.5, headY - 7, 2, 2);
     } else if (isEnragedLookingAtPlayer) {
       // Snapped erect, glaring straight ahead at the player!
       ctx.fillStyle = '#0f172a';
@@ -5758,7 +5877,8 @@ export class GameRenderer {
       }
     }
 
-    ctx.restore();
+      ctx.restore();
+    }
 
     // 4. Stomp Ground Shockwaves (Expanding across floor)
     if (boss.shockwaves && boss.shockwaves.length > 0) {
@@ -5821,6 +5941,66 @@ export class GameRenderer {
         ctx.restore();
       });
     }
+
+    // 6. Exploding into Bright Ashes Blast Aura & Pixel Ash Shards
+    if (isExplodingAshes) {
+      const t = boss.defeatTimer || 0;
+      const burstAlpha = Math.max(0, 1 - t / 1.4);
+      if (burstAlpha > 0) {
+        ctx.save();
+        const blastR = 60 + t * 290;
+        const ashGrad = ctx.createRadialGradient(cx, cy, 4, cx, cy, blastR);
+        ashGrad.addColorStop(0, `rgba(255, 255, 255, ${Math.min(1, burstAlpha * 1.25)})`);
+        ashGrad.addColorStop(0.35, `rgba(254, 240, 138, ${burstAlpha * 0.85})`);
+        ashGrad.addColorStop(0.65, `rgba(203, 213, 225, ${burstAlpha * 0.55})`);
+        ashGrad.addColorStop(1, 'rgba(148, 163, 184, 0)');
+        ctx.fillStyle = ashGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, blastR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Crisp 8-bit expanding shockwave rings
+        ctx.strokeStyle = `rgba(255, 255, 255, ${burstAlpha})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 24 + t * 240, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Pixelated ash & luminous ember chunks bursting outward
+        for (let i = 0; i < 18; i++) {
+          const angle = (i / 18) * Math.PI * 2 + t * 0.7;
+          const dist = 20 + t * (120 + (i % 4) * 45);
+          const ax = cx + Math.cos(angle) * dist;
+          const ay = cy + Math.sin(angle) * dist - t * 28;
+          const sz = Math.max(2, (6 - t * 2.5));
+          ctx.fillStyle = i % 3 === 0 ? '#ffffff' : (i % 3 === 1 ? '#cbd5e1' : '#334155');
+          ctx.globalAlpha = burstAlpha;
+          ctx.fillRect(ax - sz / 2, ay - sz / 2, sz, sz);
+        }
+        ctx.restore();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  public renderBossAshExplosionFlash(boss: CockatriceBoss) {
+    if (boss.state !== 'defeated' || boss.defeatSubState !== 'exploding_ashes') return;
+    const flash = boss.ashExplodeFlash ?? 0;
+    if (flash <= 0.01) return;
+
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    ctx.save();
+    // Bright radiant white-gold full-screen explosion glow before world turns back to normal
+    const glowGrad = ctx.createRadialGradient(w / 2, h / 2, 20, w / 2, h / 2, Math.max(w, h) * 0.85);
+    glowGrad.addColorStop(0, `rgba(255, 255, 255, ${Math.min(1, flash * 0.98)})`);
+    glowGrad.addColorStop(0.6, `rgba(254, 249, 195, ${Math.min(1, flash * 0.92)})`);
+    glowGrad.addColorStop(1, `rgba(255, 255, 255, ${Math.min(1, flash * 0.82)})`);
+    ctx.fillStyle = glowGrad;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
   }
 
   public renderBossFireProjectiles(projectiles: BossFireProjectile[], camera: Camera, time: number) {
@@ -6280,7 +6460,7 @@ export class GameRenderer {
 
   public renderBossDialogue(boss: CockatriceBoss, camera: Camera) {
     const isIntro = boss.state === 'intro_dialogue';
-    const isDefeatTalk = boss.state === 'defeated' && (boss.defeatSubState === 'ground_talk_1' || boss.defeatSubState === 'ground_talk_2');
+    const isDefeatTalk = boss.state === 'defeated' && boss.defeatSubState === 'ground_talk_1';
     if (!isIntro && !isDefeatTalk) return;
 
     const ctx = this.ctx;
@@ -6289,26 +6469,28 @@ export class GameRenderer {
     let fullText = '';
     if (isIntro) {
       const introDialogues = [
-        "Who dares to complete my challenges?",
-        "Well... I guess I just need to spice things up..!"
+        "who dares enter my realm?",
+        "well.. i guess i need to spice things up!",
+        "when you defeat me.. it will be the last thing you will ever know"
       ];
       fullText = introDialogues[boss.dialogueIndex] || '';
     } else {
-      const defeatDialogues = [
-        "You may have defeated me...",
-        "BUT I WILL COME BACK!!!"
-      ];
-      fullText = defeatDialogues[boss.dialogueIndex] || '';
+      fullText = "no No NOOOOOOO!";
     }
     const displayText = fullText.slice(0, boss.dialogueCharIndex);
 
-    // Position dialogue with compact, sleek dimensions cleanly below the top boss bar / intro card!
+    // Measure wrapped lines first so 2-line and 3-line dialogues both fit cleanly without clipping the advance button!
     const bubbleW = Math.min(470, w - 24);
-    const bubbleH = 76;
     const bubbleX = (w - bubbleW) / 2;
-    const bubbleY = isIntro ? 92 : 72;
+    const bubbleY = isIntro ? 114 : 72;
 
     ctx.save();
+
+    ctx.font = isDefeatTalk ? '700 10.5px "Press Start 2P", monospace' : '700 9.5px "Silkscreen", monospace';
+    const isTyping = boss.dialogueCharIndex < fullText.length;
+    const cursor = (isTyping && Math.floor(Date.now() / 250) % 2 === 0) ? "▮" : "";
+    const bossLines = this.wrapDialogueText(ctx, `"${displayText}${cursor}"`, bubbleW - 84, 3);
+    const bubbleH = bossLines.length >= 3 ? 90 : 78;
 
     // 1. Drop shadow
     ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
@@ -6371,7 +6553,7 @@ export class GameRenderer {
 
     // 5. Deluxe Framed Boss Avatar Portrait Box on the Left
     const portraitX = bubbleX + 11;
-    const portraitY = bubbleY + 12;
+    const portraitY = bubbleY + Math.round((bubbleH - 50) / 2);
     const portraitSize = 50;
 
     ctx.fillStyle = '#000000';
@@ -6435,15 +6617,34 @@ export class GameRenderer {
     ctx.fillStyle = '#facc15';
     ctx.fillRect(pCenter + 8, pMiddle + 2, 8, 2);
 
-    // Glowing ruby dragon eye with vertical slit pupil
-    ctx.fillStyle = '#ef4444';
-    ctx.beginPath();
-    ctx.arc(pCenter + 2, pMiddle + 3, 5.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fef08a';
-    ctx.fillRect(pCenter + 1.5, pMiddle, 1.8, 6.5);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(pCenter + 3, pMiddle + 1, 1.5, 1.5);
+    // Dragon Eye: Wide shocked eye when defeated, glowing ruby slit eye otherwise
+    if (isDefeatTalk) {
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(pCenter + 2, pMiddle + 3, 7.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(pCenter + 2, pMiddle + 3, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(pCenter + 3, pMiddle + 3, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(pCenter + 3, pMiddle + 3, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(pCenter + 2, pMiddle + 3, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(pCenter + 1.5, pMiddle, 1.8, 6.5);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(pCenter + 3, pMiddle + 1, 1.5, 1.5);
+    }
 
     ctx.restore();
 
@@ -6467,14 +6668,14 @@ export class GameRenderer {
     ctx.fillStyle = '#facc15';
     ctx.fillText(nameplateTitle, textStartX + 5, plaqueY + 11);
 
-    // 7. Spoken Dialogue Text with High Contrast & Rich Pixel Font
-    ctx.fillStyle = boss.defeatSubState === 'ground_talk_2' ? '#ef4444' : (boss.defeatSubState === 'ground_talk_1' ? '#fed7aa' : '#fef08a');
-    ctx.font = boss.defeatSubState === 'ground_talk_2' ? '700 11px "Press Start 2P", monospace' : '700 10.5px "Silkscreen", monospace';
-    ctx.shadowColor = boss.defeatSubState === 'ground_talk_2' ? '#7f1d1d' : '#000000';
-    ctx.shadowBlur = boss.defeatSubState === 'ground_talk_2' ? 6 : 3;
-    const isTyping = boss.dialogueCharIndex < fullText.length;
-    const cursor = (isTyping && Math.floor(Date.now() / 250) % 2 === 0) ? "▮" : "";
-    ctx.fillText(`"${displayText}${cursor}"`, textStartX + 2, bubbleY + 41);
+    // 7. Spoken Dialogue Text with High Contrast & Rich Pixel Font (wrapped cleanly inside bubble)
+    ctx.fillStyle = isDefeatTalk ? '#ef4444' : '#fef08a';
+    ctx.font = isDefeatTalk ? '700 10.5px "Press Start 2P", monospace' : '700 9.5px "Silkscreen", monospace';
+    ctx.shadowColor = isDefeatTalk ? '#7f1d1d' : '#000000';
+    ctx.shadowBlur = isDefeatTalk ? 6 : 3;
+    bossLines.forEach((line, idx) => {
+      ctx.fillText(line, textStartX + 2, bubbleY + 36 + idx * 12);
+    });
     ctx.shadowBlur = 0;
 
     // 8. Action Advance Prompt Badge (Pixelated Gold Button at Bottom Right)
@@ -6601,7 +6802,7 @@ export class GameRenderer {
   // --- Boss Bar: Gilded 200 Hearts EXP Health Bar with Generous Text Spacing ---
 
   public renderBossBar(boss: CockatriceBoss, time: number) {
-    if (boss.state === 'defeated') return;
+    if (boss.state === 'defeated' || boss.state === 'intro_dialogue') return;
     const ctx = this.ctx;
     const w = this.canvas.width;
 
@@ -6721,11 +6922,12 @@ export class GameRenderer {
     const cubeStartY = barY + 4;
     const cubeStartX = barX + 4;
 
+    const shownHealth = boss.displayHealth !== undefined ? boss.displayHealth : boss.health;
     for (let c = 0; c < totalCubes; c++) {
       const cx = cubeStartX + c * (cubeW + cubeGap);
       const cubeMinHP = c * 20;
       const cubeMaxHP = (c + 1) * 20;
-      const cubeFraction = Math.max(0, Math.min(1, (boss.health - cubeMinHP) / 20));
+      const cubeFraction = Math.max(0, Math.min(1, (shownHealth - cubeMinHP) / 20));
 
       // Socket backdrop for cube
       ctx.fillStyle = '#0f172a';
@@ -8748,11 +8950,11 @@ export class GameRenderer {
         return;
       }
 
-      // Standard Baby Chick / Colorful Skin Adaptive Feather Armor
+      // Standard Baby Chick / Colorful Skin Adaptive Feather Armor (shifted cleanly lower onto chest)
       const bW = 10 * babyScale;
-      const bH = 8 * babyScale;
+      const bH = 7.5 * babyScale;
       const bX = -bW / 2;
-      const bY = -bH / 2 + 1.5 + walkBounce;
+      const bY = 1.5 + walkBounce;
 
       // Subtle glowing magical aura for diamond/gold or colorful skin
       if (isDiamond || isGold || hasColorfulSkin) {
@@ -8762,10 +8964,10 @@ export class GameRenderer {
         ctx.fill();
       }
 
-      // A. Cute Mini Feathered Crest Diadem on Baby Head
-      const hW = 10 * babyScale;
-      const hX = -hW / 2 + 1;
-      const hY = -halfH + walkBounce - 2.5;
+      // A. Cute Mini Feathered Crest Diadem on Baby Head (steady position above eyes)
+      const hW = 9.5 * babyScale;
+      const hX = -hW / 2;
+      const hY = -halfH - 2.5;
 
       ctx.fillStyle = pal.dark;
       ctx.fillRect(hX - 1, hY - 1, hW + 2, 5);
@@ -8821,10 +9023,12 @@ export class GameRenderer {
     // =========================================================================
     // 2. POWERFUL LOOKING FEATHER ARMOR (JUVENILE, TEEN, AND ADULT)
     // =========================================================================
-    const cuirassW = isJuvenile ? 15 : (isTeen ? 20 : 25);
-    const cuirassH = isJuvenile ? 14 : (isTeen ? 18 : 22);
-    const cuirassX = -cuirassW / 2 + 1;
-    const cuirassY = -cuirassH / 2 + (isJuvenile ? 1 : 2) + walkBounce;
+    // Moved lower onto chest/torso below eyes, beak, and chin wattles
+    const cuirassW = isJuvenile ? 14 : (isTeen ? 18 : 22);
+    const maxTorsoH = Math.max(8, Math.round(halfH - 6));
+    const cuirassH = Math.min(isJuvenile ? 10 : (isTeen ? 13 : 16), maxTorsoH);
+    const cuirassX = -cuirassW / 2 + 0.5;
+    const cuirassY = (isJuvenile ? 2.5 : (isTeen ? 3 : 4)) + walkBounce;
 
     // A. Radiant Enchanted Aura
     if (isDiamond || isGold || hasColorfulSkin) {
@@ -8835,11 +9039,11 @@ export class GameRenderer {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 1. FEATHERED BATTLE CREST / HELM PLUME (Forged swept-back plumage crest)
+    // 1. FEATHERED BATTLE CREST / HELM PLUME (Steady at crown above eyes/comb)
     // ─────────────────────────────────────────────────────────────────────────
-    const helmW = isJuvenile ? 15 : (isTeen ? 18 : 22);
-    const hx = isJuvenile ? 0 : 1;
-    const hy = -halfH + walkBounce - (isJuvenile ? 3 : (isTeen ? 5 : 7));
+    const helmW = isJuvenile ? 13 : (isTeen ? 16 : 19);
+    const hx = isJuvenile ? -3.5 : (isTeen ? -4 : -4.5);
+    const hy = -halfH - (isJuvenile ? 5.5 : (isTeen ? 7 : 9));
 
     // Base diadem browplate band
     ctx.fillStyle = pal.dark;
@@ -8895,29 +9099,29 @@ export class GameRenderer {
     ctx.fillRect(hx + helmW / 2 - 0.5, hy - 0.5, 1.5, 1.5);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2. LAYERED ARMORED FEATHER BREASTPLATE (PLUMED CUIRASS)
+    // 2. LAYERED ARMORED FEATHER BREASTPLATE (PLUMED CUIRASS ON CHEST)
     // ─────────────────────────────────────────────────────────────────────────
-    // A. Gorget Plate (Armored neck collar with flared wing flanges)
+    // A. Gorget Plate (Armored neck collar resting cleanly below beak)
     ctx.fillStyle = pal.dark;
-    ctx.fillRect(cuirassX - 2, cuirassY - 2, cuirassW + 4, 5);
+    ctx.fillRect(cuirassX - 2, cuirassY - 2, cuirassW + 4, 4.5);
     ctx.fillStyle = pal.base;
-    ctx.fillRect(cuirassX - 1, cuirassY - 1, cuirassW + 2, 3.5);
+    ctx.fillRect(cuirassX - 1, cuirassY - 1, cuirassW + 2, 3);
     ctx.fillStyle = accentTrim;
     ctx.fillRect(cuirassX, cuirassY - 0.5, cuirassW, 1.5);
 
     // B. Main Cuirass Outer Border
     ctx.fillStyle = pal.dark;
-    ctx.fillRect(cuirassX - 1, cuirassY + 2, cuirassW + 2, cuirassH - 1);
+    ctx.fillRect(cuirassX - 1, cuirassY + 1.5, cuirassW + 2, cuirassH - 1);
     ctx.fillStyle = pal.base;
-    ctx.fillRect(cuirassX, cuirassY + 3, cuirassW, cuirassH - 3);
+    ctx.fillRect(cuirassX, cuirassY + 2.5, cuirassW, cuirassH - 2.5);
 
     // C. Overlapping Sculpted Feather Scale Rows (Avian Scallop / Chevron Plumes)
     const rowCount = isJuvenile ? 2 : 3;
     const scalesPerRow = isJuvenile ? 3 : 4;
-    const rowH = (cuirassH - 5) / rowCount;
+    const rowH = Math.max(2, (cuirassH - 4) / rowCount);
 
     for (let r = 0; r < rowCount; r++) {
-      const ry = cuirassY + 4 + r * rowH;
+      const ry = cuirassY + 3.5 + r * rowH;
       const scaleW = cuirassW / scalesPerRow;
 
       for (let s = 0; s < scalesPerRow; s++) {
@@ -8925,23 +9129,23 @@ export class GameRenderer {
 
         // Individual feather scale plate with chevron vane
         ctx.fillStyle = pal.shadow;
-        ctx.fillRect(sx + 0.5, ry + rowH - 2, scaleW - 1, 2);
+        ctx.fillRect(sx + 0.5, ry + rowH - 1.5, scaleW - 1, 1.5);
         ctx.fillStyle = pal.bright;
-        ctx.fillRect(sx + 1, ry + 0.5, scaleW - 2, 1.5);
+        ctx.fillRect(sx + 1, ry + 0.5, scaleW - 2, 1.2);
 
         // Center spine / feather quill on each scale
         ctx.fillStyle = accentTrim;
-        ctx.fillRect(sx + scaleW / 2 - 0.5, ry + 1, 1, rowH - 2);
+        ctx.fillRect(sx + scaleW / 2 - 0.5, ry + 0.8, 1, Math.max(1, rowH - 1.5));
 
         // Micro rivet stud on outer scales
         if (s === 0 || s === scalesPerRow - 1) {
           ctx.fillStyle = pal.shine;
-          ctx.fillRect(sx + (s === 0 ? 1 : scaleW - 2), ry + 1, 1, 1);
+          ctx.fillRect(sx + (s === 0 ? 1 : scaleW - 2), ry + 0.8, 1, 1);
         }
       }
     }
 
-    // D. Lower Plume Vanes (Pointed feather armor tails curving down over belly)
+    // D. Lower Plume Vanes (Pointed feather armor tails curving down over lower belly)
     const bottomPoints = isJuvenile ? 3 : (isTeen ? 4 : 5);
     const ptW = cuirassW / bottomPoints;
     for (let p = 0; p < bottomPoints; p++) {
@@ -8950,7 +9154,7 @@ export class GameRenderer {
       ctx.fillStyle = pal.dark;
       ctx.beginPath();
       ctx.moveTo(px, py);
-      ctx.lineTo(px + ptW / 2, py + 3.5);
+      ctx.lineTo(px + ptW / 2, py + 2.5);
       ctx.lineTo(px + ptW, py);
       ctx.closePath();
       ctx.fill();
@@ -8958,17 +9162,17 @@ export class GameRenderer {
       ctx.fillStyle = accentTrim;
       ctx.beginPath();
       ctx.moveTo(px + 0.5, py);
-      ctx.lineTo(px + ptW / 2, py + 2.5);
+      ctx.lineTo(px + ptW / 2, py + 1.8);
       ctx.lineTo(px + ptW - 0.5, py);
       ctx.closePath();
       ctx.fill();
     }
 
     // E. Majestic Center Heraldic Crest (Diamond Star / Sun Ruby / Mythril Blade)
-    const emW = isJuvenile ? 5 : (isTeen ? 7 : 9);
+    const emW = isJuvenile ? 4.5 : (isTeen ? 6 : 7.5);
     const emH = emW;
     const emX = cuirassX + cuirassW / 2 - emW / 2;
-    const emY = cuirassY + cuirassH / 2 - emH / 2;
+    const emY = cuirassY + 2 + (cuirassH - 2) / 2 - emH / 2;
 
     ctx.fillStyle = pal.dark;
     ctx.fillRect(emX - 1, emY - 1, emW + 2, emH + 2);
@@ -8980,12 +9184,12 @@ export class GameRenderer {
     ctx.fillRect(emX + emW / 2 - 0.5, emY + emH / 2 - 0.5, 1.5, 1.5);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 3. RAZOR FEATHER WING PAULDRONS (Articulated Wing Coverts & Flight Blades)
+    // 3. RAZOR FEATHER WING PAULDRONS (Lowered to sit cleanly on shoulder/wing)
     // ─────────────────────────────────────────────────────────────────────────
     const pwX = -halfW * 0.72 - (isAdult ? 3 : 1);
-    const pwY = -halfH * 0.28 + walkBounce;
-    const pW = isJuvenile ? 8 : (isTeen ? 11 : 14);
-    const pH = isJuvenile ? 8 : (isTeen ? 11 : 13);
+    const pwY = (isJuvenile ? 1.5 : (isTeen ? 2 : 2.5)) + walkBounce;
+    const pW = isJuvenile ? 7.5 : (isTeen ? 10 : 12.5);
+    const pH = isJuvenile ? 7 : (isTeen ? 9 : 11);
 
     // Base shoulder plate
     ctx.fillStyle = pal.dark;
@@ -8993,25 +9197,25 @@ export class GameRenderer {
     ctx.fillStyle = pal.base;
     ctx.fillRect(pwX, pwY, pW, pH);
     ctx.fillStyle = pal.bright;
-    ctx.fillRect(pwX + 1, pwY + 1, pW - 2, 2.5);
+    ctx.fillRect(pwX + 1, pwY + 1, pW - 2, 2);
     ctx.fillStyle = pal.shine;
-    ctx.fillRect(pwX + 1.5, pwY + 1.5, 2, 2);
+    ctx.fillRect(pwX + 1.5, pwY + 1.5, 2, 1.5);
 
     // Trailing razor flight-feather blades cascading off shoulder
     const wFeatherCount = isJuvenile ? 2 : (isTeen ? 3 : 4);
     for (let wf = 0; wf < wFeatherCount; wf++) {
-      const fx = pwX - (wf + 1) * (isAdult ? 3 : 2.5);
-      const fy = pwY + 3 + wf * (isAdult ? 3.5 : 2.8);
-      const fLen = (isAdult ? 9 : 7) - wf * 1.2;
+      const fx = pwX - (wf + 1) * (isAdult ? 2.8 : 2.2);
+      const fy = pwY + 2 + wf * (isAdult ? 2.8 : 2.4);
+      const fLen = (isAdult ? 8 : 6.5) - wf * 1.1;
 
       ctx.fillStyle = pal.dark;
-      ctx.fillRect(fx - 0.5, fy - 0.5, fLen + 1, 3);
+      ctx.fillRect(fx - 0.5, fy - 0.5, fLen + 1, 2.5);
       ctx.fillStyle = pal.base;
-      ctx.fillRect(fx, fy, fLen, 2);
+      ctx.fillRect(fx, fy, fLen, 1.8);
       ctx.fillStyle = accentTrim;
-      ctx.fillRect(fx, fy, 2, 2);
+      ctx.fillRect(fx, fy, 2, 1.8);
       ctx.fillStyle = pal.quill;
-      ctx.fillRect(fx + 2, fy + 0.5, fLen - 2, 1);
+      ctx.fillRect(fx + 2, fy + 0.5, fLen - 2, 0.8);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -9019,8 +9223,8 @@ export class GameRenderer {
     // ─────────────────────────────────────────────────────────────────────────
     if (isTeen || isAdult) {
       const gW = isAdult ? 6 : 5;
-      const gH = isAdult ? 8 : 6;
-      const gy = halfH - (isAdult ? 7 : 6);
+      const gH = isAdult ? 7 : 5.5;
+      const gy = halfH - (isAdult ? 6 : 5);
 
       [-halfW * 0.35, halfW * 0.2].forEach(lx => {
         // Main shinguard plate
@@ -9056,7 +9260,7 @@ export class GameRenderer {
     // ─────────────────────────────────────────────────────────────────────────
     if (isTeen || isAdult) {
       const tx = -halfW * 0.85;
-      const ty = -halfH * 0.15 + walkBounce;
+      const ty = (isTeen ? 0.5 : 1.5) + walkBounce;
       const tW = isAdult ? 8 : 6;
       const tH = isAdult ? 7 : 5;
 
@@ -9276,10 +9480,51 @@ export class GameRenderer {
       ctx.fillText("A Little Chick's Big Adventure Begins!", w / 2, h * 0.22);
     }
 
-    ctx.font = '700 9.5px "Silkscreen", monospace';
-    ctx.fillStyle = '#e2e8f0';
+    // 8-Bit 1% -> 100% Loading Bar; only reveal Tap Screen button once at 100%!
+    const pct = Math.max(1, Math.min(100, Math.round(progress * 100)));
+    const barW = Math.min(300, w - 48);
+    const barH = 18;
+    const barX = (w - barW) / 2;
+    const barY = h * 0.80;
+
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(barX - 3, barY - 3, barW + 6, barH + 6);
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
+
+    const fillW = Math.round(((barW - 4) * pct) / 100);
+    ctx.fillStyle = pct >= 100 ? '#4ade80' : '#f59e0b';
+    ctx.fillRect(barX + 2, barY + 2, fillW, barH - 4);
+    ctx.fillStyle = pct >= 100 ? '#bbf7d0' : '#fef08a';
+    ctx.fillRect(barX + 2, barY + 2, fillW, 4);
+
+    ctx.font = '700 10px "Silkscreen", monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#000000';
     ctx.shadowBlur = 4;
-    ctx.fillText("Press Space or Tap Screen to Hatch & Play", w / 2, h * 0.88);
+    ctx.fillText(pct >= 100 ? "READY! 100%" : `LOADING WORLD 1... ${pct}%`, w / 2, barY + 13);
+
+    if (pct >= 100) {
+      const btnW = Math.min(320, w - 36);
+      const btnH = 34;
+      const btnX = (w - btnW) / 2;
+      const btnY = barY + barH + 14;
+      const pulse = Math.sin(time * 6) > 0 ? 1 : 0;
+
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(btnX + 3, btnY + 3, btnW, btnH);
+      ctx.fillStyle = pulse ? '#facc15' : '#eab308';
+      ctx.fillRect(btnX, btnY, btnW, btnH);
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(btnX, btnY, btnW, btnH);
+
+      ctx.font = '700 11px "Silkscreen", monospace';
+      ctx.fillStyle = '#0f172a';
+      ctx.shadowBlur = 0;
+      ctx.fillText("▶ TAP SCREEN TO PLAY ◀", w / 2, btnY + 21);
+    }
     ctx.restore();
   }
 
@@ -9683,42 +9928,44 @@ export class GameRenderer {
     ctx.shadowBlur = 8;
     ctx.fillText("★ Thanks for Playing ★", w / 2, thanksY + 24);
 
-    // Sign button right below: "TAP SCREEN TO RETURN TO MENU"
-    const btnW = Math.min(340, w - 24);
-    const btnH = 38;
-    const btnX = (w - btnW) / 2;
-    const btnY = thanksY + thanksH + 10;
+    // Sign button right below: "TAP SCREEN TO RETURN TO MENU" (only once celebration has finished!)
+    if (progress >= 0.85) {
+      const btnW = Math.min(340, w - 24);
+      const btnH = 38;
+      const btnX = (w - btnW) / 2;
+      const btnY = thanksY + thanksH + 10;
 
-    const pulse = Math.sin(time * 5) * 2;
+      const pulse = Math.sin(time * 5) * 2;
 
-    // Button pixel shadow
-    ctx.fillStyle = '#020617';
-    ctx.fillRect(btnX + 4, btnY + 4, btnW, btnH);
+      // Button pixel shadow
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(btnX + 4, btnY + 4, btnW, btnH);
 
-    // Button pixel frame (emerald arcade)
-    ctx.fillStyle = '#047857';
-    ctx.fillRect(btnX, btnY, btnW, btnH);
+      // Button pixel frame (emerald arcade)
+      ctx.fillStyle = '#047857';
+      ctx.fillRect(btnX, btnY, btnW, btnH);
 
-    // Top/left highlight
-    ctx.fillStyle = '#34d399';
-    ctx.fillRect(btnX + 2, btnY + 2, btnW - 4, 3);
-    ctx.fillRect(btnX + 2, btnY + 2, 3, btnH - 4);
+      // Top/left highlight
+      ctx.fillStyle = '#34d399';
+      ctx.fillRect(btnX + 2, btnY + 2, btnW - 4, 3);
+      ctx.fillRect(btnX + 2, btnY + 2, 3, btnH - 4);
 
-    // Bottom/right shadow
-    ctx.fillStyle = '#065f46';
-    ctx.fillRect(btnX + 2, btnY + btnH - 5, btnW - 4, 3);
-    ctx.fillRect(btnX + btnW - 5, btnY + 2, 3, btnH - 4);
+      // Bottom/right shadow
+      ctx.fillStyle = '#065f46';
+      ctx.fillRect(btnX + 2, btnY + btnH - 5, btnW - 4, 3);
+      ctx.fillRect(btnX + btnW - 5, btnY + 2, 3, btnH - 4);
 
-    // Button body
-    ctx.fillStyle = '#064e3b';
-    ctx.fillRect(btnX + 5, btnY + 5, btnW - 10, btnH - 10);
+      // Button body
+      ctx.fillStyle = '#064e3b';
+      ctx.fillRect(btnX + 5, btnY + 5, btnW - 10, btnH - 10);
 
-    // Button text
-    ctx.fillStyle = '#fef08a';
-    ctx.font = '700 11px "Silkscreen", monospace';
-    ctx.shadowColor = '#000000';
-    ctx.shadowBlur = 6;
-    ctx.fillText("▶ TAP SCREEN TO RETURN TO MENU ◀", w / 2, btnY + 24 + pulse * 0.4);
+      // Button text
+      ctx.fillStyle = '#fef08a';
+      ctx.font = '700 11px "Silkscreen", monospace';
+      ctx.shadowColor = '#000000';
+      ctx.shadowBlur = 6;
+      ctx.fillText("▶ TAP SCREEN TO RETURN TO MENU ◀", w / 2, btnY + 24 + pulse * 0.4);
+    }
 
     ctx.restore();
   }
@@ -9732,10 +9979,11 @@ export class GameRenderer {
       const sy = p.y - camera.y;
       if (sx < -20 || sx > this.canvas.width + 20) return;
 
+      const sz = Math.max(2, Math.round(p.size));
       ctx.save();
-      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.maxLife));
       ctx.fillStyle = p.color;
-      ctx.fillRect(sx - p.size / 2, sy - p.size / 2, p.size, p.size);
+      ctx.fillRect(Math.round(sx - sz / 2), Math.round(sy - sz / 2), sz, sz);
       ctx.restore();
     });
   }

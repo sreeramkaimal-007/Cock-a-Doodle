@@ -10,14 +10,14 @@ export type GameScreen =
   | 'PLAYING'
   | 'PAUSED'
   | 'EVOLUTION'
+  | 'WORLD_LOADING'
   | 'LEVEL_CLEAR'
   | 'GAME_OVER'
   | 'VICTORY'
   | 'HOW_TO_PLAY'
   | 'SETTINGS'
   | 'QUESTS_BADGES'
-  | 'SHOP'
-  | 'WORLD_WAITING';
+  | 'SHOP';
 
 export type ArmorType = 'none' | 'iron' | 'gold' | 'diamond';
 export type SwordType = 'none' | 'iron' | 'gold' | 'diamond' | 'netherite';
@@ -202,6 +202,7 @@ export interface Enemy {
   isGrounded: boolean;
   animTimer: number;
   hurtTimer: number;
+  isBossSummon?: boolean;
 }
 
 export interface Particle {
@@ -280,6 +281,8 @@ export interface CockatriceBoss {
     | 'tail_whipping'
     | 'prepare_bite'
     | 'biting_platform'
+    | 'prepare_summon'
+    | 'waiting_summons'
     | 'stunned'
     | 'hurt'
     | 'defeated';
@@ -305,8 +308,10 @@ export interface CockatriceBoss {
   bittenLandCraters?: { x: number; y: number; width: number; timer: number }[];
   shockwaves?: { x: number; y: number; vx: number; radius: number; timer: number }[];
   slashTrails?: { x: number; y: number; vx: number; timer: number }[];
-  defeatSubState?: 'falling' | 'ground_talk_1' | 'ground_talk_2' | 'fly_away' | 'escaped';
+  defeatSubState?: 'falling' | 'ground_talk_1' | 'exploding_ashes' | 'fly_away' | 'escaped';
   defeatTimer?: number;
+  ashExplodeFlash?: number;
+  displayHealth?: number;
   burnIntensity?: number;
   burntMarksCount?: number;
   isShakingOff?: boolean;
@@ -319,6 +324,11 @@ export interface CockatriceBoss {
   infernoFlameStartX?: number;
   infernoFlameStartY?: number;
   infernoFlameBlockedTime?: number;
+  summonWaveIndex?: number;
+  summonWaveType?: EnemyType;
+  attacksSinceSummon?: number;
+  fireAttackType?: 'inferno' | 'fireballs';
+  fireShotsFired?: number;
 }
 
 export interface SilkieSamFriend {
@@ -430,6 +440,8 @@ export interface SaveData {
     shopPurchases?: number;
   };
   hasVisitedShop?: boolean;
+  hasSeenSamLevel1Joke?: boolean;
+  hasClaimedBossReward?: boolean;
   shopClosedUntil?: number;
   upgrades?: ShopUpgrades;
   selectedSkin?: ChickenSkinId;

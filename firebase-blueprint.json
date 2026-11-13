@@ -1,0 +1,72 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and persistent game save data for Cock a Doodle.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Unique Firebase Authentication UID."
+        },
+        "email": {
+          "type": "string",
+          "description": "User verified registered email address."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Player display nickname or username."
+        },
+        "unlockedLevel": {
+          "type": "number",
+          "description": "Highest unlocked level number from 1 to 30."
+        },
+        "totalCoins": {
+          "type": "number",
+          "description": "Total gold coins earned."
+        },
+        "gender": {
+          "type": "string",
+          "description": "Selected chicken gender (rooster or hen)."
+        },
+        "armor": {
+          "type": "string",
+          "description": "Equipped armor type."
+        },
+        "sword": {
+          "type": "string",
+          "description": "Equipped sword type."
+        },
+        "selectedSkin": {
+          "type": "string",
+          "description": "Equipped chicken skin ID."
+        },
+        "hasShield": {
+          "type": "boolean",
+          "description": "Whether player has acquired the shield."
+        },
+        "hasCompletedGame": {
+          "type": "boolean",
+          "description": "Whether player defeated Cockatrice in Level 30."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Account registration timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last save timestamp."
+        }
+      },
+      "required": ["userId", "email"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Stores user account profile and persistent progress for registered players."
+    }
+  }
+}

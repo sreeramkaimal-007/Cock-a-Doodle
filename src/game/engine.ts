@@ -39,8 +39,12 @@ export class GameEngine {
   public armorType: ArmorType = 'none';
   public hasShield: boolean = false;
   private stepTimer = 0;
+  private jumpTrailTimer = 0;
+  private dashTrailTimer = 0;
   public saveData: SaveData;
   private reviveTokenUsed = false;
+  public samLevel1State: 'idle' | 'line1' | 'line2' | 'done' = 'idle';
+  public samLevel1Timer = 0;
 
   public setDifficulty(diff: 'easy' | 'normal' | 'hard') {
     this.saveData.difficulty = diff;
@@ -134,17 +138,37 @@ export class GameEngine {
       }
     }
 
-    // Move all checkpoint flags to proper, safe, wide platform standing spots!
+    // Anchor checkpoint flags firmly on non-moving platforms while preserving safe offsets away from chests & hazards
     this.level.checkpoints.forEach(checkpoint => {
-      const matching = this.level.platforms.filter(
-        pl => pl.x <= checkpoint.x + 120 && pl.x + pl.width >= checkpoint.x - 120
+      const solidPlats = this.level.platforms.filter(pl => !pl.isMoving);
+      const candidates = solidPlats.length > 0 ? solidPlats : this.level.platforms;
+      const matching = candidates.filter(
+        pl => pl.x <= checkpoint.x + 80 && pl.x + pl.width >= checkpoint.x - 80
       );
       if (matching.length > 0) {
         matching.sort((a, b) => Math.abs(a.y - checkpoint.y) - Math.abs(b.y - checkpoint.y));
         const plat = matching[0];
-        // Move checkpoint flag to the safe, generous center of the platform
-        checkpoint.x = Math.round(plat.x + plat.width / 2);
         checkpoint.y = plat.y;
+        const margin = Math.min(34, Math.floor(plat.width / 4));
+        const minX = Math.round(plat.x + margin);
+        const maxX = Math.round(plat.x + plat.width - margin);
+        checkpoint.x = Math.max(minX, Math.min(maxX, Math.round(checkpoint.x)));
+
+        if (this.level.chests && this.level.chests.length > 0) {
+          const nearbyChest = this.level.chests.find(
+            ch => Math.abs((ch.y + ch.height) - plat.y) <= 24 &&
+                  ch.x + ch.width >= plat.x &&
+                  ch.x <= plat.x + plat.width
+          );
+          if (nearbyChest) {
+            const chestCenter = nearbyChest.x + nearbyChest.width / 2;
+            if (Math.abs(checkpoint.x - chestCenter) < 58) {
+              const leftSpot = Math.max(minX, Math.round(nearbyChest.x - 42));
+              const rightSpot = Math.min(maxX, Math.round(nearbyChest.x + nearbyChest.width + 42));
+              checkpoint.x = Math.abs(leftSpot - chestCenter) >= Math.abs(rightSpot - chestCenter) ? leftSpot : rightSpot;
+            }
+          }
+        }
       }
     });
 
@@ -224,6 +248,14 @@ export class GameEngine {
       this.level.silkieSam.state = 'waiting';
     }
 
+    if (!this.level.enemies) {
+      this.level.enemies = [];
+    }
+
+    if (levelId === 1 && saveData.hasSeenSamLevel1Joke) {
+      this.samLevel1State = 'done';
+    }
+
     // Secret Badge: "Back Home" - Revisit level 1 as an evolved chicken!
     if (levelId === 1 && isEvolvedRevisit) {
       this.callbacks.onActionStat?.('visitedCoopEvolved');
@@ -238,6 +270,97 @@ export class GameEngine {
     this.canvasHeight = height;
     this.camera.viewportWidth = width;
     this.camera.viewportHeight = height;
+  }
+
+  public respawnAtSamSpot() {
+    const sam = this.level.silkieSam;
+    const groundY = 460;
+    const samCenterX = sam ? sam.x : 270;
+
+    // Return directly to the spot where Silkie Sam drops the Royal Shield & Netherite Sword
+    this.player.x = Math.round(samCenterX - this.player.width / 2);
+    this.player.y = groundY - this.player.height;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.facing = 'right';
+    this.player.isGrounded = true;
+    this.player.isJumping = false;
+    this.player.isAttacking = false;
+    this.player.isBlocking = false;
+    this.player.knockbackTimer = 0;
+    this.player.invulnerableTimer = 2.0;
+    this.player.fireResistTimer = 0;
+    this.player.onMovingPlatform = null;
+    this.player.health = this.player.maxHealth;
+
+    if (sam) {
+      if (!sam.shieldCollected) {
+        sam.shieldDropped = true;
+        sam.shieldX = sam.x - 14;
+        sam.shieldY = 440;
+        sam.shieldVy = 0;
+      } else {
+        this.hasShield = true;
+        this.player.hasShield = true;
+      }
+
+      if (!sam.swordCollected) {
+        sam.swordDropped = true;
+        sam.swordX = sam.x + 18;
+        sam.swordY = 440;
+        sam.swordVy = 0;
+      } else {
+        this.swordType = 'netherite';
+      }
+      sam.state = 'gone';
+    }
+
+    this.level.enemies = [];
+    this.particles = [];
+    this.floatingTexts = [];
+
+    const boss = this.level.cockatrice;
+    if (boss) {
+      boss.x = 680;
+      boss.y = 160;
+      boss.vx = 0;
+      boss.vy = 0;
+      boss.health = boss.maxHealth;
+      boss.displayHealth = boss.maxHealth;
+      boss.phase = 1;
+      boss.rageMode = 'sky rage';
+      boss.burntMarksCount = 0;
+      boss.burnIntensity = 0;
+      boss.isShakingOff = false;
+      boss.shakeOffTimer = 0;
+      boss.regrowGlowTimer = 0;
+      boss.ashExplodeFlash = 0;
+      boss.fireProjectiles = [];
+      boss.shockwaves = [];
+      boss.slashTrails = [];
+      boss.bittenLandCraters = [];
+      boss.summonWaveIndex = 0;
+      boss.attacksSinceSummon = 0;
+      boss.summonWaveType = undefined;
+      boss.state = 'countdown';
+      boss.countdownTimer = 3.99;
+      boss.countdownText = '3..';
+      boss.stateTimer = 0;
+      boss.jawOpen = 0;
+    }
+
+    this.isPaused = false;
+    audio.playCountdownPip(3);
+    audio.playMusic('boss');
+    this.addFloatingText("★ BACK AT SAM'S WEAPON SPOT! ★", this.player.x + this.player.width / 2, this.player.y - 28, '#38bdf8');
+    this.callbacks.onStatsUpdate(
+      this.player.health,
+      this.coinsEarnedThisLevel,
+      this.player.stage,
+      this.armorType,
+      this.swordType,
+      this.hasShield
+    );
   }
 
   public getStageForLevel(levelId: number, maxUnlockedLevel: number = 1): PlayerState['stage'] {
@@ -310,11 +433,12 @@ export class GameEngine {
     this.player.isGrounded = false;
     this.player.isJumping = true;
     this.player.jumpTime = 0;
+    this.jumpTrailTimer = 0;
     this.coyoteTimer = 0;
     this.jumpBufferTimer = 0;
     this.player.onMovingPlatform = null;
     audio.playJump(this.player.stage === 'adult');
-    this.addDustPuff(this.player.x + this.player.width / 2, this.player.y + this.player.height, 4);
+    this.addColorfulJumpDustBurst(this.player.x + this.player.width / 2, this.player.y + this.player.height, 8);
   }
 
   private triggerAttack() {
@@ -323,6 +447,12 @@ export class GameEngine {
     this.player.isAttacking = true;
     this.player.attackTimer = 0.22;
     this.player.attackCooldown = 0.35;
+    this.dashTrailTimer = 0;
+    if (this.player.knockbackTimer <= 0 && (this.input.left || this.input.right)) {
+      const dashDir = this.player.facing === 'right' ? 1 : -1;
+      this.player.vx = dashDir * Math.max(Math.abs(this.player.vx), 330);
+    }
+    this.addDashAttackPixelTrail(8);
     audio.playAttack(this.swordType === 'gold' || this.swordType === 'diamond' || this.swordType === 'netherite');
 
     // Attack hitbox in front of player
@@ -384,11 +514,15 @@ export class GameEngine {
         }
       } else if (
         boss.state === 'prepare_fire' ||
+        boss.state === 'shooting_fire' ||
+        boss.state === 'inferno_flame' ||
         boss.state === 'flying_idle' ||
         boss.state === 'prepare_stomp' ||
         boss.state === 'stomping_platform' ||
         boss.state === 'prepare_tail_whip' ||
-        boss.state === 'tail_whipping'
+        boss.state === 'tail_whipping' ||
+        boss.state === 'prepare_summon' ||
+        boss.state === 'waiting_summons'
       ) {
         // When boss is not biting or claw slashing, sword deflects against his armored scales
         const bX = boss.x;
@@ -403,7 +537,10 @@ export class GameEngine {
           hitY + hitH + 25 > bY
         ) {
           audio.playRockSmash();
-          this.addFloatingText('⚡ STRIKE WHEN HE BITES OR SLASHES! ⚡', boss.x + boss.width / 2, boss.y - 12, '#facc15');
+          const deflectMsg = boss.state === 'waiting_summons'
+            ? '⚔️ DEFEAT HIS SUMMONED ENEMIES FIRST! ⚔️'
+            : '⚡ STRIKE WHEN HE BITES OR SLASHES! ⚡';
+          this.addFloatingText(deflectMsg, boss.x + boss.width / 2, boss.y - 12, '#facc15');
           for (let p = 0; p < 8; p++) {
             this.particles.push({
               x: (hitX + bX + bW) / 2,
@@ -483,10 +620,45 @@ export class GameEngine {
     this.updateEnemies(delta);
     this.updateCockatrice(delta);
     this.updateSilkieSam(delta);
+    this.updateLevel1Sam(delta);
     this.updateCollectibles(delta);
     this.updateParticles(delta);
     this.updateFloatingTexts(delta);
     this.updateCamera();
+  }
+
+  private updateLevel1Sam(dt: number) {
+    if (this.level.id !== 1) return;
+    if (this.saveData.hasSeenSamLevel1Joke || this.samLevel1State === 'done') {
+      this.samLevel1State = 'done';
+      return;
+    }
+
+    const standCenterX = 380 + 34; // standX = 380, counterW = 68
+    const pCenter = this.player.x + this.player.width / 2;
+    const distToPlayer = Math.abs(pCenter - standCenterX);
+
+    if (this.samLevel1State === 'idle') {
+      if (distToPlayer < 220) {
+        this.samLevel1State = 'line1';
+        this.samLevel1Timer = 0;
+        audio.playSilkieSpeech('welcome');
+      }
+    } else if (this.samLevel1State === 'line1') {
+      this.samLevel1Timer += dt;
+      if (this.samLevel1Timer >= 3.0) {
+        this.samLevel1State = 'line2';
+        this.samLevel1Timer = 0;
+        audio.playSilkieSpeech('talk');
+      }
+    } else if (this.samLevel1State === 'line2') {
+      this.samLevel1Timer += dt;
+      if (this.samLevel1Timer >= 3.5 || (distToPlayer > 270 && this.samLevel1Timer >= 1.2)) {
+        this.samLevel1State = 'done';
+        this.saveData.hasSeenSamLevel1Joke = true;
+        this.callbacks.onSaveDataUpdate?.({ hasSeenSamLevel1Joke: true });
+      }
+    }
   }
 
   private updateMovingPlatforms(dt: number) {
@@ -569,11 +741,12 @@ export class GameEngine {
     const friction = 4200;
 
     if (p.knockbackTimer <= 0) {
+      const activeSpeed = (p.isAttacking && p.attackTimer > 0.06) ? Math.max(baseSpeed, 330) : baseSpeed;
       if (this.input.left && !this.input.right) {
-        p.vx = Math.max(-baseSpeed, p.vx - accel * dt);
+        p.vx = Math.max(-activeSpeed, p.vx - accel * dt);
         p.facing = 'left';
       } else if (this.input.right && !this.input.left) {
-        p.vx = Math.min(baseSpeed, p.vx + accel * dt);
+        p.vx = Math.min(activeSpeed, p.vx + accel * dt);
         p.facing = 'right';
       } else {
         // Snappy friction deceleration - cleanly halt without sliding
@@ -649,14 +822,55 @@ export class GameEngine {
       p.vy = 0;
     }
 
+    // Colorful pixel dust trail while jumping in mid-air
+    if (!p.isGrounded && (p.isJumping || p.vy < -25)) {
+      this.jumpTrailTimer += dt;
+      if (this.jumpTrailTimer >= 0.028) {
+        this.jumpTrailTimer = 0;
+        const jumpColors = ['#fde047', '#38bdf8', '#4ade80', '#f472b6', '#c084fc', '#fb923c', '#ffffff'];
+        const tailDir = p.facing === 'right' ? -1 : 1;
+        for (let i = 0; i < 2; i++) {
+          this.particles.push({
+            x: p.x + p.width / 2 + tailDir * (4 + Math.random() * 6) + (Math.random() - 0.5) * 8,
+            y: p.y + p.height - 2 - Math.random() * 6,
+            vx: tailDir * (20 + Math.random() * 35) - p.vx * 0.12 + (Math.random() - 0.5) * 18,
+            vy: 15 + Math.random() * 35,
+            size: Math.random() > 0.4 ? 4 : 3,
+            color: jumpColors[Math.floor(Math.random() * jumpColors.length)],
+            life: 0.28 + Math.random() * 0.12,
+            maxLife: 0.4,
+            gravity: 160,
+          });
+        }
+      }
+    } else {
+      this.jumpTrailTimer = 0;
+    }
+
+    // Colorful pixel dust trail behind chick during dash-attack
+    if (p.isAttacking && p.attackTimer > 0) {
+      this.dashTrailTimer += dt;
+      if (this.dashTrailTimer >= 0.02) {
+        this.dashTrailTimer = 0;
+        this.addDashAttackPixelTrail(2);
+      }
+    } else {
+      this.dashTrailTimer = 0;
+    }
+
     // Horizontal integration & collision
     p.x += p.vx * dt;
     this.resolveHorizontalCollisions();
 
     // Vertical integration & swept collision
     const prevY = p.y;
+    const wasGrounded = p.isGrounded;
     p.y += p.vy * dt;
     this.resolveVerticalCollisions(prevY);
+
+    if (!wasGrounded && p.isGrounded) {
+      this.addColorfulJumpDustBurst(p.x + p.width / 2, p.y + p.height, 6);
+    }
 
     // Animation state & walk timer
     p.animTimer += dt;
@@ -1117,6 +1331,15 @@ export class GameEngine {
     boss.stateTimer += dt;
     if (boss.invulnerableTimer > 0) boss.invulnerableTimer -= dt;
 
+    // Smooth visual HP bar drain ("slowly, not really that slow, just a little fast")
+    if (boss.displayHealth === undefined) {
+      boss.displayHealth = boss.health;
+    } else if (boss.displayHealth > boss.health) {
+      boss.displayHealth = Math.max(boss.health, boss.displayHealth - 95 * dt);
+    } else if (boss.displayHealth < boss.health) {
+      boss.displayHealth = boss.health;
+    }
+
     // Wing flapping animation
     boss.wingAngle = Math.sin(boss.animTimer * 10) * 0.45;
 
@@ -1181,8 +1404,8 @@ export class GameEngine {
 
     // 0. DEFEAT SEQUENCE
     if (boss.state === 'defeated') {
-      boss.defeatTimer = (boss.defeatTimer || 0) + dt;
-      boss.animTimer += dt;
+      const prevDefeatTimer = boss.defeatTimer || 0;
+      boss.defeatTimer = prevDefeatTimer + dt;
       boss.burnIntensity = 1.0;
 
       const groundPlat = this.level.platforms.find(p => p.x <= boss.x + boss.width / 2 && p.x + p.width >= boss.x + boss.width / 2 && p.y >= 350) || this.level.platforms[0];
@@ -1190,7 +1413,7 @@ export class GameEngine {
 
       if (!boss.defeatSubState || boss.defeatSubState === 'falling') {
         boss.defeatSubState = 'falling';
-        boss.wingAngle = 0.85; // Drooping exhausted wings
+        boss.wingAngle = Math.sin(boss.animTimer * 8) * 0.25;
         boss.y += 280 * dt;
         if (boss.y >= targetFloorY) {
           boss.y = targetFloorY;
@@ -1219,14 +1442,14 @@ export class GameEngine {
       }
 
       if (boss.defeatSubState === 'ground_talk_1') {
-        // Slumped on the ground, looking down at the floor
+        // Holds normal upright posture with shocked eyes while screaming "no No NOOOOOOO!"
         boss.y = targetFloorY;
-        boss.wingAngle = 0.85;
+        boss.wingAngle = Math.sin(boss.animTimer * 6) * 0.22;
         boss.stateTimer += dt;
         boss.dialogueTimer += dt;
-        const line1 = "You may have defeated me...";
-        const isSpeaking = boss.dialogueCharIndex < line1.length;
-        boss.jawOpen = isSpeaking ? Math.abs(Math.sin(boss.animTimer * 12)) * 0.4 : 0;
+        const finalLine = "no No NOOOOOOO!";
+        const isSpeaking = boss.dialogueCharIndex < finalLine.length;
+        boss.jawOpen = isSpeaking ? Math.abs(Math.sin(boss.animTimer * 15)) * 0.85 : 0.7;
 
         if (isSpeaking) {
           if (boss.dialogueTimer > 0.045) {
@@ -1237,74 +1460,73 @@ export class GameEngine {
             }
           }
         } else {
-          // Line 1 finished typing! Generous read time or advance on key
-          if (boss.stateTimer > 4.5 || ((this.input.jump || this.input.attack) && boss.stateTimer > 0.4)) {
-            boss.defeatSubState = 'ground_talk_2';
-            boss.dialogueIndex = 1;
-            boss.dialogueCharIndex = 0;
-            boss.stateTimer = 0;
-            boss.dialogueTimer = 0;
-            audio.playCockatriceScreech();
-          }
-        }
-        return;
-      }
-
-      if (boss.defeatSubState === 'ground_talk_2') {
-        // Boss snaps head up and looks directly at the player!
-        boss.y = targetFloorY;
-        boss.facing = playerCenter > bossCenter ? 'right' : 'left';
-        boss.stateTimer += dt;
-        boss.dialogueTimer += dt;
-        const line2 = "BUT I WILL COME BACK!!!";
-        const isSpeaking = boss.dialogueCharIndex < line2.length;
-        boss.jawOpen = isSpeaking ? Math.abs(Math.sin(boss.animTimer * 16)) * 0.8 : 0.6;
-
-        if (isSpeaking) {
-          if (boss.dialogueTimer > 0.04) {
-            boss.dialogueTimer = 0;
-            boss.dialogueCharIndex++;
-            if (boss.dialogueCharIndex % 2 === 0) {
-              audio.playBossDialogueVoice();
-            }
-          }
-        } else {
-          // Line 2 finished typing! Wait or advance on key
-          if (boss.stateTimer > 3.8 || ((this.input.jump || this.input.attack) && boss.stateTimer > 0.4)) {
-            boss.defeatSubState = 'fly_away';
+          // After finishing "no No NOOOOOOO!", explode into bright ashes!
+          if (boss.stateTimer > 2.2 || ((this.input.jump || this.input.attack) && boss.stateTimer > 0.35)) {
+            boss.defeatSubState = 'exploding_ashes';
             boss.stateTimer = 0;
             boss.defeatTimer = 0;
+            boss.ashExplodeFlash = 0.35;
             audio.playCockatriceScreech();
-            audio.playMusic('coop');
+            audio.playRockSmash();
+            audio.playEnemyDefeat();
+
+            // Massive bright ash & golden ember explosion from the boss!
+            const ashPalette = ['#ffffff', '#fef08a', '#f8fafc', '#cbd5e1', '#94a3b8', '#475569', '#1e293b'];
+            for (let ap = 0; ap < 80; ap++) {
+              const angle = Math.random() * Math.PI * 2;
+              const speed = 60 + Math.random() * 340;
+              this.particles.push({
+                x: bossCenter + (Math.random() - 0.5) * 90,
+                y: boss.y + boss.height / 2 + (Math.random() - 0.5) * 70,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - 60,
+                size: 3.5 + Math.random() * 5,
+                color: ashPalette[Math.floor(Math.random() * ashPalette.length)],
+                life: 0.75 + Math.random() * 0.75,
+                maxLife: 1.5,
+              });
+            }
           }
         }
         return;
       }
 
-      if (boss.defeatSubState === 'fly_away') {
-        // Flaps wings violently and shoots rapidly up into the sky!
-        boss.wingAngle = Math.sin((boss.defeatTimer || 0) * 28) * 0.9;
-        boss.y -= 520 * dt;
-        boss.x += (boss.facing === 'right' ? 80 : -80) * dt;
-
-        // Thrust smoke & spark plumes beneath talons
-        if (Math.random() < 0.75) {
-          this.particles.push({
-            x: boss.x + boss.width / 2 + (Math.random() - 0.5) * 60,
-            y: boss.y + boss.height,
-            vx: (Math.random() - 0.5) * 120,
-            vy: Math.random() * 160 + 60,
-            size: 4 + Math.random() * 4,
-            color: Math.random() > 0.5 ? '#f97316' : '#facc15',
-            life: 0.35,
-            maxLife: 0.35,
-          });
+      if (boss.defeatSubState === 'exploding_ashes') {
+        const t = boss.defeatTimer || 0;
+        // Ramps up to blinding pure white flash (0 -> 0.45s), holds bright (0.45 -> 0.65s), then fades back to normal world!
+        if (t < 0.45) {
+          boss.ashExplodeFlash = Math.min(1, 0.35 + (t / 0.45) * 0.65);
+        } else if (t < 0.65) {
+          boss.ashExplodeFlash = 1.0;
+        } else {
+          boss.ashExplodeFlash = Math.max(0, 1.0 - (t - 0.65) / 1.15);
         }
 
-        if (boss.y < -380) {
+        // Switch to peaceful music right at the blinding flash peak as world turns back to normal
+        if (prevDefeatTimer < 0.55 && t >= 0.55) {
+          audio.playMusic('coop');
+        }
+
+        // Continuously shed drifting ashes while disintegrating
+        if (t < 1.25 && Math.random() < 0.85) {
+          for (let a = 0; a < 3; a++) {
+            this.particles.push({
+              x: bossCenter + (Math.random() - 0.5) * 110,
+              y: boss.y + boss.height / 2 + (Math.random() - 0.5) * 80,
+              vx: (Math.random() - 0.5) * 150,
+              vy: -Math.random() * 90 - 25,
+              size: 2.5 + Math.random() * 4,
+              color: Math.random() > 0.45 ? '#cbd5e1' : (Math.random() > 0.5 ? '#64748b' : '#ffffff'),
+              life: 0.7 + Math.random() * 0.6,
+              maxLife: 1.3,
+            });
+          }
+        }
+
+        if (t >= 2.1) {
           boss.defeatSubState = 'escaped';
+          boss.ashExplodeFlash = 0;
           this.coinsEarnedThisLevel += 300;
-          // Player keeps their equipped sword (e.g. Diamond Sword) while exploring and moving to the other side
           this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage, this.armorType, this.swordType, this.player.hasShield);
           audio.playBossDefeat();
           audio.playMusic('coop');
@@ -1313,17 +1535,16 @@ export class GameEngine {
         return;
       }
 
-      if (boss.defeatSubState === 'escaped') {
-        return;
-      }
+      return;
     }
 
     // 1. INTRO DIALOGUE
     if (boss.state === 'intro_dialogue') {
       boss.dialogueTimer += dt;
       const dialogues = [
-        "Who dares to complete my challenges?",
-        "Well... I guess I just need to spice things up..!"
+        "who dares enter my realm?",
+        "well.. i guess i need to spice things up!",
+        "when you defeat me.. it will be the last thing you will ever know"
       ];
       const currentText = dialogues[boss.dialogueIndex] || '';
 
@@ -1342,13 +1563,13 @@ export class GameEngine {
       } else {
         // Line finished typing, generous pause for reading (4.5s)
         if (boss.stateTimer > 4.5) {
-          if (boss.dialogueIndex === 0) {
-            boss.dialogueIndex = 1;
+          if (boss.dialogueIndex < dialogues.length - 1) {
+            boss.dialogueIndex++;
             boss.dialogueCharIndex = 0;
             boss.stateTimer = 0;
             boss.dialogueTimer = 0;
           } else {
-            // Intro dialogue complete! Boss waits for Silkie Sam to deliver the shield
+            // Intro dialogue complete! Boss waits for Silkie Sam to deliver the shield & sword
             if (this.level.silkieSam && this.level.silkieSam.state === 'waiting') {
               boss.state = 'waiting_for_sam';
               boss.stateTimer = 0;
@@ -1372,8 +1593,8 @@ export class GameEngine {
         if (boss.dialogueCharIndex < currentText.length) {
           boss.dialogueCharIndex = currentText.length;
         } else if (boss.stateTimer > 0.35) {
-          if (boss.dialogueIndex === 0) {
-            boss.dialogueIndex = 1;
+          if (boss.dialogueIndex < dialogues.length - 1) {
+            boss.dialogueIndex++;
             boss.dialogueCharIndex = 0;
             boss.stateTimer = 0;
             boss.dialogueTimer = 0;
@@ -1399,8 +1620,6 @@ export class GameEngine {
 
     // 1.5. WAITING FOR SAM TO DELIVER SHIELD (Boss hovers observantly waiting)
     if (boss.state === 'waiting_for_sam') {
-      boss.stateTimer += dt;
-      boss.animTimer += dt;
       boss.wingAngle = Math.sin(this.time * 6) * 0.22;
       boss.y += (170 - boss.y) * 2.5 * dt;
       return;
@@ -1409,7 +1628,6 @@ export class GameEngine {
     // 1.6. RETRO ARCADE COUNTDOWN (3.. -> 2.. -> 1.. -> FIGHT !)
     if (boss.state === 'countdown') {
       boss.countdownTimer = (boss.countdownTimer ?? 3.99) - dt;
-      boss.animTimer += dt;
       boss.wingAngle = Math.sin(this.time * 8) * 0.28;
       boss.y += (160 - boss.y) * 3.0 * dt;
 
@@ -1457,55 +1675,203 @@ export class GameEngine {
       boss.x += (clampedX - boss.x) * trackingSpeed * dt;
       boss.y += (targetHoverY - boss.y) * (trackingSpeed + 0.4) * dt;
 
-      // Choose attack among: Stomp, Claw, Peck, Tail Whip, Fire
-      // Harder boss fight with faster attack cadence across Sky Rage, Inferno Rage, and Max Rage!
+      // Wait until shake-off ascent completes before picking the next attack
       const attackWait = boss.phase === 3 ? 0.75 : (boss.phase === 2 ? 1.05 : 1.4);
-      if (boss.stateTimer >= attackWait) {
+      if (boss.stateTimer >= attackWait && (!boss.shakeOffTimer || boss.shakeOffTimer <= 0)) {
         boss.stateTimer = 0;
+        const aliveSummons = (this.level.enemies || []).filter(e => e.isBossSummon && e.state !== 'defeated');
+        const attacksSinceSummon = boss.attacksSinceSummon ?? 0;
         const attackRoll = Math.random();
         const standingPlat = this.level.platforms.find(p => playerCenter >= p.x - 30 && playerCenter <= p.x + p.width + 30) || this.level.platforms[0];
 
-        if (attackRoll < 0.28) {
-          // 1. FIRE BARRAGE
-          boss.state = 'prepare_fire';
-          audio.playBossFireWindup();
-        } else if (attackRoll < 0.50) {
-          // 2. STOMP ATTACK
-          boss.state = 'prepare_stomp';
-          boss.bitePlatformId = standingPlat.id;
-          boss.biteTargetX = Math.max(standingPlat.x + 80, Math.min(standingPlat.x + standingPlat.width - 80, playerCenter));
-          boss.biteTargetY = standingPlat.y;
-          boss.biteTelegraphTimer = boss.phase === 3 ? 0.55 : (boss.phase === 2 ? 0.75 : 0.95);
-          audio.playCockatriceScreech();
-        } else if (attackRoll < 0.68) {
-          // 3. CLAW ATTACK
-          boss.state = 'prepare_claw';
-          boss.bitePlatformId = standingPlat.id;
-          boss.biteTargetX = playerCenter;
-          boss.biteTargetY = standingPlat.y;
-          audio.playBossBiteCrunch();
-        } else if (attackRoll < 0.84) {
-          // 4. PECK OR BITE ATTACK
-          boss.state = 'prepare_peck';
-          boss.bitePlatformId = standingPlat.id;
-          boss.biteTargetX = playerCenter;
-          boss.biteTargetY = standingPlat.y;
+        if (aliveSummons.length === 0 && (attacksSinceSummon >= 3 || attackRoll < 0.22)) {
+          // 0. SUMMON ATTACK (Wolves first, then Foxes, finally Bears; boss waits passively until defeated!)
+          boss.attacksSinceSummon = 0;
+          const wave = (boss.summonWaveIndex ?? 0) % 3;
+          boss.summonWaveType = wave === 0 ? 'wolf' : (wave === 1 ? 'fox' : 'bear');
+          boss.state = 'prepare_summon';
           audio.playCockatriceScreech();
         } else {
-          // 5. TAIL WHIP ATTACK
-          boss.state = 'prepare_tail_whip';
-          boss.bitePlatformId = standingPlat.id;
-          boss.biteTargetX = Math.max(standingPlat.x + 100, Math.min(standingPlat.x + standingPlat.width - 100, playerCenter));
-          boss.biteTargetY = standingPlat.y;
-          audio.playCockatriceScreech();
+          boss.attacksSinceSummon = attacksSinceSummon + 1;
+          if (attackRoll < 0.44) {
+            // 1. FIRE ATTACK (Alternates between Fireball Barrage and Inferno Flame!)
+            boss.state = 'prepare_fire';
+            boss.fireAttackType = Math.random() < 0.5 ? 'fireballs' : 'inferno';
+            audio.playBossFireWindup();
+          } else if (attackRoll < 0.60) {
+            // 2. STOMP ATTACK
+            boss.state = 'prepare_stomp';
+            boss.bitePlatformId = standingPlat.id;
+            boss.biteTargetX = Math.max(standingPlat.x + 80, Math.min(standingPlat.x + standingPlat.width - 80, playerCenter));
+            boss.biteTargetY = standingPlat.y;
+            boss.biteTelegraphTimer = boss.phase === 3 ? 0.55 : (boss.phase === 2 ? 0.75 : 0.95);
+            audio.playCockatriceScreech();
+          } else if (attackRoll < 0.74) {
+            // 3. CLAW ATTACK
+            boss.state = 'prepare_claw';
+            boss.bitePlatformId = standingPlat.id;
+            boss.biteTargetX = playerCenter;
+            boss.biteTargetY = standingPlat.y;
+            audio.playBossBiteCrunch();
+          } else if (attackRoll < 0.88) {
+            // 4. PECK OR BITE ATTACK
+            boss.state = 'prepare_peck';
+            boss.bitePlatformId = standingPlat.id;
+            boss.biteTargetX = playerCenter;
+            boss.biteTargetY = standingPlat.y;
+            audio.playCockatriceScreech();
+          } else {
+            // 5. TAIL WHIP ATTACK
+            boss.state = 'prepare_tail_whip';
+            boss.bitePlatformId = standingPlat.id;
+            boss.biteTargetX = Math.max(standingPlat.x + 100, Math.min(standingPlat.x + standingPlat.width - 100, playerCenter));
+            boss.biteTargetY = standingPlat.y;
+            audio.playCockatriceScreech();
+          }
         }
       }
     }
 
-    // 3. PREPARE INFERNO FLAME
-    else if (boss.state === 'prepare_fire') {
+    // 2.5. PREPARE & EXECUTE SUMMON ATTACK (WOLVES -> FOXES -> BEARS)
+    else if (boss.state === 'prepare_summon') {
+      const wave = (boss.summonWaveIndex ?? 0) % 3;
+      const waveType = wave === 0 ? 'wolf' : (wave === 1 ? 'fox' : 'bear');
+      boss.summonWaveType = waveType;
+
+      // Hover high & center while channeling summons
+      const centerArenaX = this.level.worldWidth / 2 - boss.width / 2;
+      boss.x += (centerArenaX - boss.x) * 4.0 * dt;
+      boss.y += (105 - boss.y) * 4.0 * dt;
+      boss.wingAngle = Math.sin(this.time * 18) * 0.65;
+      boss.jawOpen = 0.75;
+
       if (boss.stateTimer < dt * 2) {
-        this.addFloatingText('🔥 INFERNO FLAME INCOMING! HOLD S OR DOWN ARROW FOR 5s! 🔥', this.player.x + this.player.width / 2, this.player.y - 28, '#f97316');
+        audio.playCockatriceScreech();
+        const label = waveType === 'wolf'
+          ? '🐺 COCKATRICE SUMMONS WOLVES! 🐺'
+          : (waveType === 'fox' ? '🦊 COCKATRICE SUMMONS FOXES! 🦊' : '🐻 COCKATRICE SUMMONS BEARS! 🐻');
+        this.addFloatingText(label, bossCenter, boss.y - 24, '#c084fc');
+      }
+
+      // Ground summoning sparkles
+      if (Math.random() < 0.75) {
+        const offsets = waveType === 'bear' ? [-260, 260] : [-320, 0, 320];
+        const ox = offsets[Math.floor(Math.random() * offsets.length)];
+        const sx = Math.max(80, Math.min(this.level.worldWidth - 80, this.level.worldWidth / 2 + ox));
+        this.particles.push({
+          x: sx + (Math.random() - 0.5) * 44,
+          y: 458,
+          vx: (Math.random() - 0.5) * 40,
+          vy: -Math.random() * 110 - 30,
+          size: 3.5 + Math.random() * 3,
+          color: Math.random() > 0.5 ? '#c084fc' : '#f43f5e',
+          life: 0.45,
+          maxLife: 0.45
+        });
+      }
+
+      if (boss.stateTimer >= 1.15) {
+        const groundY = 460;
+        const pCenterX = this.player.x + this.player.width / 2;
+        const baseOffsets = waveType === 'bear' ? [-280, 280] : [-340, 20, 340];
+
+        if (!this.level.enemies) this.level.enemies = [];
+
+        baseOffsets.forEach((offset, idx) => {
+          let spawnX = Math.max(80, Math.min(this.level.worldWidth - 120, this.level.worldWidth / 2 + offset));
+          // Keep fair distance from player so summoned beast never overlaps player on spawn frame
+          if (Math.abs(spawnX - pCenterX) < 140) {
+            spawnX = pCenterX < this.level.worldWidth / 2
+              ? Math.min(this.level.worldWidth - 120, pCenterX + 180)
+              : Math.max(80, pCenterX - 180);
+          }
+
+          const isBear = waveType === 'bear';
+          const isFox = waveType === 'fox';
+          const eWidth = isBear ? 48 : (isFox ? 38 : 36);
+          const eHeight = isBear ? 36 : (isFox ? 22 : 24);
+          const eHealth = isBear ? 5 : (isFox ? 3 : 2);
+          const eSpeed = isBear ? 1.0 : (isFox ? 1.75 : 1.25);
+          const eDamage = isBear ? 2 : 1;
+
+          const summonedEnemy: Enemy = {
+            id: `boss_summon_${waveType}_${Date.now()}_${idx}`,
+            type: waveType,
+            x: spawnX,
+            y: groundY - eHeight,
+            vx: spawnX > pCenterX ? -eSpeed : eSpeed,
+            vy: 0,
+            width: eWidth,
+            height: eHeight,
+            patrolLeft: 40,
+            patrolRight: this.level.worldWidth - 40,
+            facing: spawnX > pCenterX ? 'left' : 'right',
+            health: eHealth,
+            maxHealth: eHealth,
+            speed: eSpeed,
+            damage: eDamage,
+            state: 'chase',
+            detectionRadius: 1600,
+            isGrounded: true,
+            animTimer: 0,
+            hurtTimer: 0,
+            isBossSummon: true,
+          };
+          this.level.enemies!.push(summonedEnemy);
+
+          // Spawn burst VFX
+          for (let sp = 0; sp < 14; sp++) {
+            this.particles.push({
+              x: spawnX + eWidth / 2,
+              y: groundY - eHeight / 2,
+              vx: (Math.random() - 0.5) * 180,
+              vy: -Math.random() * 140 - 20,
+              size: 4,
+              color: sp % 2 === 0 ? '#c084fc' : '#facc15',
+              life: 0.55,
+              maxLife: 0.55
+            });
+          }
+        });
+
+        if (waveType === 'wolf') audio.playWolfHowl();
+        else if (waveType === 'fox') audio.playFoxBark();
+        else audio.playBearRoar();
+
+        boss.summonWaveIndex = (wave + 1) % 3;
+        boss.state = 'waiting_summons';
+        boss.stateTimer = 0;
+        boss.jawOpen = 0;
+      }
+    }
+
+    // 2.6. WAITING FOR SUMMONS (Boss stays passive and does nothing until all summoned enemies are defeated!)
+    else if (boss.state === 'waiting_summons') {
+      const centerArenaX = this.level.worldWidth / 2 - boss.width / 2;
+      const hoverY = 95 + Math.sin(boss.animTimer * 2.2) * 14;
+      boss.x += (centerArenaX - boss.x) * 2.0 * dt;
+      boss.y += (hoverY - boss.y) * 2.5 * dt;
+      boss.wingAngle = Math.sin(boss.animTimer * 6) * 0.25;
+      boss.jawOpen = 0;
+
+      const aliveSummons = (this.level.enemies || []).filter(e => e.isBossSummon && e.state !== 'defeated');
+      if (aliveSummons.length === 0) {
+        boss.state = 'flying_idle';
+        boss.stateTimer = 0;
+        boss.summonWaveType = undefined;
+        audio.playPowerUp();
+        this.addFloatingText('★ SUMMONED PACK DEFEATED! ★', bossCenter, boss.y - 24, '#4ade80');
+      }
+    }
+
+    // 3. PREPARE FIRE (INFERNO FLAME OR FIREBALL BARRAGE)
+    else if (boss.state === 'prepare_fire') {
+      const isFireballs = boss.fireAttackType === 'fireballs';
+      if (boss.stateTimer < dt * 2) {
+        const warnText = isFireballs
+          ? '🔥 FIREBALL BARRAGE! HOLD C / S / DOWN TO DEFLECT! 🔥'
+          : '🔥 INFERNO FLAME INCOMING! HOLD S OR DOWN ARROW FOR 5s! 🔥';
+        this.addFloatingText(warnText, this.player.x + this.player.width / 2, this.player.y - 28, '#f97316');
         audio.playBossFireWindup();
       }
       boss.jawOpen = Math.min(1, boss.stateTimer / 0.6);
@@ -1526,13 +1892,53 @@ export class GameEngine {
 
       const windupDuration = 0.85;
       if (boss.stateTimer >= windupDuration) {
-        boss.state = 'inferno_flame';
         boss.stateTimer = 0;
-        boss.infernoFlameTimer = 5.0; // Exactly 5.0 seconds continuous inferno flame
-        boss.infernoFlameDuration = 5.0;
-        boss.infernoFlameBlockedTime = 0;
+        if (isFireballs) {
+          boss.state = 'shooting_fire';
+          boss.fireShotsFired = 0;
+        } else {
+          boss.state = 'inferno_flame';
+          boss.infernoFlameTimer = 5.0; // Exactly 5.0 seconds continuous inferno flame
+          boss.infernoFlameDuration = 5.0;
+          boss.infernoFlameBlockedTime = 0;
+          audio.playBossFireShoot();
+          this.addFloatingText('🔥 INFERNO FLAME! HOLD S OR DOWN ARROW! [5.0s] 🔥', this.player.x + this.player.width / 2, this.player.y - 32, '#f97316');
+        }
+      }
+    }
+
+    // 3.5. SHOOTING FIREBALLS (VOLLEY OF 3 DEFLECTABLE FIREBALLS)
+    else if (boss.state === 'shooting_fire') {
+      boss.jawOpen = 0.9;
+      const shotsFired = boss.fireShotsFired ?? 0;
+      const shotTimes = [0.02, 0.38, 0.74];
+
+      if (shotsFired < shotTimes.length && boss.stateTimer >= shotTimes[shotsFired]) {
+        boss.fireShotsFired = shotsFired + 1;
+        const mouthX = boss.facing === 'right' ? boss.x + boss.width - 25 : boss.x + 25;
+        const mouthY = boss.y + 60;
+        const pCenterX = this.player.x + this.player.width / 2;
+        const pCenterY = this.player.y + this.player.height / 2;
+        const angle = Math.atan2(pCenterY - mouthY, pCenterX - mouthX);
+        const speed = 300 + boss.phase * 35;
+
+        boss.fireProjectiles.push({
+          id: `boss_fb_${Date.now()}_${shotsFired}`,
+          x: mouthX,
+          y: mouthY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 14,
+          isDeflected: false,
+          life: 4.5,
+        });
         audio.playBossFireShoot();
-        this.addFloatingText('🔥 INFERNO FLAME! HOLD S OR DOWN ARROW! [5.0s] 🔥', this.player.x + this.player.width / 2, this.player.y - 32, '#f97316');
+      }
+
+      if (boss.stateTimer >= 1.15) {
+        boss.state = 'flying_idle';
+        boss.stateTimer = 0;
+        boss.jawOpen = 0;
       }
     }
 
@@ -1932,7 +2338,12 @@ export class GameEngine {
 
       const groundPlat = this.level.platforms.find(p => p.x <= boss.x + boss.width / 2 && p.x + p.width >= boss.x + boss.width / 2 && p.y >= 350) || this.level.platforms[0];
       const targetY = groundPlat.y - boss.height + 12;
-      boss.y += (targetY - boss.y) * 8 * dt;
+      // Smooth brisk descent onto ground instead of instant teleport
+      if (boss.y < targetY) {
+        boss.y = Math.min(targetY, boss.y + Math.max(240, (targetY - boss.y) * 6.5) * dt);
+      } else {
+        boss.y = targetY;
+      }
 
       // Dizzy cartoon stars circling head
       if (Math.random() < 0.3) {
@@ -2187,7 +2598,7 @@ export class GameEngine {
             return;
           }
 
-          // 3 deflected fireballs knock down the boss: "and then he goes down"
+          // 3 deflected fireballs knock down the boss smoothly instead of snapping
           if (boss.burntMarksCount >= 3) {
             boss.state = 'stunned';
             boss.stunTimer = 0;
@@ -2196,11 +2607,10 @@ export class GameEngine {
             boss.invulnerableTimer = 0.2;
             const groundPlat = this.level.platforms.find(p => p.x <= boss.x + boss.width / 2 && p.x + p.width >= boss.x + boss.width / 2 && p.y >= 350) || this.level.platforms[0];
             const targetY = groundPlat.y - boss.height + 12;
-            boss.y = targetY;
             boss.vy = 0;
             audio.playRockSmash();
             audio.playCockatriceScreech();
-            this.addDustPuff(boss.x + boss.width / 2, targetY + boss.height, 18);
+            this.addDustPuff(boss.x + boss.width / 2, targetY + boss.height, 14);
           }
         }
       }
@@ -2246,6 +2656,15 @@ export class GameEngine {
     boss.stateTimer = 0;
     boss.dialogueTimer = 0;
     boss.burnIntensity = 1.0;
+
+    // Dismiss any remaining summoned beasts cleanly when boss falls
+    this.level.enemies?.forEach(enemy => {
+      if (enemy.isBossSummon && enemy.state !== 'defeated') {
+        enemy.state = 'defeated';
+        this.addDefeatExplosion(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+      }
+    });
+
     this.coinsEarnedThisLevel += 300;
     this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage);
     this.addDefeatExplosion(boss.x + boss.width / 2, boss.y + boss.height / 2);
@@ -2410,17 +2829,38 @@ export class GameEngine {
 
   public advanceBossDialogue() {
     const boss = this.level.cockatrice;
-    if (!boss || boss.state !== 'intro_dialogue') return;
+    if (!boss) return;
+
+    if (boss.state === 'defeated') {
+      if (boss.defeatSubState === 'ground_talk_1') {
+        const finalLine = "no No NOOOOOOO!";
+        if (boss.dialogueCharIndex < finalLine.length) {
+          boss.dialogueCharIndex = finalLine.length;
+        } else if (boss.stateTimer > 0.25) {
+          boss.defeatSubState = 'exploding_ashes';
+          boss.stateTimer = 0;
+          boss.defeatTimer = 0;
+          boss.ashExplodeFlash = 0.35;
+          audio.playCockatriceScreech();
+          audio.playRockSmash();
+          audio.playEnemyDefeat();
+        }
+      }
+      return;
+    }
+
+    if (boss.state !== 'intro_dialogue') return;
     const dialogues = [
-      "Who dares to complete my challenges?",
-      "Well... I guess I just need to spice things up..!"
+      "who dares enter my realm?",
+      "well.. i guess i need to spice things up!",
+      "when you defeat me.. it will be the last thing you will ever know"
     ];
     const currentText = dialogues[boss.dialogueIndex] || '';
     if (boss.dialogueCharIndex < currentText.length) {
       boss.dialogueCharIndex = currentText.length;
     } else {
-      if (boss.dialogueIndex === 0) {
-        boss.dialogueIndex = 1;
+      if (boss.dialogueIndex < dialogues.length - 1) {
+        boss.dialogueIndex++;
         boss.dialogueCharIndex = 0;
         boss.stateTimer = 0;
         boss.dialogueTimer = 0;
@@ -2445,7 +2885,7 @@ export class GameEngine {
 
   private updateSilkieSam(dt: number) {
     const sam = this.level.silkieSam;
-    if (!sam || sam.state === 'gone' || sam.state === 'waiting') return;
+    if (!sam || sam.state === 'waiting') return;
 
     sam.wingAngle = Math.sin(this.time * 16) * 0.45;
 
@@ -2467,10 +2907,10 @@ export class GameEngine {
       }
     }
 
-    // 2. TALK 1: "here take this!" -> drops shield
+    // 2. TALK 1: "here take this" -> drops shield
     else if (sam.state === 'talk_1') {
       sam.dialogueTimer += dt;
-      const line1 = "here take this!";
+      const line1 = "here take this";
       if (sam.dialogueCharIndex < line1.length) {
         if (wantsSkipDialogue) {
           sam.dialogueCharIndex = line1.length;
@@ -2482,7 +2922,7 @@ export class GameEngine {
           }
         }
       } else {
-        if (sam.dialogueTimer > 0.45 || (wantsSkipDialogue && sam.dialogueTimer > 0.15)) {
+        if (sam.dialogueTimer > 0.65 || (wantsSkipDialogue && sam.dialogueTimer > 0.2)) {
           sam.state = 'dropping_shield';
           sam.dialogueTimer = 0;
           sam.shieldDropped = true;
@@ -2493,20 +2933,20 @@ export class GameEngine {
       }
     }
 
-    // 3. DROPPING SHIELD -> TRANSITION TO TALK 2: "oh here is a sword.."
+    // 3. DROPPING SHIELD -> TRANSITION TO TALK 2: "oh here is a sword"
     else if (sam.state === 'dropping_shield') {
       sam.dialogueTimer += dt;
-      if (sam.dialogueTimer > 0.25 || wantsSkipDialogue) {
+      if (sam.dialogueTimer > 0.35 || wantsSkipDialogue) {
         sam.state = 'talk_2';
         sam.dialogueTimer = 0;
         sam.dialogueCharIndex = 0;
       }
     }
 
-    // 4. TALK 2: "oh here is a sword.." -> drops netherite sword!
+    // 4. TALK 2: "oh here is a sword" -> drops netherite sword!
     else if (sam.state === 'talk_2') {
       sam.dialogueTimer += dt;
-      const line2 = "oh here is a sword..";
+      const line2 = "oh here is a sword";
       if (sam.dialogueCharIndex < line2.length) {
         if (wantsSkipDialogue) {
           sam.dialogueCharIndex = line2.length;
@@ -2518,7 +2958,7 @@ export class GameEngine {
           }
         }
       } else {
-        if (sam.dialogueTimer > 0.45 || (wantsSkipDialogue && sam.dialogueTimer > 0.15)) {
+        if (sam.dialogueTimer > 0.65 || (wantsSkipDialogue && sam.dialogueTimer > 0.2)) {
           sam.state = 'dropping_sword';
           sam.dialogueTimer = 0;
           sam.swordDropped = true;
@@ -2529,20 +2969,20 @@ export class GameEngine {
       }
     }
 
-    // 5. DROPPING SWORD -> TRANSITION TO TALK 3: " it’s very powerful!"
+    // 5. DROPPING SWORD -> TRANSITION TO TALK 3: "good luck!"
     else if (sam.state === 'dropping_sword') {
       sam.dialogueTimer += dt;
-      if (sam.dialogueTimer > 0.25 || wantsSkipDialogue) {
+      if (sam.dialogueTimer > 0.35 || wantsSkipDialogue) {
         sam.state = 'talk_3';
         sam.dialogueTimer = 0;
         sam.dialogueCharIndex = 0;
       }
     }
 
-    // 6. TALK 3: " it’s very powerful!" (last line)
+    // 6. TALK 3: "good luck!" (last line)
     else if (sam.state === 'talk_3') {
       sam.dialogueTimer += dt;
-      const line3 = " it’s very powerful!";
+      const line3 = "good luck!";
       if (sam.dialogueCharIndex < line3.length) {
         if (wantsSkipDialogue) {
           sam.dialogueCharIndex = line3.length;
@@ -2554,7 +2994,7 @@ export class GameEngine {
           }
         }
       } else {
-        if (sam.dialogueTimer > 0.55 || (wantsSkipDialogue && sam.dialogueTimer > 0.2)) {
+        if (sam.dialogueTimer > 0.65 || (wantsSkipDialogue && sam.dialogueTimer > 0.2)) {
           sam.state = 'flying_away';
           sam.dialogueTimer = 0;
           audio.playJump(false);
@@ -2747,19 +3187,22 @@ export class GameEngine {
         const dist = Math.hypot(p.x + p.width / 2 - cp.x, p.y + p.height / 2 - cp.y);
         if (dist < 54) {
           cp.reached = true;
-          const matchingPlats = this.level.platforms.filter(pl => pl.x <= cp.x + 80 && pl.x + pl.width >= cp.x - 80);
+          const solidPlats = this.level.platforms.filter(pl => !pl.isMoving);
+          const candidates = solidPlats.length > 0 ? solidPlats : this.level.platforms;
+          const matchingPlats = candidates.filter(pl => pl.x <= cp.x + 60 && pl.x + pl.width >= cp.x - 60);
           let groundY = cp.y;
-          let safeX = cp.x;
+          let safeX = cp.x - p.width / 2;
           if (matchingPlats.length > 0) {
             matchingPlats.sort((a, b) => Math.abs(a.y - cp.y) - Math.abs(b.y - cp.y));
             const bestPlat = matchingPlats[0];
             groundY = bestPlat.y;
-            // Center the player on the platform away from dangerous edges
-            safeX = Math.round(bestPlat.x + bestPlat.width / 2);
+            const minSpawnX = Math.round(bestPlat.x + 16);
+            const maxSpawnX = Math.max(minSpawnX, Math.round(bestPlat.x + bestPlat.width - p.width - 16));
+            safeX = Math.max(minSpawnX, Math.min(maxSpawnX, Math.round(cp.x - p.width / 2)));
           }
           this.currentCheckpoint = { x: safeX, y: groundY - p.height };
           audio.playCheckpoint();
-          this.addFloatingText('★ SAFE HAVEN CHECKPOINT! ★', safeX, groundY - 45, '#4ade80');
+          this.addFloatingText('★ SAFE HAVEN CHECKPOINT! ★', cp.x, groundY - 45, '#4ade80');
 
           // Track permanently finished checkpoints for current and post-boss level replays
           const cpKey = `${this.level.id}_${cp.id}`;
@@ -2987,6 +3430,52 @@ export class GameEngine {
     }
   }
 
+  private addColorfulJumpDustBurst(x: number, y: number, count = 8) {
+    const colors = ['#fde047', '#38bdf8', '#4ade80', '#f472b6', '#c084fc', '#fb923c', '#ffffff'];
+    for (let i = 0; i < count; i++) {
+      this.particles.push({
+        x: x + (Math.random() - 0.5) * 16,
+        y: y - 2 - Math.random() * 4,
+        vx: (Math.random() - 0.5) * 95,
+        vy: -15 - Math.random() * 45,
+        size: Math.random() > 0.35 ? 4 : 3,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        life: 0.3 + Math.random() * 0.14,
+        maxLife: 0.44,
+        gravity: 190,
+      });
+    }
+  }
+
+  private addDashAttackPixelTrail(count = 4) {
+    const p = this.player;
+    const tailDir = p.facing === 'right' ? -1 : 1;
+    const originX = p.facing === 'right' ? p.x + 2 : p.x + p.width - 2;
+    const originY = p.y + p.height * 0.55;
+    const weaponColors =
+      this.swordType === 'netherite'
+        ? ['#c084fc', '#a855f7', '#f472b6', '#38bdf8', '#fde047', '#ffffff']
+        : this.swordType === 'diamond'
+        ? ['#38bdf8', '#22d3ee', '#818cf8', '#fde047', '#ffffff']
+        : this.swordType === 'gold'
+        ? ['#fde047', '#facc15', '#fb923c', '#f472b6', '#ffffff']
+        : ['#f43f5e', '#fb923c', '#fde047', '#4ade80', '#38bdf8', '#c084fc', '#ffffff'];
+
+    for (let i = 0; i < count; i++) {
+      this.particles.push({
+        x: originX + tailDir * (Math.random() * 10),
+        y: originY + (Math.random() - 0.5) * (p.height * 0.72),
+        vx: tailDir * (55 + Math.random() * 85),
+        vy: (Math.random() - 0.5) * 50 - 10,
+        size: Math.random() > 0.3 ? 4 : 3,
+        color: weaponColors[Math.floor(Math.random() * weaponColors.length)],
+        life: 0.24 + Math.random() * 0.12,
+        maxLife: 0.36,
+        gravity: 90,
+      });
+    }
+  }
+
   private addCoinSparkles(x: number, y: number) {
     for (let i = 0; i < 6; i++) {
       this.particles.push({
@@ -3032,6 +3521,7 @@ export class GameEngine {
 
   private updateParticles(dt: number) {
     this.particles.forEach(p => {
+      if (p.gravity) p.vy += p.gravity * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.life -= dt;

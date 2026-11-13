@@ -14,6 +14,9 @@ const DEFAULT_SAVE: SaveData = {
   levelCoinsCollected: {},
   soundEnabled: true,
   musicEnabled: true,
+  hasVisitedShop: false,
+  hasSeenSamLevel1Joke: false,
+  hasClaimedBossReward: false,
   shopClosedUntil: Date.now() + 2 * 60 * 60 * 1000, // Closed for at least 2 hours as requested
   selectedSkin: 'classic',
   unlockedSkins: ['classic'],
@@ -58,6 +61,8 @@ export function loadSaveData(): SaveData {
         shopPurchases: 0
       },
       hasVisitedShop: Boolean(parsed.hasVisitedShop),
+      hasSeenSamLevel1Joke: Boolean(parsed.hasSeenSamLevel1Joke),
+      hasClaimedBossReward: Boolean(parsed.hasClaimedBossReward),
       shopClosedUntil: typeof parsed.shopClosedUntil === 'number' ? parsed.shopClosedUntil : Date.now() + 2 * 60 * 60 * 1000,
       selectedSkin: selectedSkin as any,
       unlockedSkins: unlockedSkins as any,

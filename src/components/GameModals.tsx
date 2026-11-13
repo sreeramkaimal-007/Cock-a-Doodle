@@ -32,6 +32,7 @@ interface ModalProps {
   onSelectGender: (gender: ChickenGender) => void;
   onResume: () => void;
   onRestartLevel: () => void;
+  onRespawn?: () => void;
   onNextLevel: () => void;
   onSelectLevel: (levelId: number) => void;
   onReturnToMenu: () => void;
@@ -42,13 +43,15 @@ interface ModalProps {
   onClaimQuest?: (questId: string, rewardCoins: number) => void;
   onPurchaseUpgrade?: (cost: number, itemType: 'heart' | 'speed' | 'jump' | 'magnet' | 'revive' | 'lucky_corn' | 'iron_beak' | 'glider' | 'plumage' | 'armor' | 'sword' | 'shield', tierValue?: string) => boolean;
   onMarkShopVisited?: () => void;
+  onClaimBossReward?: () => void;
+  onFinishWorldLoading?: () => void;
   onToggleShopStatus?: () => void;
   onBuySkin?: (skinId: string, cost: number) => boolean;
   onEquipSkin?: (skinId: string) => void;
   onUnlockSkin?: (skinId: string, autoEquip?: boolean) => void;
   onChangeDifficulty?: (diff: 'easy' | 'normal' | 'hard') => void;
-  transitioningWorldLevel?: number | null;
-  onWorldTransitionComplete?: () => void;
+  currentUser?: { email?: string | null; displayName?: string | null; uid?: string } | null;
+  onLogOut?: () => void;
 }
 
 // Tablet and Mobile Ultra-Loose Continuous Smooth Scroll Buttons
@@ -949,6 +952,7 @@ export const GameModals: React.FC<ModalProps> = ({
   onSelectGender,
   onResume,
   onRestartLevel,
+  onRespawn,
   onNextLevel,
   onSelectLevel,
   onReturnToMenu,
@@ -959,13 +963,15 @@ export const GameModals: React.FC<ModalProps> = ({
   onClaimQuest,
   onPurchaseUpgrade,
   onMarkShopVisited,
+  onClaimBossReward,
+  onFinishWorldLoading,
   onToggleShopStatus,
   onBuySkin,
   onEquipSkin,
   onUnlockSkin,
   onChangeDifficulty,
-  transitioningWorldLevel,
-  onWorldTransitionComplete,
+  currentUser,
+  onLogOut,
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [selectedGender, setSelectedGender] = useState<ChickenGender>(saveData.gender || 'rooster');
@@ -985,12 +991,49 @@ export const GameModals: React.FC<ModalProps> = ({
   const [shopTab, setShopTab] = useState<'upgrades' | 'appearance'>('upgrades');
   const [appearanceStage, setAppearanceStage] = useState<GrowthStage>('adult');
   const [previewSkinId, setPreviewSkinId] = useState<string>(saveData.selectedSkin || 'classic');
-  const [skinRarityFilter, setSkinRarityFilter] = useState<'ALL' | 'Common' | 'Rare' | 'Epic' | 'Legendary' | 'Mythic'>('ALL');
+  const [skinRarityFilter, setSkinRarityFilter] = useState<'ALL' | 'Common' | 'Rare' | 'Epic' | 'Legendary' | 'Mythic' | 'Secret'>('ALL');
 
-  // Post-Boss Silkie Sam dialogue state & Secret Skin reward
+  // Post-Boss Silkie Sam dialogue state & Secret Skin / 1,000,000 Coin reward
   const postBossStepRef = useRef<number>(0);
   const postBossTimerRef = useRef<number | null>(null);
+  const postBossTimer2Ref = useRef<number | null>(null);
+  const postBossTimer3Ref = useRef<number | null>(null);
+  const shopSessionActiveRef = useRef<boolean>(false);
+  const shopSessionInitialTextRef = useRef<string>("hello welcome to my shop!");
+  const shopSessionPostBossCanClaimRef = useRef<boolean>(false);
   const [showSecretSkinModal, setShowSecretSkinModal] = useState<boolean>(false);
+
+  // 1% -> 100% Next-World Loading Screen State (Tap button stays hidden until 100%)
+  const [worldLoadPercent, setWorldLoadPercent] = useState<number>(1);
+  useEffect(() => {
+    if (currentScreen !== 'WORLD_LOADING') {
+      setWorldLoadPercent(1);
+      return;
+    }
+    setWorldLoadPercent(1);
+    const interval = window.setInterval(() => {
+      setWorldLoadPercent(prev => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          return 100;
+        }
+        return prev + 1;
+      });
+    }, 24);
+    return () => clearInterval(interval);
+  }, [currentScreen, activeLevelId]);
+
+  useEffect(() => {
+    if (currentScreen !== 'WORLD_LOADING' || worldLoadPercent < 100) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' || e.code === 'Enter' || e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        onFinishWorldLoading?.();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [currentScreen, worldLoadPercent, onFinishWorldLoading]);
 
   // Tablet & Mobile Scroll Container Refs
   const shopScrollRef = useRef<HTMLDivElement>(null);
@@ -1004,8 +1047,8 @@ export const GameModals: React.FC<ModalProps> = ({
   
   // Silkie Chicken Shopkeeper Dialogue & Speech Audio State
   const initialDialogue = saveData.hasCompletedGame
-    ? "oh..your back!"
-    : (saveData.hasVisitedShop ? "hello again" : "hello welcome to the shop!");
+    ? "oh your back.."
+    : (saveData.hasVisitedShop ? "hello again" : "hello welcome to my shop!");
   const [shopkeeperDialogue, setShopkeeperDialogue] = useState<string>(initialDialogue);
   const [displayedDialogue, setDisplayedDialogue] = useState<string>(initialDialogue);
   const [isSilkieSpeaking, setIsSilkieSpeaking] = useState<boolean>(false);
@@ -1045,69 +1088,76 @@ export const GameModals: React.FC<ModalProps> = ({
     }, 28);
   }, []);
 
-  // Cleanup typewriter & post-boss interval on unmount
+  // Cleanup typewriter & post-boss intervals on unmount
   useEffect(() => {
     return () => {
-      if (typewriterTimerRef.current) {
-        clearInterval(typewriterTimerRef.current);
-      }
-      if (postBossTimerRef.current) {
-        clearTimeout(postBossTimerRef.current);
-      }
+      if (typewriterTimerRef.current) clearInterval(typewriterTimerRef.current);
+      if (postBossTimerRef.current) clearTimeout(postBossTimerRef.current);
+      if (postBossTimer2Ref.current) clearTimeout(postBossTimer2Ref.current);
+      if (postBossTimer3Ref.current) clearTimeout(postBossTimer3Ref.current);
     };
   }, []);
 
-  // Track opening the shop & trigger Silkie Sam's voice!
+  // Track opening the shop & trigger Silkie Sam's voice cleanly once per shop open!
   useEffect(() => {
     if (currentScreen === 'SHOP') {
+      if (shopSessionActiveRef.current) return;
+      shopSessionActiveRef.current = true;
+
       if (saveData.hasCompletedGame) {
-        // When boss is defeated and player visits Silkie Sam's shop:
-        // Line 1: "oh..your back!"
-        // If already has fried chicken skin (reward): Line 2 is "you were a legend"
-        // Otherwise: Line 2 is "well i wanted to give you this for saving the day" and awards skin!
-        const hasRewardSkin = saveData.unlockedSkins?.includes('thanksgiving_roast');
+        const canClaimReward = !saveData.hasClaimedBossReward;
+        const hasRewardSkin = Boolean(saveData.unlockedSkins?.includes('thanksgiving_roast'));
+        shopSessionPostBossCanClaimRef.current = canClaimReward;
         postBossStepRef.current = 1;
-        speakDialogue("oh..your back!", 'welcome');
-        if (postBossTimerRef.current) {
-          clearTimeout(postBossTimerRef.current);
-        }
+        speakDialogue("oh your back..", 'welcome');
+
+        if (postBossTimerRef.current) clearTimeout(postBossTimerRef.current);
+        if (postBossTimer2Ref.current) clearTimeout(postBossTimer2Ref.current);
+        if (postBossTimer3Ref.current) clearTimeout(postBossTimer3Ref.current);
+
         postBossTimerRef.current = window.setTimeout(() => {
           postBossStepRef.current = 2;
-          if (hasRewardSkin) {
-            speakDialogue("you were a legend", 'talk');
-          } else {
-            speakDialogue("well i wanted to give you this for saving the day", 'talk');
-            onUnlockSkin?.('thanksgiving_roast', true);
-            setPreviewSkinId('thanksgiving_roast');
-            window.setTimeout(() => {
-              setShowSecretSkinModal(true);
-            }, 1200);
+          speakDialogue("thank you for saving Mount Cluckmore", 'talk');
+
+          if (canClaimReward) {
+            postBossTimer2Ref.current = window.setTimeout(() => {
+              postBossStepRef.current = 3;
+              speakDialogue("here is your reward", 'purchase');
+              onClaimBossReward?.();
+              if (!hasRewardSkin) {
+                onUnlockSkin?.('thanksgiving_roast', true);
+                setPreviewSkinId('thanksgiving_roast');
+              }
+              postBossTimer3Ref.current = window.setTimeout(() => {
+                setShowSecretSkinModal(true);
+              }, 1100);
+            }, 2600);
           }
         }, 2200);
       } else {
         const isShopClosed = Boolean(saveData.shopClosedUntil && Date.now() < saveData.shopClosedUntil);
         if (isShopClosed) {
-          speakDialogue("sorry we are currently closed! please check back later!", 'again');
+          shopSessionInitialTextRef.current = "Sorry, we are currently closed! Please check back later!";
+          speakDialogue(shopSessionInitialTextRef.current, 'again');
         } else {
           const isFirst = !saveData.hasVisitedShop;
-          const text = isFirst ? "hello welcome to the shop!" : "hello again";
-          const sType = isFirst ? 'welcome' : 'again';
-          speakDialogue(text, sType);
+          const text = isFirst ? "hello welcome to my shop!" : "hello again";
+          shopSessionInitialTextRef.current = text;
+          speakDialogue(text, isFirst ? 'welcome' : 'again');
           if (isFirst) {
             onMarkShopVisited?.();
           }
         }
       }
     } else {
-      if (typewriterTimerRef.current) {
-        clearInterval(typewriterTimerRef.current);
-      }
-      if (postBossTimerRef.current) {
-        clearTimeout(postBossTimerRef.current);
-      }
+      shopSessionActiveRef.current = false;
+      if (typewriterTimerRef.current) clearInterval(typewriterTimerRef.current);
+      if (postBossTimerRef.current) clearTimeout(postBossTimerRef.current);
+      if (postBossTimer2Ref.current) clearTimeout(postBossTimer2Ref.current);
+      if (postBossTimer3Ref.current) clearTimeout(postBossTimer3Ref.current);
       setIsSilkieSpeaking(false);
     }
-  }, [currentScreen, saveData.shopClosedUntil, saveData.hasVisitedShop, saveData.hasCompletedGame, saveData.unlockedSkins, onMarkShopVisited, speakDialogue, onUnlockSkin]);
+  }, [currentScreen, saveData.shopClosedUntil, saveData.hasVisitedShop, saveData.hasCompletedGame, saveData.hasClaimedBossReward, saveData.unlockedSkins, onMarkShopVisited, onClaimBossReward, speakDialogue, onUnlockSkin]);
 
   // --- Badge Found Celebration Popup Modal ---
   const renderBadgeFoundPopup = () => {
@@ -1468,6 +1518,40 @@ export const GameModals: React.FC<ModalProps> = ({
             </p>
           </div>
 
+          {/* Authenticated Adventurer Passport Badge */}
+          {currentUser && (
+            <div className="w-full mb-3 p-2.5 bg-slate-950 border-[2px] border-amber-500 shadow-[3px_3px_0_#000000] flex items-center justify-between">
+              <div className="flex items-center gap-2 text-left min-w-0">
+                <div className="w-7 h-7 bg-amber-500/20 border border-amber-400 flex items-center justify-center shrink-0">
+                  <PixelChick className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-pixel-arcade text-[7.5px] text-yellow-400 font-bold">
+                      ADVENTURER:
+                    </span>
+                    <span className="font-pixel text-[7.5px] text-emerald-400 border border-emerald-600 px-1 py-0.2 bg-emerald-950">
+                      VERIFIED ✓
+                    </span>
+                  </div>
+                  <div className="font-pixel text-[8.5px] text-slate-200 truncate max-w-[170px] sm:max-w-[220px]">
+                    {currentUser.email || 'Registered Hero'}
+                  </div>
+                </div>
+              </div>
+              {onLogOut && (
+                <button
+                  type="button"
+                  onClick={onLogOut}
+                  className="px-2 py-1 bg-red-950 hover:bg-red-900 border border-red-500 text-red-200 font-pixel text-[7.5px] shadow-[1px_1px_0_#000] active:translate-x-[1px] active:translate-y-[1px] cursor-pointer shrink-0 ml-2"
+                  title="Log out of account"
+                >
+                  LOGOUT
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Detailed Action Buttons matching Cock a Doodle font & vibrant arcade yellow color */}
           <div className="w-full flex flex-col gap-2.5">
             {/* 1. PLAY / START BUTTON - Always routes to Gender Selection first! */}
@@ -1693,12 +1777,12 @@ export const GameModals: React.FC<ModalProps> = ({
   // --- Level Select (All 30 Levels) ---
   if (currentScreen === 'LEVEL_SELECT') {
     const worlds = [
-      { id: 1, name: 'World 1: the Start', levels: [1, 2, 3, 4, 5], badge: 'Baby Chick' },
-      { id: 2, name: 'World 2: the Adventure starts', levels: [6, 7, 8, 9], badge: 'Baby Chick' },
-      { id: 3, name: 'World 3: the Heat up', levels: [10], badge: 'Juvenile' },
-      { id: 4, name: 'World 4: the Jungle', levels: [11, 12, 13, 14, 15, 16, 17, 18, 19], badge: 'Teen & Gold Armor' },
-      { id: 5, name: 'World 5:the Snowy lands', levels: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29], badge: 'Adult & Bears' },
-      { id: 6, name: 'World 6:the End', levels: [30], badge: 'Grand Finale' },
+      { id: 1, name: 'World 1: The Start', levels: [1, 2, 3, 4, 5], badge: 'Baby Chick' },
+      { id: 2, name: 'World 2: The Adventure Starts', levels: [6, 7, 8, 9], badge: 'Baby Chick' },
+      { id: 3, name: 'World 3: The Heat Up', levels: [10], badge: 'Juvenile' },
+      { id: 4, name: 'World 4: the Jungle lands', levels: [11, 12, 13, 14, 15, 16, 17, 18, 19], badge: 'Teen & Gold Armor' },
+      { id: 5, name: 'World 5: the Artic lands', levels: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29], badge: 'Adult & Bears' },
+      { id: 6, name: 'World 6: The End', levels: [30], badge: 'Grand Finale' },
     ];
 
     return wrapWithPopup(
@@ -1820,6 +1904,10 @@ export const GameModals: React.FC<ModalProps> = ({
                     <span className="text-slate-200">Attack with Sword / Peck</span>
                   </div>
                   <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 flex flex-col items-center text-center">
+                    <span className="font-pixel text-[10px] text-amber-400 mb-1">C / S / ▼ DOWN</span>
+                    <span className="text-slate-200">Block & Deflect with Royal Shield</span>
+                  </div>
+                  <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 flex flex-col items-center text-center">
                     <span className="font-pixel text-[10px] text-amber-400 mb-1">ESCAPE / P</span>
                     <span className="text-slate-200">Pause Game</span>
                   </div>
@@ -1907,6 +1995,32 @@ export const GameModals: React.FC<ModalProps> = ({
           </div>
 
           <div className="space-y-4">
+            {/* Authenticated Adventurer Account Card */}
+            {currentUser && (
+              <div className="p-3 bg-slate-950 border-[2px] border-amber-500 shadow-[2px_2px_0_#000000] flex items-center justify-between">
+                <div className="text-left min-w-0">
+                  <div className="font-pixel-arcade text-[8px] text-yellow-400 font-bold">
+                    ADVENTURER ACCOUNT
+                  </div>
+                  <div className="font-pixel text-[8.5px] text-slate-200 truncate max-w-[200px]">
+                    {currentUser.email}
+                  </div>
+                  <div className="font-pixel text-[7.5px] text-emerald-400 mt-0.5">
+                    Email Status: Verified ✓
+                  </div>
+                </div>
+                {onLogOut && (
+                  <button
+                    type="button"
+                    onClick={onLogOut}
+                    className="px-2.5 py-1.5 bg-red-950 hover:bg-red-900 border border-red-500 text-red-200 font-pixel text-[8px] shadow-[1px_1px_0_#000] active:translate-x-[1px] active:translate-y-[1px] cursor-pointer shrink-0 ml-2"
+                  >
+                    LOGOUT
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* ═══════════════════════════════════════════════════════════════
                 GAME DIFFICULTY MODES (EASY, NORMAL, HARD) WITH LIVE DESCRIPTION
                 ═══════════════════════════════════════════════════════════════ */}
@@ -2207,256 +2321,80 @@ export const GameModals: React.FC<ModalProps> = ({
     );
   }
 
-const WORLD_TRANSITION_DATA: Record<number, {
-  completedWorldNum: number;
-  completedWorldName: string;
-  nextWorldNum: number;
-  nextWorldName: string;
-  nextLevel: number;
-  badge: string;
-  badgeColor: string;
-  barColor: string;
-  ambientGlow: string;
-  hint: string;
-  lore: string;
-}> = {
-  5: {
-    completedWorldNum: 1,
-    completedWorldName: 'World 1: the Start',
-    nextWorldNum: 2,
-    nextWorldName: 'World 2: the Adventure starts',
-    nextLevel: 6,
-    badge: 'Meadow Plains',
-    badgeColor: 'border-emerald-500 text-emerald-400 bg-emerald-950/60',
-    barColor: 'from-emerald-400 via-green-300 to-emerald-500',
-    ambientGlow: 'rgba(16, 185, 129, 0.35)',
-    hint: 'Tip: Leap across slopes and watch out for sheep grazing on the open plains!',
-    lore: 'Leaving the peaceful farm coop behind, the vast open world beckons with new adventures!'
-  },
-  9: {
-    completedWorldNum: 2,
-    completedWorldName: 'World 2: the Adventure starts',
-    nextWorldNum: 3,
-    nextWorldName: 'World 3: the Heat up',
-    nextLevel: 10,
-    badge: 'Volcanic Caldera',
-    badgeColor: 'border-amber-500 text-amber-400 bg-amber-950/60',
-    barColor: 'from-amber-400 via-yellow-300 to-orange-500',
-    ambientGlow: 'rgba(245, 158, 11, 0.4)',
-    hint: 'Tip: Magma chambers bubble! Your body surges with Juvenile Evolution power!',
-    lore: 'Crossing the meadow borders into the volcanic heat, your chicken body begins to transform!'
-  },
-  10: {
-    completedWorldNum: 3,
-    completedWorldName: 'World 3: the Heat up',
-    nextWorldNum: 4,
-    nextWorldName: 'World 4: the Jungle',
-    nextLevel: 11,
-    badge: 'Ancient Jungle',
-    badgeColor: 'border-green-500 text-emerald-400 bg-emerald-950/60',
-    barColor: 'from-yellow-400 via-emerald-300 to-green-500',
-    ambientGlow: 'rgba(34, 197, 94, 0.35)',
-    hint: 'Tip: Monkeys perch high in jungle trees and ancient temples drop heavy boulders!',
-    lore: 'Entering the lush, uncharted jungle of fire with ancient stone ruins and cunning foxes!'
-  },
-  19: {
-    completedWorldNum: 4,
-    completedWorldName: 'World 4: the Jungle',
-    nextWorldNum: 5,
-    nextWorldName: 'World 5:the Snowy lands',
-    nextLevel: 20,
-    badge: 'Frozen Alpine Mountain',
-    badgeColor: 'border-cyan-500 text-cyan-400 bg-cyan-950/60',
-    barColor: 'from-cyan-400 via-sky-300 to-blue-500',
-    ambientGlow: 'rgba(56, 189, 248, 0.4)',
-    hint: 'Tip: Adult chicken resilience withstands freezing mountain gales and ferocious grizzly bears!',
-    lore: 'Climbing beyond the jungle canopy into the freezing blizzard crags of the northern peaks!'
-  },
-  29: {
-    completedWorldNum: 5,
-    completedWorldName: 'World 5:the Snowy lands',
-    nextWorldNum: 6,
-    nextWorldName: 'World 6:the End',
-    nextLevel: 30,
-    badge: 'Mount Cluckmore Summit',
-    badgeColor: 'border-rose-500 text-rose-400 bg-rose-950/60',
-    barColor: 'from-rose-500 via-amber-300 to-yellow-400',
-    ambientGlow: 'rgba(244, 63, 94, 0.45)',
-    hint: 'Tip: The Ancient Cockatrice awaits! Deflect fiery breath with your Royal Shield!',
-    lore: 'The storm breaks at the peak of Mount Cluckmore. The final reckoning has arrived!'
-  }
-};
+  // --- Next World Loading Screen (1% to 100%, Tap Screen Button hidden until 100%) ---
+  if (currentScreen === 'WORLD_LOADING') {
+    const targetLevel = LEVELS.find(l => l.id === activeLevelId) || LEVELS[0];
+    const isReady = worldLoadPercent >= 100;
+    const loadingStatus =
+      worldLoadPercent < 30
+        ? 'GENERATING PIXEL WORLD...'
+        : worldLoadPercent < 65
+        ? 'PLACING SAFE CHECKPOINTS...'
+        : worldLoadPercent < 95
+        ? 'SUMMONING WILDLIFE & TREASURE...'
+        : isReady
+        ? 'WORLD READY! 100%'
+        : 'FINALIZING BIOME...';
 
-const WorldWaitingModal: React.FC<{
-  completedLevelId: number;
-  saveData: SaveData;
-  renderer?: Renderer | null;
-  onComplete: () => void;
-}> = ({ completedLevelId, saveData, renderer, onComplete }) => {
-  const trans = WORLD_TRANSITION_DATA[completedLevelId] || WORLD_TRANSITION_DATA[5];
-  const [progress, setProgress] = useState(0);
-  const completedRef = useRef(false);
-
-  const getTravelPhase = (pct: number) => {
-    if (pct < 20) return 'Packing corn seeds & feed supplies...';
-    if (pct < 45) return `Scouting the paths to ${trans.nextWorldName}...`;
-    if (pct < 70) return 'Preening feathers, sharpening beaks & readying gear...';
-    if (pct < 90) return `Crossing border into ${trans.nextWorldName}...`;
-    return 'READY! ENTERING NEXT WORLD!';
-  };
-
-  useEffect(() => {
-    const startTime = performance.now();
-    const duration = 2800; // 2.8 seconds smooth retro loading
-    let animId: number;
-
-    const tick = (now: number) => {
-      const elapsed = now - startTime;
-      const currentPct = Math.min(100, (elapsed / duration) * 100);
-      setProgress(currentPct);
-
-      if (currentPct < 100) {
-        animId = requestAnimationFrame(tick);
-      } else if (!completedRef.current) {
-        completedRef.current = true;
-        audio.playLevelClear();
-        setTimeout(() => {
-          onComplete();
-        }, 300);
-      }
-    };
-
-    animId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animId);
-  }, [onComplete]);
-
-  const handleSkip = () => {
-    if (!completedRef.current) {
-      completedRef.current = true;
-      setProgress(100);
-      audio.playLevelClear();
-      onComplete();
-    }
-  };
-
-  let heroStage: GrowthStage = 'baby';
-  if (completedLevelId >= 19) heroStage = 'adult';
-  else if (completedLevelId >= 10) heroStage = 'teen';
-  else if (completedLevelId >= 9) heroStage = 'juvenile';
-
-  return (
-    <div 
-      className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-4 z-50 select-none overflow-y-auto"
-      onClick={handleSkip}
-    >
-      <div 
-        className="w-full max-w-lg bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 border-[3px] border-black rounded-3xl p-5 sm:p-7 flex flex-col items-center text-center shadow-[0_6px_0_#000000] relative overflow-hidden"
-        style={{ boxShadow: `0 0 60px ${trans.ambientGlow}, 0 6px 0 #000000` }}
-        onClick={(e) => e.stopPropagation()}
+    return wrapWithPopup(
+      <div
+        onClick={() => {
+          if (isReady) {
+            onFinishWorldLoading?.();
+          }
+        }}
+        className={`absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-4 z-40 select-none ${
+          isReady ? 'cursor-pointer' : 'cursor-wait'
+        }`}
       >
-        {/* Top Header Badge */}
-        <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border-[2.5px] border-black text-yellow-400 text-[10px] font-pixel-arcade tracking-widest mb-3 shadow-[0_2px_0_#000000] drop-shadow-[0_1px_0_#3b1302]">
-          <Sparkles className="w-3.5 h-3.5 text-yellow-400 animate-spin" />
-          <span>WORLD COMPLETED</span>
-        </div>
-
-        {/* Title */}
-        <h2 className="font-pixel-arcade text-lg sm:text-2xl text-yellow-400 mb-1 drop-shadow-[0_2px_0_#3b1302]">
-          WORLD {trans.completedWorldNum} CONQUERED!
-        </h2>
-        <p className="text-[10px] sm:text-xs text-yellow-300/80 font-pixel-arcade mb-3">
-          All stages cleared! Journeying forward...
-        </p>
-
-        {/* Animated Hero Chicken Canvas */}
-        <div className="relative my-1 flex flex-col items-center">
-          <ChickenPreviewCanvas
-            size={110}
-            gender={saveData.gender || 'rooster'}
-            stage={heroStage}
-            armor={saveData.armor || 'none'}
-            sword={saveData.sword || 'none'}
-            skin={saveData.selectedSkin || 'classic'}
-            renderer={renderer}
-          />
-          {/* Dust & Footstep Embers */}
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className="w-1.5 h-1.5 bg-yellow-400 rounded-sm animate-ping" />
-            <span className="text-[9px] font-pixel-arcade text-slate-400 tracking-wider">
-              MARCHING FORWARD...
-            </span>
-            <span className="w-1.5 h-1.5 bg-yellow-400 rounded-sm animate-ping" />
-          </div>
-        </div>
-
-        {/* Destination World Card */}
-        <div className="w-full bg-slate-900/90 border-[2.5px] border-black rounded-2xl p-4 my-3 text-left shadow-[0_3px_0_#000000]">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[9px] font-pixel-arcade text-yellow-400/80 tracking-wider">
-              ENTERING NEXT REALM
-            </span>
-            <span className={`text-[9px] font-pixel-arcade px-2 py-0.5 rounded-full border-[1.5px] border-black ${trans.badgeColor}`}>
-              {trans.badge}
-            </span>
+        <div className="w-full max-w-md bg-gradient-to-b from-slate-900 via-slate-950 to-indigo-950 border-4 border-yellow-400 p-6 sm:p-8 flex flex-col items-center text-center shadow-[0_0_60px_rgba(250,204,21,0.35)]">
+          <div className="px-3 py-1 bg-yellow-950/70 border-2 border-yellow-400 text-yellow-300 font-pixel-arcade text-[9px] tracking-widest mb-3">
+            TRAVELING TO NEXT WORLD
           </div>
 
-          <h3 className="font-pixel-arcade text-sm sm:text-base text-yellow-400 font-bold mb-1 drop-shadow-[0_1px_0_#3b1302]">
-            {trans.nextWorldName}
-          </h3>
-          <p className="font-pixel text-[11px] text-slate-300 leading-relaxed mb-2">
-            {trans.lore}
+          <h2 className="font-pixel-arcade text-lg sm:text-xl text-yellow-400 drop-shadow-[0_3px_0_#3b1302] mb-1.5">
+            {targetLevel.worldName}
+          </h2>
+          <p className="font-pixel text-xs text-sky-300 mb-6">
+            STAGE {targetLevel.id} / 30 • {targetLevel.title}
           </p>
 
-          <div className="pt-2 border-t border-slate-800 text-[10px] font-pixel text-amber-300/90 flex items-start gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
-            <span>{trans.hint}</span>
-          </div>
-        </div>
-
-        {/* Retro Pixel Loading Bar */}
-        <div className="w-full my-2">
-          <div className="flex items-center justify-between text-[10px] font-pixel-arcade text-yellow-400 mb-1.5">
-            <span className="truncate pr-2">{getTravelPhase(progress)}</span>
-            <span className="tabular-nums font-bold drop-shadow-[0_1px_0_#3b1302] shrink-0">
-              {Math.round(progress)}%
-            </span>
+          {/* 8-Bit Percentage Display */}
+          <div className="font-pixel-arcade text-3xl sm:text-4xl text-yellow-300 drop-shadow-[0_3px_0_#000000] tabular-nums mb-3">
+            {worldLoadPercent}%
           </div>
 
-          {/* Chunky Arcade Progress Track */}
-          <div className="w-full h-6 rounded-xl bg-slate-950 border-[2.5px] border-black shadow-[0_3px_0_#000000] p-0.5 relative overflow-hidden">
+          {/* 8-Bit Segmented Pixel Progress Bar */}
+          <div className="w-full h-7 bg-slate-950 border-2 border-yellow-400 p-1 mb-3 shadow-inner">
             <div
-              className={`h-full rounded-lg bg-gradient-to-r ${trans.barColor} transition-all duration-75 relative overflow-hidden`}
-              style={{ width: `${progress}%` }}
-            >
-              {/* Animated diagonal gloss stripes */}
-              <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.25)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.25)_50%,rgba(255,255,255,0.25)_75%,transparent_75%,transparent)] bg-[length:16px_16px] animate-[pulse_1s_infinite]" />
-            </div>
+              className={`h-full transition-all duration-75 ${
+                isReady
+                  ? 'bg-gradient-to-r from-emerald-500 via-green-400 to-lime-300'
+                  : 'bg-gradient-to-r from-amber-600 via-yellow-400 to-yellow-200'
+              }`}
+              style={{ width: `${worldLoadPercent}%` }}
+            />
           </div>
+
+          <p className="font-pixel text-[10px] text-amber-200/80 tracking-wider mb-6">
+            {loadingStatus}
+          </p>
+
+          {/* Tap Screen Button ONLY renders once loading hits 100%! */}
+          {isReady && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFinishWorldLoading?.();
+              }}
+              className="w-full py-3.5 px-6 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:to-amber-400 text-slate-950 font-pixel-arcade font-bold text-xs tracking-wider border-2 border-amber-700 shadow-[0_4px_0_#78350f] active:translate-y-1 active:shadow-none cursor-pointer animate-pulse"
+            >
+              ▶ TAP SCREEN TO ENTER WORLD {targetLevel.world} ◀
+            </button>
+          )}
         </div>
-
-        {/* Skip / Continue Button */}
-        <button
-          onClick={handleSkip}
-          className="mt-2.5 py-2 px-5 rounded-xl bg-slate-900 border-[2px] border-black hover:bg-slate-800 text-yellow-400 font-pixel-arcade text-[10px] tracking-wider shadow-[0_2px_0_#000000] active:translate-y-0.5 active:shadow-none transition-all cursor-pointer flex items-center gap-2"
-        >
-          <span>TAP OR PRESS SPACE TO SKIP</span>
-          <ChevronRight className="w-3.5 h-3.5 text-yellow-400" />
-        </button>
       </div>
-    </div>
-  );
-};
-
-  // --- World Waiting / Loading Screen (Automatic Transition Between Worlds) ---
-  if (currentScreen === 'WORLD_WAITING') {
-    const fromLevel = transitioningWorldLevel || activeLevelId;
-    return (
-      <WorldWaitingModal
-        completedLevelId={fromLevel}
-        saveData={saveData}
-        renderer={renderer}
-        onComplete={onWorldTransitionComplete || onNextLevel}
-      />
     );
   }
 
@@ -2465,10 +2403,11 @@ const WorldWaitingModal: React.FC<{
     const currentLevel = LEVELS.find(l => l.id === activeLevelId);
     const nextLevel = LEVELS.find(l => l.id === activeLevelId + 1);
     const isMaxLevel = activeLevelId >= 30;
+    const maxHearts = 3 + (saveData.upgrades?.extraHearts || 0);
 
     let stageName = 'Baby Chick';
-    let nextMilestone = 'Level 6 (Juvenile Chicken)';
-    let progressPercent = (activeLevelId / 6) * 100;
+    let nextMilestone = 'Level 10 (Juvenile Chicken)';
+    let progressPercent = (activeLevelId / 10) * 100;
     if (activeLevelId >= 20) {
       stageName = 'Mighty Adult Chicken';
       nextMilestone = 'Level 30 (Mount Cluckmore Summit)';
@@ -2477,10 +2416,10 @@ const WorldWaitingModal: React.FC<{
       stageName = 'Teen Chicken (Gold Armor & Sword)';
       nextMilestone = 'Level 20 (Adult Chicken)';
       progressPercent = ((activeLevelId - 15) / 5) * 100;
-    } else if (activeLevelId >= 6) {
+    } else if (activeLevelId >= 10) {
       stageName = 'Juvenile Chicken (Iron Armor & Sword)';
       nextMilestone = 'Level 15 (Teen Chicken)';
-      progressPercent = ((activeLevelId - 6) / 9) * 100;
+      progressPercent = ((activeLevelId - 10) / 5) * 100;
     }
 
     const hasFullCoins = coinsEarned >= 8;
@@ -2530,7 +2469,7 @@ const WorldWaitingModal: React.FC<{
                 <span className="font-pixel-arcade text-xs text-yellow-400 font-bold drop-shadow-[0_2px_0_#3b1302]">{stageName}</span>
               </div>
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-yellow-950/60 border border-yellow-500/70 text-[10px] text-yellow-400 font-pixel-arcade">
-                <span>3 / 3 HEARTS</span>
+                <span>{maxHearts} / {maxHearts} HEARTS</span>
               </div>
             </div>
 
@@ -2655,9 +2594,9 @@ const WorldWaitingModal: React.FC<{
           </p>
 
           <div className="w-full space-y-2.5">
-            {/* RETRY BUTTON WITH PIXELATED '!' SIGN */}
+            {/* RESPAWN / RETRY BUTTON WITH PIXELATED '!' SIGN */}
             <button
-              onClick={onRestartLevel}
+              onClick={activeLevelId === 30 && onRespawn ? onRespawn : onRestartLevel}
               className="w-full py-3.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-yellow-400 font-bold font-pixel-arcade text-xs tracking-wider border-2 border-yellow-500 shadow-[0_0_20px_rgba(245,158,11,0.35)] drop-shadow-[0_2px_0_#3b1302] transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-98"
             >
               {/* Pixelated '!' Exclamation Mark */}
@@ -2671,7 +2610,7 @@ const WorldWaitingModal: React.FC<{
                 <rect x="1.5" y="6.5" width="2" height="2" fill="#facc15" />
                 <rect x="2" y="7" width="1" height="1" fill="#ffffff" />
               </svg>
-              <span>RETRY LEVEL</span>
+              <span>{activeLevelId === 30 ? 'RESPAWN' : 'RETRY LEVEL'}</span>
               {/* Mirror Pixelated '!' Exclamation Mark on right */}
               <svg viewBox="0 0 5 9" className="w-3.5 h-4.5" style={{ shapeRendering: 'crispEdges' }}>
                 <rect x="1" y="0" width="3" height="5" fill="#3b1302" />
@@ -2917,7 +2856,7 @@ const WorldWaitingModal: React.FC<{
 
     const handleBuyItem = (item: typeof shopItems[0]) => {
       if (isShopClosed) {
-        speakDialogue("sorry we are currently closed! please check back later!", 'again');
+        speakDialogue("Sorry, we are currently closed! Please check back later!", 'again');
         return;
       }
       if (item.isMaxed) return;
@@ -2926,7 +2865,7 @@ const WorldWaitingModal: React.FC<{
       }
       const success = onPurchaseUpgrade?.(item.cost, item.type, (item as any).tierValue);
       if (success) {
-        speakDialogue("thanks for your purchase!", 'purchase');
+        speakDialogue("Thanks for your purchase!", 'purchase');
       }
     };
 
@@ -3005,25 +2944,29 @@ const WorldWaitingModal: React.FC<{
                   clearTimeout(postBossTimerRef.current);
                   postBossTimerRef.current = null;
                 }
-                const hasRewardSkin = saveData.unlockedSkins?.includes('thanksgiving_roast');
+                if (postBossTimer2Ref.current) {
+                  clearTimeout(postBossTimer2Ref.current);
+                  postBossTimer2Ref.current = null;
+                }
+                if (postBossTimer3Ref.current) {
+                  clearTimeout(postBossTimer3Ref.current);
+                  postBossTimer3Ref.current = null;
+                }
                 if (postBossStepRef.current === 1) {
                   postBossStepRef.current = 2;
-                  if (hasRewardSkin) {
-                    speakDialogue("you were a legend", 'talk');
-                  } else {
-                    speakDialogue("well i wanted to give you this for saving the day", 'talk');
-                    onUnlockSkin?.('thanksgiving_roast', true);
-                    setPreviewSkinId('thanksgiving_roast');
-                  }
+                  speakDialogue("thank you for saving Mount Cluckmore", 'talk');
+                } else if (postBossStepRef.current === 2 && shopSessionPostBossCanClaimRef.current) {
+                  postBossStepRef.current = 3;
+                  speakDialogue("here is your reward", 'purchase');
                 } else {
                   postBossStepRef.current = 1;
-                  speakDialogue("oh..your back!", 'welcome');
+                  speakDialogue("oh your back..", 'welcome');
                 }
                 return;
               }
-              const sType = isShopClosed ? 'again' : (shopkeeperDialogue.includes('purchase') 
-                ? 'purchase' 
-                : (!saveData.hasVisitedShop ? 'welcome' : 'again'));
+              const sType = isShopClosed ? 'again' : (shopkeeperDialogue.includes('Equipped') || shopkeeperDialogue.includes('Unlocked')
+                ? 'purchase'
+                : (shopSessionInitialTextRef.current === "hello welcome to my shop!" ? 'welcome' : 'again'));
               speakDialogue(shopkeeperDialogue, sType);
             }}
             title="Click Silkie Sam to talk!"
@@ -3086,7 +3029,7 @@ const WorldWaitingModal: React.FC<{
               type="button"
               onClick={() => {
                 setShopTab('upgrades');
-                speakDialogue("need combat armor or charms? browse our sturdy masterwork gear!", 'talk');
+                speakDialogue("Need combat armor or charms? Browse our sturdy masterwork gear!", 'talk');
               }}
               className={`flex-1 py-2 sm:py-2.5 px-3 rounded-2xl font-pixel-arcade text-[10px] sm:text-xs font-bold border-2 transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm ${
                 shopTab === 'upgrades'
@@ -3102,7 +3045,7 @@ const WorldWaitingModal: React.FC<{
               type="button"
               onClick={() => {
                 setShopTab('appearance');
-                speakDialogue("trying on new plumage? our feathers are dyed with enchanted elderberries!", 'talk');
+                speakDialogue("Trying on new plumage? Our feathers are dyed with enchanted elderberries!", 'talk');
               }}
               className={`flex-1 py-2 sm:py-2.5 px-3 rounded-2xl font-pixel-arcade text-[10px] sm:text-xs font-bold border-2 transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm ${
                 shopTab === 'appearance'
@@ -3239,7 +3182,7 @@ const WorldWaitingModal: React.FC<{
                   <button
                     key={f.id}
                     type="button"
-                    onClick={() => setSkinRarityFilter(f.id as any)}
+                    onClick={() => setSkinRarityFilter(f.id as typeof skinRarityFilter)}
                     className={`px-2.5 py-1 rounded-xl text-[8px] sm:text-[9px] font-pixel-arcade font-bold border transition-all cursor-pointer whitespace-nowrap ${
                       skinRarityFilter === f.id
                         ? 'bg-yellow-400 text-slate-950 border-amber-600 shadow-sm'
@@ -3381,7 +3324,7 @@ const WorldWaitingModal: React.FC<{
                                 e.stopPropagation();
                                 onEquipSkin?.(skin.id);
                                 setPreviewSkinId(skin.id);
-                                speakDialogue(`equipped the ${skin.name}! you look splendid!`, 'purchase');
+                                speakDialogue(`Equipped the ${skin.name}! You look splendid!`, 'purchase');
                               }}
                               className="w-full py-1.5 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950 font-pixel-arcade text-[9px] font-bold border border-amber-600 shadow-[0_2px_0_#78350f] active:translate-y-0.5 cursor-pointer"
                             >
@@ -3401,14 +3344,14 @@ const WorldWaitingModal: React.FC<{
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (isShopClosed) {
-                                    speakDialogue("sorry we are currently closed! please check back later!", 'again');
+                                    speakDialogue("Sorry, we are currently closed! Please check back later!", 'again');
                                     return;
                                   }
                                   if (!canAfford) return;
                                   const ok = onBuySkin?.(skin.id, skin.price);
                                   if (ok) {
                                     setPreviewSkinId(skin.id);
-                                    speakDialogue(`unlocked the ${skin.name}! enjoy your new plumage!`, 'purchase');
+                                    speakDialogue(`Unlocked the ${skin.name}! Enjoy your new plumage!`, 'purchase');
                                   }
                                 }}
                                 disabled={!canAfford || isShopClosed}
@@ -3453,20 +3396,32 @@ const WorldWaitingModal: React.FC<{
                   <Sparkles className="w-3.5 h-3.5 animate-spin" />
                 </div>
 
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-b from-yellow-500/30 to-amber-950 border-2 border-yellow-400 flex items-center justify-center mb-3 shadow-[0_0_30px_rgba(250,204,21,0.4)]">
-                  <span className="text-4xl">🍗</span>
+                <div className="p-2 bg-gradient-to-b from-yellow-500/20 to-amber-950 border-2 border-yellow-400 flex items-center justify-center mb-3 shadow-[0_0_30px_rgba(250,204,21,0.4)]">
+                  <ChickenPreviewCanvas
+                    size={96}
+                    gender={saveData.gender || 'rooster'}
+                    stage="adult"
+                    armor={saveData.armor || 'none'}
+                    sword={saveData.sword || 'none'}
+                    skin="thanksgiving_roast"
+                    renderer={renderer}
+                  />
                 </div>
 
                 <h3 className="font-pixel-arcade text-base sm:text-lg text-yellow-300 drop-shadow-[0_2px_0_#000] mb-1">
                   Thanksgiving Golden Roast
                 </h3>
                 <div className="text-[11px] text-yellow-400 font-pixel-arcade mb-2">
-                  "well i wanted to give you this for saving the day"
+                  "thank you for saving Mount Cluckmore — here is your reward"
                 </div>
 
-                <p className="text-xs text-amber-100/90 font-body leading-relaxed mb-4">
+                <p className="text-xs text-amber-100/90 font-body leading-relaxed mb-3">
                   The ultimate secret roast chicken! Perfectly oven-roasted crispy golden skin sprinkled with cracked rosemary herbs and ivory bone drumsticks.
                 </p>
+
+                <div className="px-3 py-1.5 rounded-xl bg-amber-950/90 border border-yellow-400 text-yellow-300 font-pixel-arcade text-[10px] mb-2 font-bold">
+                  ★ +1,000,000 PELLET COINS AWARDED! ★
+                </div>
 
                 <div className="px-3 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-500 text-emerald-300 font-pixel-arcade text-[9px] mb-4">
                   ✓ SECRET SKIN UNLOCKED & EQUIPPED!
