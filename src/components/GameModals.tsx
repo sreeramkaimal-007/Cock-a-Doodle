@@ -17,6 +17,8 @@ import {
   PixelHen, PixelCrown, PixelBell, PixelLock, PixelSecret, PixelCheck,
   PixelCoins, PixelShop
 } from './PixelIcons';
+import { AdBanner } from './AdBanner';
+import { PrivacyPolicyModal } from './PrivacyPolicyModal';
 
 interface ModalProps {
   currentScreen: GameScreen;
@@ -974,6 +976,7 @@ export const GameModals: React.FC<ModalProps> = ({
   onLogOut,
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [selectedGender, setSelectedGender] = useState<ChickenGender>(saveData.gender || 'rooster');
   const [previewStage, setPreviewStage] = useState<GrowthStage>('adult');
   const [questTab, setQuestTab] = useState<'quests' | 'badges'>('quests');
@@ -1242,6 +1245,7 @@ export const GameModals: React.FC<ModalProps> = ({
     <>
       {element}
       {renderBadgeFoundPopup()}
+      {showPrivacyPolicy && <PrivacyPolicyModal onClose={() => setShowPrivacyPolicy(false)} />}
     </>
   );
 
@@ -1769,6 +1773,24 @@ export const GameModals: React.FC<ModalProps> = ({
 
           {/* Tablet & Mobile Scroll Helper */}
           <TabletScrollButtons containerRef={menuScrollRef} className="mt-3" />
+
+          {/* Policy-Compliant AdSense Slot (Only renders when VITE_ADSENSE_CLIENT_ID & SLOT are configured) */}
+          <AdBanner
+            slotId={import.meta.env.VITE_ADSENSE_SLOT_MENU}
+            format="horizontal"
+            className="mt-3"
+          />
+
+          {/* Privacy Policy link (Required for Google AdSense review & user transparency) */}
+          <div className="mt-3 pt-2 border-t border-slate-800/80 w-full flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setShowPrivacyPolicy(true)}
+              className="font-pixel text-[8px] text-slate-400 hover:text-yellow-300 underline underline-offset-2 cursor-pointer transition-colors"
+            >
+              PRIVACY POLICY & ADS INFO
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -2560,6 +2582,12 @@ export const GameModals: React.FC<ModalProps> = ({
             </div>
           </div>
 
+          <AdBanner
+            slotId={import.meta.env.VITE_ADSENSE_SLOT_INTERMISSION}
+            format="horizontal"
+            className="mt-3"
+          />
+
         </div>
       </div>
     );
@@ -2635,6 +2663,12 @@ export const GameModals: React.FC<ModalProps> = ({
               MAIN MENU
             </button>
           </div>
+
+          <AdBanner
+            slotId={import.meta.env.VITE_ADSENSE_SLOT_INTERMISSION}
+            format="horizontal"
+            className="mt-3"
+          />
         </div>
       </div>
     );
