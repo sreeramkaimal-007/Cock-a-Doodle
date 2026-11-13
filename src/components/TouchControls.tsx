@@ -123,44 +123,51 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           - Shield button appears when player has collected the shield
           ═══════════════════════════════════════════════════════════════ */}
       <div className="flex flex-col items-end gap-2 pointer-events-auto">
-        {/* Mobile Action Buttons Tray Toggle */}
-        <button
-          type="button"
-          onClick={() => setShowOtherButtons(p => !p)}
-          onPointerDown={e => e.stopPropagation()}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border-2 border-black text-[8px] sm:text-[9px] font-pixel-arcade text-yellow-300 shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none cursor-pointer select-none touch-manipulation"
-          aria-label={showOtherButtons ? 'Hide Extra Buttons' : 'Show Extra Buttons'}
-        >
-          {showOtherButtons ? <ChevronDown className="w-3.5 h-3.5 text-yellow-400 stroke-[2.5]" /> : <ChevronUp className="w-3.5 h-3.5 text-yellow-400 stroke-[2.5]" />}
-          <span className="font-bold">{showOtherButtons ? '▼ HIDE EXTRA' : '▲ SHOW EXTRA'}</span>
-        </button>
+        {/* Always-Visible Fullscreen + Extra Tray Row on Mobile */}
+        <div className="flex items-center gap-2">
+          {onToggleFullscreen && (
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              onPointerDown={e => e.stopPropagation()}
+              className={`h-8 px-2.5 border-2 border-black text-[8px] sm:text-[9px] font-pixel-arcade flex items-center gap-1.5 shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer select-none touch-manipulation ${
+                isFullscreen
+                  ? 'bg-emerald-950 text-emerald-300'
+                  : 'bg-slate-900 text-yellow-400'
+              }`}
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              <span className="font-bold">{isFullscreen ? 'EXIT FULL' : 'FULL SCREEN'}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowOtherButtons(p => !p)}
+            onPointerDown={e => e.stopPropagation()}
+            className="h-8 flex items-center gap-1.5 px-2.5 bg-slate-900 border-2 border-black text-[8px] sm:text-[9px] font-pixel-arcade text-yellow-300 shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none cursor-pointer select-none touch-manipulation"
+            aria-label={showOtherButtons ? 'Hide Extra Buttons' : 'Show Extra Buttons'}
+          >
+            {showOtherButtons ? <ChevronDown className="w-3.5 h-3.5 text-yellow-400 stroke-[2.5]" /> : <ChevronUp className="w-3.5 h-3.5 text-yellow-400 stroke-[2.5]" />}
+            <span className="font-bold">{showOtherButtons ? 'HIDE' : 'MORE'}</span>
+          </button>
+        </div>
 
         {/* Secondary Utility Buttons Row */}
-        {showOtherButtons && (
+        {showOtherButtons && onPause && (
           <div className="flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-150">
-            {onToggleFullscreen && (
-              <button
-                type="button"
-                onClick={onToggleFullscreen}
-                className="w-10 h-10 bg-slate-900 active:bg-slate-800 border-2 border-black text-yellow-400 flex items-center justify-center shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer"
-                title="Toggle Fullscreen"
-                aria-label="Toggle Fullscreen"
-              >
-                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-              </button>
-            )}
-
-            {onPause && (
-              <button
-                type="button"
-                onClick={onPause}
-                className="w-10 h-10 bg-slate-900 active:bg-slate-800 border-2 border-black text-slate-300 flex items-center justify-center shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer"
-                title="Pause Game"
-                aria-label="Pause Game"
-              >
-                <Pause className="w-4 h-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={onPause}
+              className="h-9 px-2.5 bg-slate-900 active:bg-slate-800 border-2 border-black text-slate-200 flex items-center gap-1.5 text-[8px] font-pixel-arcade shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer"
+              title="Pause Game"
+              aria-label="Pause Game"
+            >
+              <Pause className="w-3.5 h-3.5" />
+              <span>PAUSE</span>
+            </button>
           </div>
         )}
 

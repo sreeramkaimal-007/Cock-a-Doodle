@@ -12,11 +12,12 @@
     image-rendering: crisp-edges;
   }
 
-  html, body {
+  html, body, #root {
     margin: 0;
     padding: 0;
     width: 100%;
     height: 100%;
+    height: 100dvh;
     overflow: hidden;
     background-color: #020617;
     font-family: 'Silkscreen', 'Press Start 2P', monospace, sans-serif;
@@ -24,6 +25,12 @@
     -webkit-font-smoothing: none;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: geometricPrecision;
+  }
+
+  :fullscreen, :-webkit-full-screen {
+    width: 100% !important;
+    height: 100% !important;
+    background-color: #020617;
   }
 
   /* Sharp 8-bit pixel rendering on all SVGs and icons */

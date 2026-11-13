@@ -12,7 +12,7 @@ import { TouchControls } from './components/TouchControls';
 
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { ArrowLeft, LogOut } from 'lucide-react';
+import { ArrowLeft, LogOut, Maximize2, Minimize2, X } from 'lucide-react';
 import { auth, db } from './game/firebase';
 import { AuthModal } from './components/AuthModal';
 
@@ -41,6 +41,9 @@ export default function App() {
   const containerRef = useRef<HTMLElement | null>(null);
 
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [immersiveFullscreen, setImmersiveFullscreen] = useState<boolean>(false);
+  const [fullscreenTip, setFullscreenTip] = useState<string | null>(null);
+  const fullscreenTipTimerRef = useRef<number | null>(null);
 
   // Firebase Authentication & Verification Gate
   const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
@@ -106,15 +109,128 @@ export default function App() {
     }
   }, []);
 
-  const handleToggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.().catch(() => {});
-    } else {
-      document.exitFullscreen?.().catch(() => {});
+  const resizeCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(1, Math.round(rect.width));
+    const height = Math.max(1, Math.round(rect.height));
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.imageSmoothingEnabled = false;
+    }
+    if (engineRef.current) {
+      engineRef.current.resize(width, height);
     }
   }, []);
 
-  // Detect touch device & device orientation flip to trigger full screen + mobile cursors
+  const showTimedFullscreenTip = useCallback((msg: string) => {
+    setFullscreenTip(msg);
+    if (fullscreenTipTimerRef.current) {
+      window.clearTimeout(fullscreenTipTimerRef.current);
+    }
+    fullscreenTipTimerRef.current = window.setTimeout(() => {
+      setFullscreenTip(null);
+    }, 5500);
+  }, []);
+
+  const handleToggleFullscreen = useCallback(async () => {
+    audio.unlock();
+
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+      mozFullScreenElement?: Element | null;
+      mozCancelFullScreen?: () => Promise<void> | void;
+    };
+    const nativeFsElement = document.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement;
+    const currentlyActive = Boolean(nativeFsElement || immersiveFullscreen || isFullscreen);
+
+    if (currentlyActive) {
+      if (nativeFsElement) {
+        try {
+          if (document.exitFullscreen) await document.exitFullscreen();
+          else if (doc.webkitExitFullscreen) await doc.webkitExitFullscreen();
+          else if (doc.mozCancelFullScreen) await doc.mozCancelFullScreen();
+        } catch {
+          // Ignore exit errors
+        }
+      }
+      try {
+        (window.screen?.orientation as { unlock?: () => void } | undefined)?.unlock?.();
+      } catch {
+        // Ignore orientation unlock errors
+      }
+      setImmersiveFullscreen(false);
+      setIsFullscreen(false);
+      setFullscreenTip(null);
+      window.setTimeout(resizeCanvas, 60);
+      return;
+    }
+
+    const targetEl = (containerRef.current || document.documentElement) as HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void> | void;
+      mozRequestFullScreen?: () => Promise<void> | void;
+      msRequestFullscreen?: () => Promise<void> | void;
+    };
+
+    let enteredNative = false;
+    try {
+      if (targetEl.requestFullscreen) {
+        try {
+          await targetEl.requestFullscreen({ navigationUI: 'hide' } as FullscreenOptions);
+        } catch {
+          await targetEl.requestFullscreen();
+        }
+        enteredNative = true;
+      } else if (targetEl.webkitRequestFullscreen) {
+        await targetEl.webkitRequestFullscreen();
+        enteredNative = true;
+      } else if (targetEl.mozRequestFullScreen) {
+        await targetEl.mozRequestFullScreen();
+        enteredNative = true;
+      } else if (targetEl.msRequestFullscreen) {
+        await targetEl.msRequestFullscreen();
+        enteredNative = true;
+      }
+    } catch {
+      enteredNative = false;
+    }
+
+    if (enteredNative) {
+      setImmersiveFullscreen(false);
+      setIsFullscreen(true);
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      if (isTouch) {
+        try {
+          await (window.screen?.orientation as { lock?: (mode: string) => Promise<void> } | undefined)?.lock?.('landscape');
+        } catch {
+          // Orientation lock is optional and unsupported on some devices
+        }
+      }
+    } else {
+      // iOS Safari / iOS Chrome fallback: native Fullscreen API is unavailable on iPhone
+      setImmersiveFullscreen(true);
+      setIsFullscreen(true);
+      try {
+        window.scrollTo(0, 1);
+      } catch {
+        // Ignore scroll errors
+      }
+      const nav = navigator as Navigator & { standalone?: boolean };
+      const isStandalone = window.matchMedia?.('(display-mode: standalone)')?.matches || Boolean(nav.standalone);
+      if (!isStandalone) {
+        showTimedFullscreenTip('EXPANDED VIEW ACTIVE! ON IPHONE, TAP SHARE → ADD TO HOME SCREEN FOR EDGE-TO-EDGE FULLSCREEN.');
+      }
+    }
+
+    window.setTimeout(resizeCanvas, 60);
+    window.setTimeout(resizeCanvas, 260);
+  }, [immersiveFullscreen, isFullscreen, resizeCanvas, showTimedFullscreenTip]);
+
+  // Detect touch device & sync native fullscreen state
   useEffect(() => {
     const isMobileOrTouch = () =>
       'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024;
@@ -133,18 +249,18 @@ export default function App() {
     };
 
     const handleFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
+      const doc = document as Document & {
+        webkitFullscreenElement?: Element | null;
+        mozFullScreenElement?: Element | null;
+      };
+      const nativeActive = Boolean(document.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement);
+      setIsFullscreen(nativeActive || immersiveFullscreen);
+      window.setTimeout(resizeCanvas, 60);
     };
 
     const handleOrientation = () => {
       checkTouch();
-      // When phone or tablet is flipped to landscape, request full screen!
-      const isLandscape = window.innerWidth > window.innerHeight || (window.screen?.orientation && window.screen.orientation.type.includes('landscape'));
-      if (isLandscape && isMobileOrTouch()) {
-        if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen?.().catch(() => {});
-        }
-      }
+      window.setTimeout(resizeCanvas, 80);
     };
 
     window.addEventListener('touchstart', handleFirstTouch, { passive: true });
@@ -152,6 +268,7 @@ export default function App() {
     window.addEventListener('orientationchange', handleOrientation);
     window.screen?.orientation?.addEventListener?.('change', handleOrientation);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
 
     return () => {
       window.removeEventListener('touchstart', handleFirstTouch);
@@ -159,8 +276,9 @@ export default function App() {
       window.removeEventListener('orientationchange', handleOrientation);
       window.screen?.orientation?.removeEventListener?.('change', handleOrientation);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
     };
-  }, []);
+  }, [immersiveFullscreen, resizeCanvas]);
 
   // Save changes to localStorage and sync to Firestore
   const updateSaveData = useCallback((updater: (prev: SaveData) => SaveData) => {
@@ -861,27 +979,16 @@ export default function App() {
     }
   }, [screen]);
 
-  // Resize canvas according to container
+  // Resize canvas according to container and visualViewport (handles mobile URL bar show/hide)
   useEffect(() => {
-    const handleResize = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.imageSmoothingEnabled = false;
-      }
-      if (engineRef.current) {
-        engineRef.current.resize(rect.width, rect.height);
-      }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    window.visualViewport?.addEventListener('resize', resizeCanvas);
+    return () => {
+      window.removeEventListener('resize', resizeCanvas);
+      window.visualViewport?.removeEventListener('resize', resizeCanvas);
     };
-
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [resizeCanvas]);
 
   // Main Animation Loop
   useEffect(() => {
@@ -1066,7 +1173,9 @@ export default function App() {
     <main
       ref={containerRef}
       tabIndex={0}
-      className="relative w-screen h-screen overflow-hidden bg-slate-950 font-body select-none outline-none"
+      className={`fixed inset-0 w-full h-[100dvh] overflow-hidden bg-slate-950 font-body select-none outline-none ${
+        immersiveFullscreen ? 'z-[9999]' : ''
+      }`}
       onClick={(e) => {
         if (!currentUser || !currentUser.emailVerified) return;
         const target = e.target as HTMLElement | null;
@@ -1115,12 +1224,14 @@ export default function App() {
             soundEnabled={saveData.soundEnabled}
             musicEnabled={saveData.musicEnabled}
             showTouchControls={showTouchControls}
+            isFullscreen={isFullscreen}
             onToggleSound={handleToggleSound}
             onToggleMusic={handleToggleMusic}
             onToggleTouchControls={() => {
               userToggledTouchRef.current = true;
               setShowTouchControls(p => !p);
             }}
+            onToggleFullscreen={handleToggleFullscreen}
             onPause={() => setScreen('PAUSED')}
             onReturnToMenu={() => setScreen('MENU')}
             onLogOut={handleLogOut}
@@ -1185,9 +1296,26 @@ export default function App() {
         onLogOut={handleLogOut}
       />
 
-      {/* Persistent Top-Right Corner Back to Menu & Log Out Bar on all non-gameplay screens */}
+      {/* Persistent Top-Right Corner Fullscreen, Back to Menu & Log Out Bar on all non-gameplay screens */}
       {currentUser && currentUser.emailVerified && screen !== 'PLAYING' && (
         <div className="fixed top-2.5 right-3 sm:top-4 sm:right-5 z-[55] flex items-center gap-2 pointer-events-auto">
+          <button
+            type="button"
+            onClick={handleToggleFullscreen}
+            className={`px-2.5 py-1.5 border-2 font-pixel text-[8px] sm:text-[9px] shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] cursor-pointer flex items-center gap-1.5 ${
+              isFullscreen
+                ? 'bg-emerald-950/95 hover:bg-emerald-900 border-emerald-400 text-emerald-200'
+                : 'bg-slate-900/95 hover:bg-slate-800 border-amber-400 text-yellow-300'
+            }`}
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="w-3.5 h-3.5 text-emerald-300" />
+            ) : (
+              <Maximize2 className="w-3.5 h-3.5 text-yellow-400" />
+            )}
+            <span>{isFullscreen ? 'EXIT FULL' : 'FULL SCREEN'}</span>
+          </button>
           {screen !== 'MENU' && (
             <button
               type="button"
@@ -1207,6 +1335,23 @@ export default function App() {
           >
             <LogOut className="w-3.5 h-3.5 text-red-300" />
             <span>LOG OUT</span>
+          </button>
+        </div>
+      )}
+
+      {/* Brief Dismissible iOS/Mobile Fullscreen Tip Banner */}
+      {fullscreenTip && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[10000] max-w-[92vw] sm:max-w-md bg-slate-900/95 border-[3px] border-amber-400 px-3 py-2 shadow-[4px_4px_0_#000] flex items-center gap-2.5 pointer-events-auto">
+          <span className="font-pixel text-[7.5px] sm:text-[8.5px] text-amber-200 leading-relaxed">
+            {fullscreenTip}
+          </span>
+          <button
+            type="button"
+            onClick={() => setFullscreenTip(null)}
+            className="p-1 bg-slate-800 border-2 border-black text-yellow-300 hover:bg-slate-700 shrink-0 cursor-pointer"
+            aria-label="Dismiss tip"
+          >
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}

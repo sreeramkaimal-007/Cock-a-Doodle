@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Music, Pause, Shield, Sword, Gamepad2, Home, LogOut } from 'lucide-react';
+import { Volume2, VolumeX, Music, Pause, Shield, Sword, Gamepad2, Home, LogOut, Maximize2, Minimize2 } from 'lucide-react';
 import { GrowthStage, ArmorType, SwordType } from '../game/types';
 import { PixelChick, PixelJuvenile, PixelRooster, PixelCrown } from './PixelIcons';
 
@@ -17,9 +17,11 @@ interface GameHUDProps {
   soundEnabled: boolean;
   musicEnabled: boolean;
   showTouchControls: boolean;
+  isFullscreen?: boolean;
   onToggleSound: () => void;
   onToggleMusic: () => void;
   onToggleTouchControls: () => void;
+  onToggleFullscreen?: () => void;
   onPause: () => void;
   onReturnToMenu: () => void;
   onLogOut?: () => void;
@@ -243,9 +245,11 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   soundEnabled,
   musicEnabled,
   showTouchControls,
+  isFullscreen = false,
   onToggleSound,
   onToggleMusic,
   onToggleTouchControls,
+  onToggleFullscreen,
   onPause,
   onReturnToMenu,
   onLogOut,
@@ -331,6 +335,28 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           >
             <Gamepad2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
           </button>
+
+          {onToggleFullscreen && (
+            <button
+              onClick={onToggleFullscreen}
+              className={`h-8 sm:h-9 px-2 sm:px-2.5 border-[2.5px] border-black shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1 shrink-0 ${
+                isFullscreen
+                  ? 'bg-emerald-950 text-emerald-300 hover:bg-emerald-900'
+                  : 'bg-slate-900 text-yellow-400 hover:bg-slate-800'
+              }`}
+              aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-300" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
+              )}
+              <span className="font-pixel text-[7.5px] sm:text-[8px]">
+                {isFullscreen ? 'EXIT' : 'FULL'}
+              </span>
+            </button>
+          )}
 
           <button
             onClick={onPause}
