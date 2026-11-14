@@ -55,6 +55,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
     return () => clearInterval(interval);
   }, [resendCooldown]);
 
+  // Helper: sends Firebase verification email with continue-URL fallback and device language
+  const sendVerificationSafely = async (user: User) => {
+    try {
+      auth.useDeviceLanguage();
+    } catch {
+      // Ignore language preference error
+    }
+    try {
+      await sendEmailVerification(user, {
+        url: window.location.origin,
+        handleCodeInApp: false,
+      });
+    } catch (err: any) {
+      if (
+        err?.code === 'auth/unauthorized-continue-uri' ||
+        err?.code === 'auth/invalid-continue-uri'
+      ) {
+        await sendEmailVerification(user);
+      } else {
+        throw err;
+      }
+    }
+  };
+
   // Handle Email & Password Registration
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,22 +105,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
     try {
       const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
       if (displayName.trim()) {
-        await updateProfile(cred.user, { displayName: displayName.trim() });
+        await updateProfile(cred.user, { displayName: displayName.trim() }).catch(() => {});
       }
-      // Send verification email to registered email address
-      await sendEmailVerification(cred.user);
-      audio.playBadgeUnlock?.();
-      setSuccessMsg('Account registered! A verification email has been sent.');
+
+      try {
+        await sendVerificationSafely(cred.user);
+        audio.playBadgeUnlock?.();
+        setSuccessMsg(`Verification link sent to ${cleanEmail}! Check your Inbox and Spam/Bulk folder.`);
+        setResendCooldown(60);
+      } catch (emailErr: any) {
+        console.warn('Initial verification email error:', emailErr);
+        if (emailErr?.code === 'auth/too-many-requests') {
+          setResendCooldown(120);
+          setErrorMsg('Account created, but Firebase temporarily paused verification emails (too many requests). Wait 2 minutes and tap Resend, or use Google Sign-In below.');
+        } else {
+          setResendCooldown(30);
+          setErrorMsg(`Account created, but sending verification email failed (${emailErr?.message || 'try Resend'}).`);
+        }
+      }
       setTab('verify');
-      setResendCooldown(30);
     } catch (err: any) {
       console.error('Registration error:', err);
       if (err.code === 'auth/email-already-in-use') {
-        setErrorMsg('This email is already registered. Please log in.');
+        setErrorMsg('This email is already registered. Please switch to LOGIN or use Google Sign-In.');
       } else if (err.code === 'auth/invalid-email') {
         setErrorMsg('Invalid email address format.');
       } else if (err.code === 'auth/weak-password') {
         setErrorMsg('Password should be at least 6 characters.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setErrorMsg('Too many attempts from this device/IP. Please wait a few minutes or use Google Sign-In below.');
       } else if (err.code === 'auth/operation-not-allowed') {
         setErrorMsg('Email/Password sign-in is disabled in Firebase Console. Enable Email/Password under Authentication -> Sign-in method, or use Google Sign-In below.');
       } else if (err.code === 'auth/unauthorized-domain') {
@@ -231,17 +268,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
 
   // Resend Email Verification Link
   const handleResendVerification = async () => {
-    if (!auth.currentUser) return;
+    if (!auth.currentUser) {
+      setErrorMsg('Session expired. Please log in again.');
+      setSuccessMsg(null);
+      setTab('login');
+      return;
+    }
     if (resendCooldown > 0) return;
 
     setLoading(true);
     setErrorMsg(null);
+    setSuccessMsg(null);
     try {
-      await sendEmailVerification(auth.currentUser);
-      setSuccessMsg(`Verification email resent to ${auth.currentUser.email}!`);
-      setResendCooldown(45);
+      await sendVerificationSafely(auth.currentUser);
+      setSuccessMsg(`Verification email sent to ${auth.currentUser.email}! Check your Inbox and Spam/Bulk folder (it can take 1-2 mins).`);
+      setResendCooldown(60);
     } catch (err: any) {
-      setErrorMsg('Failed to resend email: ' + (err.message || String(err)));
+      if (err?.code === 'auth/too-many-requests') {
+        setResendCooldown(120);
+        setErrorMsg('Firebase paused email sending due to multiple requests. Check your Spam/Bulk folder for the earlier email, wait 2 minutes before retrying, or tap Sign In With Google below.');
+      } else {
+        setErrorMsg('Failed to resend email: ' + (err.message || String(err)));
+      }
     } finally {
       setLoading(false);
     }
@@ -252,15 +300,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
     e.preventDefault();
     if (!email.trim()) {
       setErrorMsg('Enter your email to receive password reset link.');
+      setSuccessMsg(null);
       return;
     }
     setLoading(true);
     setErrorMsg(null);
+    setSuccessMsg(null);
     try {
       await sendPasswordResetEmail(auth, email.trim());
-      setSuccessMsg('Password reset link sent to your email!');
+      setSuccessMsg('Password reset link sent! Check your Inbox and Spam/Bulk folder.');
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to send password reset email.');
+      if (err?.code === 'auth/too-many-requests') {
+        setErrorMsg('Too many reset requests. Please wait a couple of minutes before trying again.');
+      } else {
+        setErrorMsg(err.message || 'Failed to send password reset email.');
+      }
     } finally {
       setLoading(false);
     }
@@ -584,20 +638,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
             </div>
 
             <h3 className="font-pixel-arcade text-xs text-yellow-300">
-              VERIFICATION EMAIL SENT!
+              VERIFY YOUR EMAIL
             </h3>
 
             <div className="w-full p-3 bg-slate-950 border-2 border-slate-800 text-left font-pixel text-[9px] text-slate-300 space-y-2">
               <p>
-                A verification link has been delivered to:
+                Verification email address:
               </p>
               <p className="font-bold text-yellow-400 break-all bg-slate-900 p-1.5 border border-slate-700">
                 {auth.currentUser?.email || email}
               </p>
-              <p className="text-[8px] text-slate-400">
-                1. Open your email inbox (and check Spam/Junk folder if needed).<br />
-                2. Click the verification link from Firebase.<br />
-                3. Come back here and tap <strong>CHECK VERIFICATION STATUS</strong> below.
+              <p className="text-[8px] text-slate-400 leading-relaxed">
+                1. Open your inbox AND check <strong>Spam / Junk / Bulk</strong> for a message from <strong>noreply@bubbly-granite-180418.firebaseapp.com</strong>.<br />
+                2. Tap the verification link inside the email.<br />
+                3. Return here and tap <strong>CHECK VERIFICATION STATUS</strong> below.<br />
+                <span className="text-amber-300/90">Note: Yahoo &amp; some email apps may delay or filter Firebase links. For instant entry, use Google Sign-In below.</span>
               </p>
             </div>
 
@@ -622,6 +677,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
                 <span>
                   {resendCooldown > 0 ? `RESEND AVAILABLE IN ${resendCooldown}s` : 'RESEND VERIFICATION EMAIL'}
                 </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={loading}
+                className="w-full py-2 bg-blue-950 hover:bg-blue-900 border-2 border-blue-400 text-blue-100 font-pixel text-[8.5px] shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] transition-transform cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>SIGN IN WITH GOOGLE (INSTANT ACCESS)</span>
               </button>
 
               <button
