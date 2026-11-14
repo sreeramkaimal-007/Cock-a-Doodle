@@ -191,20 +191,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const checkingRef = useRef(false);
+  const inFlightCheckRef = useRef<Promise<boolean> | null>(null);
 
-  // Reusable Verification Checker: reloads Firebase user AND refreshes ID token
-  const checkVerificationStatus = useCallback(async (silent = false) => {
+  // Reusable Verification Checker: refreshes ID token AND reloads Firebase user
+  const checkVerificationStatus = useCallback(async (silent = false): Promise<boolean> => {
     const user = auth.currentUser;
     if (!user) {
       if (!silent) {
         setErrorMsg('Session expired. Please log in again with your verified email.');
+        setSuccessMsg(null);
         setTab('login');
       }
-      return;
+      return false;
     }
-    if (checkingRef.current) return;
-    checkingRef.current = true;
+
+    // If a silent background check is already running and the user clicks the button,
+    // wait for the in-flight check to finish instead of dropping the user's click.
+    if (inFlightCheckRef.current) {
+      if (silent) {
+        return inFlightCheckRef.current;
+      }
+      setLoading(true);
+      setErrorMsg(null);
+      setSuccessMsg(null);
+      const alreadyVerified = await inFlightCheckRef.current;
+      if (alreadyVerified) {
+        setLoading(false);
+        return true;
+      }
+    }
 
     if (!silent) {
       setLoading(true);
@@ -212,26 +227,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setSuccessMsg(null);
     }
 
-    try {
-      // Reload current user from Firebase server to get updated emailVerified flag
-      await user.reload();
-      const updatedUser = auth.currentUser;
+    const runCheck = (async (): Promise<boolean> => {
+      try {
+        // Force refresh ID token and reload user profile from Firebase server
+        await user.getIdToken(true).catch(() => {});
+        await Promise.race([
+          user.reload(),
+          new Promise<never>((_, reject) =>
+            window.setTimeout(() => reject(new Error('Verification check timed out. Please try again.')), 10000)
+          ),
+        ]);
+        const updatedUser = auth.currentUser;
 
-      if (updatedUser?.emailVerified) {
-        // Force refresh ID token so Firestore rules immediately see email_verified: true
-        await updatedUser.getIdToken(true).catch(() => {});
-        audio.playPowerUp?.();
-        setSuccessMsg('Email verified! Entering game...');
-        onAuthSuccess(updatedUser);
-      } else if (!silent) {
-        setErrorMsg('Email not verified yet! Please click the verification link in your email and tap Check again.');
+        if (updatedUser?.emailVerified) {
+          await updatedUser.getIdToken(true).catch(() => {});
+          audio.playPowerUp?.();
+          setSuccessMsg('Email verified! Entering game...');
+          onAuthSuccess(updatedUser);
+          return true;
+        }
+
+        if (!silent) {
+          setErrorMsg('Email not verified yet! Please click the link inside your verification email first, or tap Play Now (Local Save) below.');
+        }
+        return false;
+      } catch (err: any) {
+        if (err?.code === 'auth/user-token-expired' || err?.code === 'auth/invalid-user-token') {
+          if (!silent) {
+            setErrorMsg('Your verification succeeded! Please log in below with your email and password to enter the game.');
+            setTab('login');
+          }
+        } else if (!silent) {
+          setErrorMsg('Failed to refresh status: ' + (err?.message || String(err)));
+        }
+        return false;
+      } finally {
+        inFlightCheckRef.current = null;
       }
-    } catch (err: any) {
-      if (!silent) {
-        setErrorMsg('Failed to refresh status: ' + (err.message || String(err)));
-      }
+    })();
+
+    inFlightCheckRef.current = runCheck;
+    try {
+      return await runCheck;
     } finally {
-      checkingRef.current = false;
       if (!silent) {
         setLoading(false);
       }

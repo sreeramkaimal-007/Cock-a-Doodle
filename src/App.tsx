@@ -111,8 +111,15 @@ export default function App() {
         if (mode === 'verifyEmail' && oobCode) {
           await applyActionCode(auth, oobCode);
           if (auth.currentUser) {
-            await auth.currentUser.reload();
             await auth.currentUser.getIdToken(true).catch(() => {});
+            await auth.currentUser.reload();
+            if (active && auth.currentUser.emailVerified) {
+              setCurrentUser(auth.currentUser);
+              setIsEmailVerified(true);
+              setAllowUnverifiedLocalPlay(false);
+              setScreen('MENU');
+              await syncUserProfile(auth.currentUser);
+            }
           }
           const cleanUrl = window.location.pathname + window.location.hash;
           window.history.replaceState({}, document.title, cleanUrl);
@@ -130,6 +137,7 @@ export default function App() {
       if (user && !user.emailVerified) {
         // Always refresh cached user state from server in case user verified before returning/reloading
         try {
+          await user.getIdToken(true).catch(() => {});
           await user.reload();
         } catch {
           // Ignore network reload errors on initial boot
@@ -165,6 +173,7 @@ export default function App() {
     setIsEmailVerified(verified);
     if (verified) {
       setAllowUnverifiedLocalPlay(false);
+      setScreen('MENU');
       await syncUserProfile(user);
     }
   }, [syncUserProfile]);
