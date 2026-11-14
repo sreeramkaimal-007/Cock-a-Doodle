@@ -50,8 +50,10 @@ export default function App() {
   // to guarantee React re-renders and exits AuthModal immediately upon verification.
   const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
   const [isEmailVerified, setIsEmailVerified] = useState<boolean>(() => Boolean(auth.currentUser?.emailVerified));
+  const [allowUnverifiedLocalPlay, setAllowUnverifiedLocalPlay] = useState<boolean>(false);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const syncedUidRef = useRef<string | null>(null);
+  const hasGameAccess = Boolean(currentUser && (isEmailVerified || allowUnverifiedLocalPlay));
 
   const syncUserProfile = useCallback(async (user: User) => {
     if (!user.emailVerified) return;
@@ -141,9 +143,13 @@ export default function App() {
       setAuthLoading(false);
 
       if (user && verified) {
+        setAllowUnverifiedLocalPlay(false);
         await syncUserProfile(user);
       } else {
         syncedUidRef.current = null;
+        if (!user) {
+          setAllowUnverifiedLocalPlay(false);
+        }
       }
     });
 
@@ -158,6 +164,7 @@ export default function App() {
     const verified = Boolean(user.emailVerified);
     setIsEmailVerified(verified);
     if (verified) {
+      setAllowUnverifiedLocalPlay(false);
       await syncUserProfile(user);
     }
   }, [syncUserProfile]);
@@ -168,6 +175,7 @@ export default function App() {
       syncedUidRef.current = null;
       setCurrentUser(null);
       setIsEmailVerified(false);
+      setAllowUnverifiedLocalPlay(false);
       setScreen('MENU');
     } catch (err) {
       console.error('Logout error:', err);
@@ -942,7 +950,7 @@ export default function App() {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Never intercept or preventDefault keys when Auth gate is open or user is typing in a form field
-      if (!currentUser || !isEmailVerified || isFormField(e.target)) {
+      if (!hasGameAccess || isFormField(e.target)) {
         return;
       }
 
@@ -1009,7 +1017,7 @@ export default function App() {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (!currentUser || !isEmailVerified || isFormField(e.target)) {
+      if (!hasGameAccess || isFormField(e.target)) {
         return;
       }
       const code = e.code.toLowerCase();
@@ -1035,7 +1043,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [screen, handleStartGame, handleRestartLevel, currentUser, isEmailVerified, saveData.hasCompletedGame, saveData.shopClosedUntil]);
+  }, [screen, handleStartGame, handleRestartLevel, hasGameAccess, saveData.hasCompletedGame, saveData.shopClosedUntil]);
 
   // Touch controls input bridge
   const handleTouchInput = useCallback((controls: { left?: boolean; right?: boolean; jump?: boolean; attack?: boolean; block?: boolean }) => {
@@ -1242,7 +1250,7 @@ export default function App() {
         immersiveFullscreen ? 'z-[9999]' : ''
       }`}
       onClick={(e) => {
-        if (!currentUser || !isEmailVerified) return;
+        if (!hasGameAccess) return;
         const target = e.target as HTMLElement | null;
         if (target && ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'LABEL', 'A'].includes(target.tagName)) {
           return;
@@ -1362,7 +1370,7 @@ export default function App() {
       />
 
       {/* Persistent Top-Right Corner Fullscreen, Back to Menu & Log Out Bar on all non-gameplay screens */}
-      {currentUser && isEmailVerified && screen !== 'PLAYING' && (
+      {hasGameAccess && screen !== 'PLAYING' && (
         <div className="fixed top-2.5 right-3 sm:top-4 sm:right-5 z-[55] flex items-center gap-2 pointer-events-auto">
           <button
             type="button"
@@ -1427,10 +1435,11 @@ export default function App() {
           <div className="w-8 h-8 border-4 border-yellow-400 border-t-transparent animate-spin" />
           <span className="text-[10px] tracking-widest animate-pulse">CHECKING ADVENTURER PASSPORT...</span>
         </div>
-      ) : (!currentUser || !isEmailVerified) ? (
+      ) : !hasGameAccess ? (
         <AuthModal
           currentUser={currentUser}
           onAuthSuccess={handleAuthSuccess}
+          onContinueWithoutVerification={currentUser ? () => setAllowUnverifiedLocalPlay(true) : undefined}
         />
       ) : null}
     </main>

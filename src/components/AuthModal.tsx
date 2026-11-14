@@ -18,9 +18,14 @@ import { audio } from '../game/audio';
 interface AuthModalProps {
   currentUser: User | null;
   onAuthSuccess: (user: User) => void;
+  onContinueWithoutVerification?: () => void;
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({
+  currentUser,
+  onAuthSuccess,
+  onContinueWithoutVerification,
+}) => {
   const [tab, setTab] = useState<'login' | 'register' | 'verify' | 'forgot'>(
     currentUser && !currentUser.emailVerified ? 'verify' : 'login'
   );
@@ -68,14 +73,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
         handleCodeInApp: false,
       });
     } catch (err: any) {
-      if (
-        err?.code === 'auth/unauthorized-continue-uri' ||
-        err?.code === 'auth/invalid-continue-uri'
-      ) {
-        await sendEmailVerification(user);
-      } else {
+      // Never fail just because continue-URI wasn't whitelisted yet — fall back to Firebase default handler
+      if (err?.code === 'auth/too-many-requests') {
         throw err;
       }
+      await sendEmailVerification(user);
     }
   };
 
@@ -162,9 +164,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
     try {
       const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
       
-      // Critical Check: Has the user verified their email?
+      // Check whether email is verified
       if (!cred.user.emailVerified) {
-        setErrorMsg('Email not verified! Please check your inbox or click resend.');
+        setSuccessMsg('Signed in! Verify your email below for Cloud Save, or tap Play Now (Local Save) to enter immediately.');
         setTab('verify');
         setResendCooldown(15);
       } else {
@@ -687,6 +689,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
               >
                 <span>SIGN IN WITH GOOGLE (INSTANT ACCESS)</span>
               </button>
+
+              {onContinueWithoutVerification && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    audio.playPowerUp?.();
+                    onContinueWithoutVerification();
+                  }}
+                  disabled={loading}
+                  className="w-full py-2 bg-amber-950/90 hover:bg-amber-900 border-2 border-amber-400 text-amber-200 font-pixel text-[8.5px] shadow-[2px_2px_0_#000] active:translate-x-[1px] active:translate-y-[1px] transition-transform cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <span>PLAY NOW (LOCAL SAVE — VERIFY LATER) ▶</span>
+                </button>
+              )}
 
               <button
                 type="button"

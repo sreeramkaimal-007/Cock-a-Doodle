@@ -52,7 +52,7 @@ interface ModalProps {
   onEquipSkin?: (skinId: string) => void;
   onUnlockSkin?: (skinId: string, autoEquip?: boolean) => void;
   onChangeDifficulty?: (diff: 'easy' | 'normal' | 'hard') => void;
-  currentUser?: { email?: string | null; displayName?: string | null; uid?: string } | null;
+  currentUser?: { email?: string | null; displayName?: string | null; uid?: string; emailVerified?: boolean } | null;
   onLogOut?: () => void;
 }
 
@@ -1534,9 +1534,15 @@ export const GameModals: React.FC<ModalProps> = ({
                     <span className="font-pixel-arcade text-[7.5px] text-yellow-400 font-bold">
                       ADVENTURER:
                     </span>
-                    <span className="font-pixel text-[7.5px] text-emerald-400 border border-emerald-600 px-1 py-0.2 bg-emerald-950">
-                      VERIFIED ✓
-                    </span>
+                    {currentUser.emailVerified ? (
+                      <span className="font-pixel text-[7.5px] text-emerald-400 border border-emerald-600 px-1 py-0.2 bg-emerald-950">
+                        VERIFIED ✓
+                      </span>
+                    ) : (
+                      <span className="font-pixel text-[7.5px] text-amber-300 border border-amber-500 px-1 py-0.2 bg-amber-950">
+                        LOCAL SAVE
+                      </span>
+                    )}
                   </div>
                   <div className="font-pixel text-[8.5px] text-slate-200 truncate max-w-[170px] sm:max-w-[220px]">
                     {currentUser.email || 'Registered Hero'}
@@ -2027,8 +2033,8 @@ export const GameModals: React.FC<ModalProps> = ({
                   <div className="font-pixel text-[8.5px] text-slate-200 truncate max-w-[200px]">
                     {currentUser.email}
                   </div>
-                  <div className="font-pixel text-[7.5px] text-emerald-400 mt-0.5">
-                    Email Status: Verified ✓
+                  <div className={`font-pixel text-[7.5px] mt-0.5 ${currentUser.emailVerified ? 'text-emerald-400' : 'text-amber-300'}`}>
+                    Email Status: {currentUser.emailVerified ? 'Verified ✓ (Cloud Sync)' : 'Unverified (Local Save)'}
                   </div>
                 </div>
                 {onLogOut && (
