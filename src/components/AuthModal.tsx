@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
@@ -152,33 +152,82 @@ export const AuthModal: React.FC<AuthModalProps> = ({ currentUser, onAuthSuccess
     }
   };
 
-  // Check Email Verification Status
-  const handleCheckVerification = async () => {
-    if (!auth.currentUser) return;
-    setLoading(true);
-    setErrorMsg(null);
-    setSuccessMsg(null);
+  const checkingRef = useRef(false);
+
+  // Reusable Verification Checker: reloads Firebase user AND refreshes ID token
+  const checkVerificationStatus = useCallback(async (silent = false) => {
+    const user = auth.currentUser;
+    if (!user) {
+      if (!silent) {
+        setErrorMsg('Session expired. Please log in again with your verified email.');
+        setTab('login');
+      }
+      return;
+    }
+    if (checkingRef.current) return;
+    checkingRef.current = true;
+
+    if (!silent) {
+      setLoading(true);
+      setErrorMsg(null);
+      setSuccessMsg(null);
+    }
 
     try {
-      // Reload current user to get fresh token and emailVerified state
-      await auth.currentUser.reload();
+      // Reload current user from Firebase server to get updated emailVerified flag
+      await user.reload();
       const updatedUser = auth.currentUser;
 
       if (updatedUser?.emailVerified) {
+        // Force refresh ID token so Firestore rules immediately see email_verified: true
+        await updatedUser.getIdToken(true).catch(() => {});
         audio.playPowerUp?.();
-        setSuccessMsg('Email verified successfully! Entering game...');
-        setTimeout(() => {
-          onAuthSuccess(updatedUser);
-        }, 800);
-      } else {
+        setSuccessMsg('Email verified! Entering game...');
+        onAuthSuccess(updatedUser);
+      } else if (!silent) {
         setErrorMsg('Email not verified yet! Please click the verification link in your email and tap Check again.');
       }
     } catch (err: any) {
-      setErrorMsg('Failed to refresh status: ' + (err.message || String(err)));
+      if (!silent) {
+        setErrorMsg('Failed to refresh status: ' + (err.message || String(err)));
+      }
     } finally {
-      setLoading(false);
+      checkingRef.current = false;
+      if (!silent) {
+        setLoading(false);
+      }
     }
-  };
+  }, [onAuthSuccess]);
+
+  // Check Email Verification Status button handler
+  const handleCheckVerification = useCallback(async () => {
+    await checkVerificationStatus(false);
+  }, [checkVerificationStatus]);
+
+  // Auto-check verification when returning from email app / refocusing browser or while waiting on verify tab
+  useEffect(() => {
+    if (tab !== 'verify') return;
+
+    const handleReturnFocus = () => {
+      if (document.visibilityState === 'visible') {
+        void checkVerificationStatus(true);
+      }
+    };
+
+    window.addEventListener('focus', handleReturnFocus);
+    document.addEventListener('visibilitychange', handleReturnFocus);
+    const pollInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void checkVerificationStatus(true);
+      }
+    }, 3500);
+
+    return () => {
+      window.removeEventListener('focus', handleReturnFocus);
+      document.removeEventListener('visibilitychange', handleReturnFocus);
+      window.clearInterval(pollInterval);
+    };
+  }, [tab, checkVerificationStatus]);
 
   // Resend Email Verification Link
   const handleResendVerification = async () => {

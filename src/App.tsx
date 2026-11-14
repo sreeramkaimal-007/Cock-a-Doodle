@@ -10,7 +10,7 @@ import { GameHUD } from './components/GameHUD';
 import { GameModals } from './components/GameModals';
 import { TouchControls } from './components/TouchControls';
 
-import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { onAuthStateChanged, signOut, applyActionCode, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { ArrowLeft, LogOut, Maximize2, Minimize2, X } from 'lucide-react';
 import { auth, db } from './game/firebase';
@@ -46,63 +46,128 @@ export default function App() {
   const fullscreenTipTimerRef = useRef<number | null>(null);
 
   // Firebase Authentication & Verification Gate
+  // Note: user.reload() mutates auth.currentUser in-place, so we track isEmailVerified separately
+  // to guarantee React re-renders and exits AuthModal immediately upon verification.
   const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
+  const [isEmailVerified, setIsEmailVerified] = useState<boolean>(() => Boolean(auth.currentUser?.emailVerified));
   const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const syncedUidRef = useRef<string | null>(null);
 
-  // Listen to Firebase Auth state changes
+  const syncUserProfile = useCallback(async (user: User) => {
+    if (!user.emailVerified) return;
+    if (syncedUidRef.current === user.uid) return;
+    try {
+      await user.getIdToken(true).catch(() => {});
+      const userDocRef = doc(db, 'users', user.uid);
+      const snap = await getDoc(userDocRef);
+      if (snap.exists()) {
+        const remote = snap.data();
+        setSaveData(prev => ({
+          ...prev,
+          unlockedLevel: typeof remote.unlockedLevel === 'number' ? remote.unlockedLevel : prev.unlockedLevel,
+          totalCoins: typeof remote.totalCoins === 'number' ? remote.totalCoins : prev.totalCoins,
+          gender: remote.gender === 'hen' ? 'hen' : (remote.gender === 'rooster' ? 'rooster' : prev.gender),
+          armor: remote.armor || prev.armor,
+          sword: remote.sword || prev.sword,
+          selectedSkin: remote.selectedSkin || prev.selectedSkin,
+          hasShield: remote.hasShield !== undefined ? Boolean(remote.hasShield) : prev.hasShield,
+          hasCompletedGame: remote.hasCompletedGame !== undefined ? Boolean(remote.hasCompletedGame) : prev.hasCompletedGame,
+        }));
+      } else {
+        // Write initial cloud profile
+        await setDoc(userDocRef, {
+          userId: user.uid,
+          email: user.email || '',
+          displayName: user.displayName || '',
+          unlockedLevel: 1,
+          totalCoins: 0,
+          gender: 'rooster',
+          armor: 'none',
+          sword: 'none',
+          selectedSkin: 'classic',
+          hasShield: false,
+          hasCompletedGame: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      syncedUidRef.current = user.uid;
+    } catch (err) {
+      console.error('Failed to sync save with Firestore:', err);
+    }
+  }, []);
+
+  // Listen to Firebase Auth state changes & handle any in-URL verification oobCode
   useEffect(() => {
+    let active = true;
+
+    const handlePossibleOobCode = async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const mode = params.get('mode');
+        const oobCode = params.get('oobCode');
+        if (mode === 'verifyEmail' && oobCode) {
+          await applyActionCode(auth, oobCode);
+          if (auth.currentUser) {
+            await auth.currentUser.reload();
+            await auth.currentUser.getIdToken(true).catch(() => {});
+          }
+          const cleanUrl = window.location.pathname + window.location.hash;
+          window.history.replaceState({}, document.title, cleanUrl);
+        }
+      } catch (err) {
+        console.warn('Email verification link check:', err);
+      }
+    };
+
+    void handlePossibleOobCode();
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!active) return;
+
+      if (user && !user.emailVerified) {
+        // Always refresh cached user state from server in case user verified before returning/reloading
+        try {
+          await user.reload();
+        } catch {
+          // Ignore network reload errors on initial boot
+        }
+      }
+
+      if (!active) return;
+      const verified = Boolean(user?.emailVerified);
       setCurrentUser(user);
+      setIsEmailVerified(verified);
       setAuthLoading(false);
 
-      if (user && user.emailVerified) {
-        try {
-          const userDocRef = doc(db, 'users', user.uid);
-          const snap = await getDoc(userDocRef);
-          if (snap.exists()) {
-            const remote = snap.data();
-            setSaveData(prev => ({
-              ...prev,
-              unlockedLevel: typeof remote.unlockedLevel === 'number' ? remote.unlockedLevel : prev.unlockedLevel,
-              totalCoins: typeof remote.totalCoins === 'number' ? remote.totalCoins : prev.totalCoins,
-              gender: remote.gender === 'hen' ? 'hen' : (remote.gender === 'rooster' ? 'rooster' : prev.gender),
-              armor: remote.armor || prev.armor,
-              sword: remote.sword || prev.sword,
-              selectedSkin: remote.selectedSkin || prev.selectedSkin,
-              hasShield: remote.hasShield !== undefined ? Boolean(remote.hasShield) : prev.hasShield,
-              hasCompletedGame: remote.hasCompletedGame !== undefined ? Boolean(remote.hasCompletedGame) : prev.hasCompletedGame,
-            }));
-          } else {
-            // Write initial cloud profile
-            await setDoc(userDocRef, {
-              userId: user.uid,
-              email: user.email || '',
-              displayName: user.displayName || '',
-              unlockedLevel: 1,
-              totalCoins: 0,
-              gender: 'rooster',
-              armor: 'none',
-              sword: 'none',
-              selectedSkin: 'classic',
-              hasShield: false,
-              hasCompletedGame: false,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            });
-          }
-        } catch (err) {
-          console.error('Failed to sync save with Firestore:', err);
-        }
+      if (user && verified) {
+        await syncUserProfile(user);
+      } else {
+        syncedUidRef.current = null;
       }
     });
 
-    return () => unsubscribe();
-  }, []);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [syncUserProfile]);
+
+  const handleAuthSuccess = useCallback(async (user: User) => {
+    setCurrentUser(user);
+    const verified = Boolean(user.emailVerified);
+    setIsEmailVerified(verified);
+    if (verified) {
+      await syncUserProfile(user);
+    }
+  }, [syncUserProfile]);
 
   const handleLogOut = useCallback(async () => {
     try {
       await signOut(auth);
+      syncedUidRef.current = null;
       setCurrentUser(null);
+      setIsEmailVerified(false);
       setScreen('MENU');
     } catch (err) {
       console.error('Logout error:', err);
@@ -877,7 +942,7 @@ export default function App() {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Never intercept or preventDefault keys when Auth gate is open or user is typing in a form field
-      if (!currentUser || !currentUser.emailVerified || isFormField(e.target)) {
+      if (!currentUser || !isEmailVerified || isFormField(e.target)) {
         return;
       }
 
@@ -944,7 +1009,7 @@ export default function App() {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (!currentUser || !currentUser.emailVerified || isFormField(e.target)) {
+      if (!currentUser || !isEmailVerified || isFormField(e.target)) {
         return;
       }
       const code = e.code.toLowerCase();
@@ -970,7 +1035,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [screen, handleStartGame, handleRestartLevel, currentUser, saveData.hasCompletedGame, saveData.shopClosedUntil]);
+  }, [screen, handleStartGame, handleRestartLevel, currentUser, isEmailVerified, saveData.hasCompletedGame, saveData.shopClosedUntil]);
 
   // Touch controls input bridge
   const handleTouchInput = useCallback((controls: { left?: boolean; right?: boolean; jump?: boolean; attack?: boolean; block?: boolean }) => {
@@ -1177,7 +1242,7 @@ export default function App() {
         immersiveFullscreen ? 'z-[9999]' : ''
       }`}
       onClick={(e) => {
-        if (!currentUser || !currentUser.emailVerified) return;
+        if (!currentUser || !isEmailVerified) return;
         const target = e.target as HTMLElement | null;
         if (target && ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'LABEL', 'A'].includes(target.tagName)) {
           return;
@@ -1297,7 +1362,7 @@ export default function App() {
       />
 
       {/* Persistent Top-Right Corner Fullscreen, Back to Menu & Log Out Bar on all non-gameplay screens */}
-      {currentUser && currentUser.emailVerified && screen !== 'PLAYING' && (
+      {currentUser && isEmailVerified && screen !== 'PLAYING' && (
         <div className="fixed top-2.5 right-3 sm:top-4 sm:right-5 z-[55] flex items-center gap-2 pointer-events-auto">
           <button
             type="button"
@@ -1362,12 +1427,10 @@ export default function App() {
           <div className="w-8 h-8 border-4 border-yellow-400 border-t-transparent animate-spin" />
           <span className="text-[10px] tracking-widest animate-pulse">CHECKING ADVENTURER PASSPORT...</span>
         </div>
-      ) : (!currentUser || !currentUser.emailVerified) ? (
+      ) : (!currentUser || !isEmailVerified) ? (
         <AuthModal
           currentUser={currentUser}
-          onAuthSuccess={(user) => {
-            setCurrentUser(user);
-          }}
+          onAuthSuccess={handleAuthSuccess}
         />
       ) : null}
     </main>
