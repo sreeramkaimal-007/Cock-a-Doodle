@@ -1,0 +1,571 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpen, Lock, Shield, Skull, Compass, ChevronLeft } from 'lucide-react';
+import {
+  BESTIARY_ENTRIES,
+  BestiaryCategory,
+  BestiaryEntry,
+  BestiaryEntryId,
+  getEncounteredBestiarySet,
+} from '../game/bestiary';
+import { GameRenderer } from '../game/renderer';
+import {
+  BoulderHazard,
+  Camera,
+  CockatriceBoss,
+  SaveData,
+  ThundercloudHazard,
+  VolcanoHazard,
+} from '../game/types';
+
+interface BestiaryViewProps {
+  saveData: SaveData;
+  onReturnToMenu: () => void;
+}
+
+type FilterTab = 'all' | BestiaryCategory;
+
+const BestiarySpriteCanvas: React.FC<{
+  entryId: BestiaryEntryId;
+  unlocked: boolean;
+  variant: 'thumb' | 'hero';
+}> = ({ entryId, unlocked, variant }) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const width = variant === 'hero' ? 280 : 68;
+  const height = variant === 'hero' ? 164 : 46;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let renderer: GameRenderer;
+    try {
+      renderer = new GameRenderer(canvas);
+    } catch {
+      return;
+    }
+
+    const camera: Camera = {
+      x: 0,
+      y: 0,
+      viewportWidth: width,
+      viewportHeight: height,
+      worldWidth: width,
+      worldHeight: height,
+    };
+
+    let rafId = 0;
+    const startTime = performance.now();
+
+    const drawFrame = (now: number) => {
+      const time = (now - startTime) / 1000;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      ctx.imageSmoothingEnabled = false;
+
+      if (entryId === 'wolf') {
+        const scale = variant === 'hero' ? 3.2 : 0.95;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 12 : 4));
+        renderer.drawWolfSprite(ctx, 36, 24, false, time * 1.15, scale);
+        ctx.restore();
+      } else if (entryId === 'fox') {
+        const scale = variant === 'hero' ? 3.2 : 0.95;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 14 : 4));
+        renderer.drawFoxSprite(ctx, 38, 22, false, time * 1.5, scale);
+        ctx.restore();
+      } else if (entryId === 'bear') {
+        const scale = variant === 'hero' ? 2.6 : 0.8;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 12 : 3));
+        renderer.drawBearSprite(ctx, 48, 36, false, time * 0.95, scale);
+        ctx.restore();
+      } else if (entryId === 'cockatrice') {
+        const s = variant === 'hero' ? 0.44 : 0.14;
+        const boss: CockatriceBoss = {
+          id: 'preview_cockatrice',
+          x: 0,
+          y: 0,
+          vx: 0,
+          vy: 0,
+          width: 240,
+          height: 190,
+          health: 200,
+          maxHealth: 200,
+          phase: 1,
+          rageMode: 'sky rage',
+          state: 'flying_idle',
+          stateTimer: time,
+          dialogueIndex: 0,
+          dialogueCharIndex: 0,
+          dialogueTimer: 0,
+          stunHitsNeeded: 3,
+          stunTimer: 0,
+          maxStunTime: 11,
+          facing: 'right',
+          targetX: 0,
+          targetY: 0,
+          fireProjectiles: [],
+          biteTargetX: 0,
+          biteTargetY: 0,
+          animTimer: time,
+          invulnerableTimer: 0,
+          wingAngle: Math.sin(time * 7.5) * 0.42,
+          jawOpen: Math.max(0, Math.sin(time * 2.4) * 0.35),
+          bittenLandCraters: [],
+        };
+        const bobY = Math.sin(time * 3.0) * (variant === 'hero' ? 4 : 1.5);
+        ctx.save();
+        ctx.translate(width / 2 - 120 * s, height / 2 - 95 * s + bobY);
+        ctx.scale(s, s);
+        renderer.renderCockatrice(boss, camera, time);
+        ctx.restore();
+      } else if (entryId === 'volcano') {
+        const s = variant === 'hero' ? 1.55 : 0.54;
+        const cycle = time % 3.6;
+        const isErupting = cycle > 1.2 && cycle < 2.8;
+        const isWarning = cycle <= 1.2;
+        const lavaParticles = isErupting
+          ? [0, 1, 2, 3, 4].map((idx) => {
+              const phase = ((time * 2.2 + idx * 0.23) % 1);
+              const spread = (idx - 2) * 12;
+              return {
+                x: 34 + spread * phase,
+                y: 26 - Math.sin(phase * Math.PI) * 34,
+                vx: spread,
+                vy: -40,
+                radius: 3.5 + (idx % 2),
+                life: 1 - phase,
+                maxLife: 1,
+              };
+            })
+          : [];
+        const volcano: VolcanoHazard = {
+          id: 'preview_volcano',
+          x: 6,
+          y: 36,
+          width: 56,
+          height: 36,
+          state: isErupting ? 'erupting' : isWarning ? 'warning' : 'cooldown',
+          timer: cycle,
+          warningDuration: 1.2,
+          eruptionDuration: 1.6,
+          cooldownDuration: 0.8,
+          lavaParticles,
+        };
+        ctx.save();
+        ctx.translate(width / 2 - 34 * s, height / 2 - 42 * s + (variant === 'hero' ? 10 : 3));
+        ctx.scale(s, s);
+        renderer.renderVolcano(volcano, camera);
+        ctx.restore();
+      } else if (entryId === 'boulder') {
+        const s = variant === 'hero' ? 1.9 : 0.65;
+        const boulder: BoulderHazard = {
+          id: 'preview_boulder',
+          x: 30,
+          y: 30,
+          radius: 22,
+          vx: 0,
+          vy: 0,
+          startX: 30,
+          startY: 30,
+          isFalling: false,
+          isRolling: true,
+          warningTimer: 0,
+          respawnTimer: 0,
+          rotation: time * 2.1,
+          speed: 2.5,
+          hasTrapDropper: false,
+        };
+        ctx.save();
+        ctx.translate(width / 2 - 30 * s, height / 2 - 30 * s + (variant === 'hero' ? 10 : 2));
+        ctx.scale(s, s);
+        renderer.renderBoulder(boulder, camera, 'jungle');
+        ctx.restore();
+      } else if (entryId === 'thundercloud') {
+        const s = variant === 'hero' ? 1.45 : 0.48;
+        const cycle = time % 3.4;
+        const state: ThundercloudHazard['state'] =
+          cycle < 1.5 ? 'warning' : cycle < 2.2 ? 'striking' : 'tracking';
+        const cloud: ThundercloudHazard = {
+          id: 'preview_cloud',
+          x: 50,
+          y: 24,
+          targetX: 50,
+          targetY: 96,
+          width: 74,
+          state,
+          timer: cycle,
+          strikeDuration: 0.7,
+          warningDuration: 1.5,
+          cooldownDuration: 1.2,
+        };
+        ctx.save();
+        ctx.translate(width / 2 - 50 * s, height / 2 - 54 * s);
+        ctx.scale(s, s);
+        renderer.renderThundercloud(cloud, camera, time);
+        ctx.restore();
+      }
+
+      // Apply clean dark shadow silhouette for unencountered entries
+      if (!unlocked) {
+        ctx.globalCompositeOperation = 'source-in';
+        ctx.fillStyle = variant === 'hero' ? '#0f172a' : '#1e293b';
+        ctx.fillRect(0, 0, width, height);
+      }
+
+      ctx.restore();
+      rafId = requestAnimationFrame(drawFrame);
+    };
+
+    rafId = requestAnimationFrame(drawFrame);
+    return () => cancelAnimationFrame(rafId);
+  }, [entryId, unlocked, variant, width, height]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={width}
+      height={height}
+      className="block select-none"
+      style={{ imageRendering: 'pixelated' }}
+      aria-hidden="true"
+    />
+  );
+};
+
+export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnToMenu }) => {
+  const discoveredSet = useMemo(() => getEncounteredBestiarySet(saveData), [saveData]);
+
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  const [selectedId, setSelectedId] = useState<BestiaryEntryId>(() => {
+    const firstDiscovered = BESTIARY_ENTRIES.find(e => discoveredSet.has(e.id));
+    return firstDiscovered ? firstDiscovered.id : BESTIARY_ENTRIES[0].id;
+  });
+
+  // Allow Escape key to return cleanly to Main Menu
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onReturnToMenu();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onReturnToMenu]);
+
+  const filteredEntries = useMemo(() => {
+    if (activeFilter === 'all') return BESTIARY_ENTRIES;
+    return BESTIARY_ENTRIES.filter(entry => entry.category === activeFilter);
+  }, [activeFilter]);
+
+  const selectedEntry: BestiaryEntry = useMemo(() => {
+    return (
+      filteredEntries.find(e => e.id === selectedId) ||
+      filteredEntries[0] ||
+      BESTIARY_ENTRIES[0]
+    );
+  }, [filteredEntries, selectedId]);
+
+  const isSelectedUnlocked = discoveredSet.has(selectedEntry.id);
+  const selectedIndex = BESTIARY_ENTRIES.findIndex(e => e.id === selectedEntry.id) + 1;
+  const defeatCount = saveData.enemyDefeatCounts?.[selectedEntry.id] || 0;
+
+  const filterCounts = useMemo(
+    () => ({
+      all: BESTIARY_ENTRIES.length,
+      creature: BESTIARY_ENTRIES.filter(e => e.category === 'creature').length,
+      boss: BESTIARY_ENTRIES.filter(e => e.category === 'boss').length,
+      hazard: BESTIARY_ENTRIES.filter(e => e.category === 'hazard').length,
+    }),
+    []
+  );
+
+  const handleSelectFilter = (tab: FilterTab) => {
+    setActiveFilter(tab);
+    const nextList = tab === 'all' ? BESTIARY_ENTRIES : BESTIARY_ENTRIES.filter(e => e.category === tab);
+    if (nextList.length > 0 && !nextList.some(e => e.id === selectedId)) {
+      setSelectedId(nextList[0].id);
+    }
+  };
+
+  const categoryLabel = (cat: BestiaryCategory) => {
+    if (cat === 'boss') return 'Boss';
+    if (cat === 'hazard') return 'Hazard';
+    return 'Creature';
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/92 backdrop-blur-sm p-2.5 sm:p-4 overflow-hidden">
+      <div className="w-full max-w-4xl max-h-[92vh] bg-slate-950 border-2 border-yellow-400 shadow-[0_0_40px_rgba(250,204,21,0.2)] flex flex-col overflow-hidden">
+        {/* Header Bar */}
+        <header className="px-4 sm:px-5 py-3.5 bg-slate-900 border-b-2 border-slate-800 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 bg-amber-400 border-2 border-amber-700 flex items-center justify-center shrink-0">
+              <BookOpen className="w-5 h-5 text-slate-950 stroke-[2.5]" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-pixel-arcade text-sm sm:text-base text-yellow-300 tracking-wider truncate">
+                ADVENTURER BESTIARY
+              </h2>
+              <p className="font-pixel-arcade text-[9px] sm:text-[10px] text-slate-400 tabular-nums mt-0.5">
+                FIELD JOURNAL · {discoveredSet.size} / {BESTIARY_ENTRIES.length} DISCOVERED
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onReturnToMenu}
+            className="min-h-[40px] px-3 sm:px-4 bg-slate-800 hover:bg-slate-700 text-yellow-300 border-2 border-slate-600 font-pixel-arcade text-[9px] sm:text-[10px] tracking-wider flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+          >
+            <ChevronLeft className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>MENU</span>
+          </button>
+        </header>
+
+        {/* Category Filter Tabs */}
+        <div
+          role="tablist"
+          aria-label="Bestiary categories"
+          className="px-4 sm:px-5 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center gap-2 overflow-x-auto shrink-0"
+        >
+          {(
+            [
+              { id: 'all', label: `ALL (${filterCounts.all})` },
+              { id: 'creature', label: `CREATURES (${filterCounts.creature})` },
+              { id: 'boss', label: `BOSS (${filterCounts.boss})` },
+              { id: 'hazard', label: `HAZARDS (${filterCounts.hazard})` },
+            ] as { id: FilterTab; label: string }[]
+          ).map(tab => {
+            const active = activeFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => handleSelectFilter(tab.id)}
+                className={`min-h-[36px] px-3 py-1.5 font-pixel-arcade text-[9px] sm:text-[10px] tracking-wide border-2 whitespace-nowrap cursor-pointer transition-colors ${
+                  active
+                    ? 'bg-yellow-400 text-slate-950 border-amber-600 font-bold'
+                    : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-600 hover:text-yellow-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Two-Pane Body */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[260px_1fr] overflow-hidden">
+          {/* Left Roster Column */}
+          <aside className="border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950/90 overflow-y-auto p-2.5 sm:p-3 max-h-[28vh] md:max-h-none touch-pan-y">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 gap-2">
+              {filteredEntries.map((entry) => {
+                const unlocked = discoveredSet.has(entry.id);
+                const isSelected = selectedEntry.id === entry.id;
+                const entryNum = BESTIARY_ENTRIES.findIndex(e => e.id === entry.id) + 1;
+
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => setSelectedId(entry.id)}
+                    className={`w-full text-left p-2 border-2 flex items-center gap-2.5 cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'bg-amber-500/15 border-yellow-400'
+                        : 'bg-slate-900/75 border-slate-800 hover:border-slate-600'
+                    }`}
+                  >
+                    <div
+                      className={`w-[68px] h-[46px] shrink-0 border flex items-center justify-center relative overflow-hidden ${
+                        unlocked
+                          ? 'border-slate-700 bg-slate-950'
+                          : 'border-slate-800 bg-slate-950/90'
+                      }`}
+                    >
+                      <BestiarySpriteCanvas entryId={entry.id} unlocked={unlocked} variant="thumb" />
+                      {!unlocked && (
+                        <span className="absolute inset-0 flex items-center justify-center font-pixel-arcade text-xs text-slate-500/80">
+                          ?
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="font-pixel-arcade text-[9px] sm:text-[10px] text-slate-100 truncate">
+                        {unlocked ? entry.name : '???'}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-body mt-0.5 truncate tabular-nums">
+                        #{String(entryNum).padStart(2, '0')} · Stage {entry.firstSeenLevel} ·{' '}
+                        {unlocked ? categoryLabel(entry.category) : 'Locked'}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+
+          {/* Right Field Journal Detail Panel */}
+          <section className="overflow-y-auto p-4 sm:p-5 bg-slate-950 touch-pan-y">
+            {/* Pixel Art Showcase Stage */}
+            <div
+              className="relative w-full h-44 sm:h-52 border-2 border-slate-800 overflow-hidden flex flex-col items-center justify-center mb-4"
+              style={{
+                background: isSelectedUnlocked
+                  ? selectedEntry.backdropGradient
+                  : 'linear-gradient(180deg, #020617 0%, #0f172a 65%, #1e293b 100%)',
+              }}
+            >
+              {/* Subtle top typographic metadata */}
+              <div className="absolute top-2.5 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none">
+                <span className="font-pixel-arcade text-[9px] text-slate-200/80 tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                  NO. {String(selectedIndex).padStart(2, '0')} ·{' '}
+                  {isSelectedUnlocked ? selectedEntry.threatRank : 'UNIDENTIFIED'}
+                </span>
+                <span className="font-pixel-arcade text-[8px] sm:text-[9px] text-yellow-200/85 truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                  {isSelectedUnlocked ? selectedEntry.habitat : `STAGE ${selectedEntry.firstSeenLevel}`}
+                </span>
+              </div>
+
+              {/* Ground Strip */}
+              <div
+                className="absolute bottom-0 inset-x-0 h-8 border-t-4"
+                style={{
+                  backgroundColor: isSelectedUnlocked ? selectedEntry.groundColor : '#0f172a',
+                  borderTopColor: isSelectedUnlocked ? selectedEntry.groundTrimColor : '#334155',
+                }}
+              />
+
+              {/* Live Pixel Sprite */}
+              <div className="relative z-10 flex items-center justify-center">
+                <BestiarySpriteCanvas
+                  entryId={selectedEntry.id}
+                  unlocked={isSelectedUnlocked}
+                  variant="hero"
+                />
+                {!isSelectedUnlocked && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="font-pixel-arcade text-3xl text-slate-400/75 drop-shadow-[0_2px_0_#020617]">
+                      ?
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Entry Title */}
+            <div className="mb-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="font-pixel-arcade text-base sm:text-lg text-yellow-300 tracking-wide">
+                  {isSelectedUnlocked ? selectedEntry.name : 'UNDISCOVERED FOE'}
+                </h3>
+                <span className="font-pixel-arcade text-[9px] text-slate-400 tabular-nums">
+                  FIRST SEEN · STAGE {selectedEntry.firstSeenLevel}
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-400 font-body mt-0.5">
+                {isSelectedUnlocked
+                  ? selectedEntry.subtitle
+                  : 'Cross paths with this enemy during your journey to record its pixel portrait and lore.'}
+              </p>
+            </div>
+
+            {/* Combat & Encounter Telemetry Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
+              <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
+                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">HEALTH</div>
+                <div className="font-pixel-arcade text-[10px] sm:text-[11px] text-slate-100 tabular-nums">
+                  {isSelectedUnlocked ? selectedEntry.hpLabel : '???'}
+                </div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
+                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">DAMAGE</div>
+                <div className="font-pixel-arcade text-[10px] sm:text-[11px] text-rose-300 tabular-nums">
+                  {isSelectedUnlocked ? selectedEntry.damageLabel : '???'}
+                </div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
+                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">TEMPO</div>
+                <div className="font-pixel-arcade text-[10px] sm:text-[11px] text-sky-300">
+                  {isSelectedUnlocked ? selectedEntry.speedLabel : '???'}
+                </div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
+                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">
+                  {selectedEntry.trackDefeats ? 'DEFEATED' : 'TYPE'}
+                </div>
+                <div className="font-pixel-arcade text-[10px] sm:text-[11px] text-amber-300 tabular-nums">
+                  {!isSelectedUnlocked
+                    ? '—'
+                    : selectedEntry.trackDefeats
+                      ? `${defeatCount}`
+                      : 'STAGE TRAP'}
+                </div>
+              </div>
+            </div>
+
+            {/* Lore & Tactics OR Discovery Hint */}
+            {isSelectedUnlocked ? (
+              <div className="space-y-4">
+                <div>
+                  <div className="flex items-center gap-2 font-pixel-arcade text-[10px] text-yellow-300 mb-1.5">
+                    <Skull className="w-3.5 h-3.5 text-yellow-400" />
+                    <span>FIELD LORE</span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-200 font-body leading-relaxed">
+                    {selectedEntry.lore}
+                  </p>
+                </div>
+
+                <div className="bg-slate-900/90 border border-slate-700 p-3.5">
+                  <div className="flex items-center gap-2 font-pixel-arcade text-[10px] text-emerald-300 mb-1.5">
+                    <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>SILKIE SAM&apos;S BATTLE NOTE</span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-300 font-body leading-relaxed">
+                    {selectedEntry.combatTip}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-700 p-4 space-y-2.5">
+                <div className="flex items-center gap-2 font-pixel-arcade text-[10px] text-amber-300">
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>ENTRY LOCKED — NOT YET ENCOUNTERED</span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-300 font-body leading-relaxed">
+                  {selectedEntry.discoveryHint}
+                </p>
+                <div className="flex items-center gap-2 text-[11px] text-slate-400 font-body pt-1">
+                  <Compass className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span>
+                    Current frontier: Stage {saveData.unlockedLevel || 1} of 30
+                  </span>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Footer */}
+        <footer className="px-4 sm:px-5 py-3 bg-slate-900 border-t-2 border-slate-800 shrink-0">
+          <button
+            type="button"
+            onClick={onReturnToMenu}
+            className="w-full min-h-[42px] py-2.5 px-4 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 text-slate-950 font-pixel-arcade font-bold text-xs tracking-wider border-2 border-amber-600 shadow-[0_4px_0_#78350f] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all cursor-pointer flex items-center justify-center gap-2"
+          >
+            ← RETURN TO MAIN MENU
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+};

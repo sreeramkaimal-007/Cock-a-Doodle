@@ -12,6 +12,8 @@ export interface GameEngineCallbacks {
   onStatsUpdate: (health: number, coins: number, stage: PlayerState['stage'], armor?: ArmorType, sword?: SwordType, hasShield?: boolean) => void;
   onActionStat?: (statType: 'enemiesDefeated' | 'trapsTriggered' | 'projectilesDeflected' | 'levelsClearedWithoutDamage' | 'visitedCoopEvolved') => void;
   onSaveDataUpdate?: (patch: Partial<SaveData>) => void;
+  onEnemyEncountered?: (enemyId: string) => void;
+  onEnemyDefeated?: (enemyId: string) => void;
 }
 
 export class GameEngine {
@@ -45,6 +47,7 @@ export class GameEngine {
   private reviveTokenUsed = false;
   public samLevel1State: 'idle' | 'line1' | 'line2' | 'done' = 'idle';
   public samLevel1Timer = 0;
+  private reportedEncounters = new Set<string>();
 
   public setDifficulty(diff: 'easy' | 'normal' | 'hard') {
     this.saveData.difficulty = diff;
@@ -61,6 +64,9 @@ export class GameEngine {
     this.canvasHeight = canvasHeight;
     this.callbacks = callbacks;
     this.saveData = saveData;
+    if (Array.isArray(saveData.encounteredEnemies)) {
+      saveData.encounteredEnemies.forEach(id => this.reportedEncounters.add(id));
+    }
     this.armorType = saveData.armor || 'none';
     this.swordType = saveData.sword || 'none';
     this.hasShield = Boolean(saveData.hasShield);
@@ -588,6 +594,8 @@ export class GameEngine {
       this.coinsEarnedThisLevel += 5;
       audio.playCoin();
       this.callbacks.onActionStat?.('enemiesDefeated');
+      this.reportEncounter(enemy.type);
+      this.callbacks.onEnemyDefeated?.(enemy.type);
     }
   }
 
@@ -625,6 +633,59 @@ export class GameEngine {
     this.updateParticles(delta);
     this.updateFloatingTexts(delta);
     this.updateCamera();
+    this.checkBestiaryEncounters();
+  }
+
+  private reportEncounter(enemyId: string) {
+    if (this.reportedEncounters.has(enemyId)) return;
+    this.reportedEncounters.add(enemyId);
+    this.callbacks.onEnemyEncountered?.(enemyId);
+  }
+
+  private checkBestiaryEncounters() {
+    const viewLeft = this.camera.x - 40;
+    const viewRight = this.camera.x + this.camera.viewportWidth + 40;
+
+    if (this.level.enemies) {
+      for (const enemy of this.level.enemies) {
+        if (enemy.state === 'defeated') continue;
+        if (enemy.x + enemy.width >= viewLeft && enemy.x <= viewRight) {
+          this.reportEncounter(enemy.type);
+        }
+      }
+    }
+
+    if (this.level.cockatrice && this.level.cockatrice.defeatSubState !== 'escaped') {
+      this.reportEncounter('cockatrice');
+    }
+
+    if (this.level.volcanoes) {
+      for (const v of this.level.volcanoes) {
+        if (v.x + v.width >= viewLeft && v.x <= viewRight) {
+          this.reportEncounter('volcano');
+          break;
+        }
+      }
+    }
+
+    if (this.level.boulders) {
+      for (const b of this.level.boulders) {
+        const bx = b.hasTrapDropper ? (b.trapDropperX ?? b.x) : b.x;
+        if (bx + b.radius >= viewLeft && bx - b.radius <= viewRight) {
+          this.reportEncounter('boulder');
+          break;
+        }
+      }
+    }
+
+    if (this.level.thunderclouds) {
+      for (const th of this.level.thunderclouds) {
+        if (th.x + th.width >= viewLeft && th.x - th.width <= viewRight) {
+          this.reportEncounter('thundercloud');
+          break;
+        }
+      }
+    }
   }
 
   private updateLevel1Sam(dt: number) {
@@ -2671,6 +2732,8 @@ export class GameEngine {
     audio.playEnemyDefeat();
     audio.playCockatriceScreech();
     audio.playFightFanfare();
+    this.reportEncounter('cockatrice');
+    this.callbacks.onEnemyDefeated?.('cockatrice');
     this.addFloatingText('★ THE COCKATRICE IS DEFEATED! ★', boss.x + boss.width / 2, boss.y - 25, '#fde047');
   }
 

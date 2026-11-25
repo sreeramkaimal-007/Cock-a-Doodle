@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { isNativeAdMobAvailable, showAdMobBanner, hideAdMobBanner } from '../game/admob';
 
 declare global {
   interface Window {
@@ -38,10 +39,24 @@ export const AdBanner: React.FC<AdBannerProps> = ({
   className = '',
 }) => {
   const pushedRef = useRef(false);
+  const [usingNativeAdMob, setUsingNativeAdMob] = useState(false);
   const clientId = (import.meta.env.VITE_ADSENSE_CLIENT_ID || DEFAULT_ADSENSE_CLIENT_ID).trim();
   const resolvedSlot = (slotId || DEFAULT_ADSENSE_SLOT_ID).trim();
 
   useEffect(() => {
+    let active = true;
+    if (isNativeAdMobAvailable()) {
+      void showAdMobBanner().then((shown) => {
+        if (active && shown) {
+          setUsingNativeAdMob(true);
+        }
+      });
+      return () => {
+        active = false;
+        void hideAdMobBanner();
+      };
+    }
+
     if (!clientId || !resolvedSlot || pushedRef.current) return;
     ensureAdSenseScript(clientId);
     try {
@@ -52,6 +67,10 @@ export const AdBanner: React.FC<AdBannerProps> = ({
       // Ignore AdSense push errors when blocked by ad blockers or preview environments
     }
   }, [clientId, resolvedSlot]);
+
+  if (usingNativeAdMob) {
+    return null;
+  }
 
   if (!clientId || !resolvedSlot) {
     return null;

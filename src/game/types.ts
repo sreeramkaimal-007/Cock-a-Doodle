@@ -17,7 +17,8 @@ export type GameScreen =
   | 'HOW_TO_PLAY'
   | 'SETTINGS'
   | 'QUESTS_BADGES'
-  | 'SHOP';
+  | 'SHOP'
+  | 'BESTIARY';
 
 export type ArmorType = 'none' | 'iron' | 'gold' | 'diamond';
 export type SwordType = 'none' | 'iron' | 'gold' | 'diamond' | 'netherite';
@@ -449,4 +450,6 @@ export interface SaveData {
   difficulty?: 'easy' | 'normal' | 'hard';
   collectedCoinIds?: string[];
   activatedCheckpointIds?: string[];
+  encounteredEnemies?: string[];
+  enemyDefeatCounts?: Record<string, number>;
 }

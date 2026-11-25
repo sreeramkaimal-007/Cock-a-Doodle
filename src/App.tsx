@@ -4,6 +4,7 @@ import { GameRenderer } from './game/renderer';
 import { GameScreen, SaveData, GrowthStage, ChickenGender, ChickenSkinId, BadgeItem } from './game/types';
 import { loadSaveData, saveSaveData, clearSaveData } from './game/storage';
 import { audio } from './game/audio';
+import { initializeAdMob, showAdMobInterstitial } from './game/admob';
 import { LEVELS } from './game/levels';
 import { getBadgesWithStatus } from './game/quests';
 import { GameHUD } from './components/GameHUD';
@@ -597,6 +598,33 @@ export default function App() {
             ...patch,
           }));
         },
+        onEnemyEncountered: (enemyId) => {
+          updateSaveData(prev => {
+            const current = prev.encounteredEnemies || [];
+            if (current.includes(enemyId)) return prev;
+            return {
+              ...prev,
+              encounteredEnemies: [...current, enemyId],
+            };
+          });
+        },
+        onEnemyDefeated: (enemyId) => {
+          updateSaveData(prev => {
+            const currentEncountered = prev.encounteredEnemies || [];
+            const nextEncountered = currentEncountered.includes(enemyId)
+              ? currentEncountered
+              : [...currentEncountered, enemyId];
+            const currentCounts = prev.enemyDefeatCounts || {};
+            return {
+              ...prev,
+              encounteredEnemies: nextEncountered,
+              enemyDefeatCounts: {
+                ...currentCounts,
+                [enemyId]: (currentCounts[enemyId] || 0) + 1,
+              },
+            };
+          });
+        },
       }
     );
 
@@ -924,6 +952,7 @@ export default function App() {
       screen === 'LEVEL_CLEAR' ||
       screen === 'QUESTS_BADGES' ||
       screen === 'SHOP' ||
+      screen === 'BESTIARY' ||
       screen === 'WORLD_LOADING'
     ) {
       audio.playMusic('waiting');
@@ -934,7 +963,16 @@ export default function App() {
     } else if (screen === 'INTRO_CINEMATIC') {
       audio.stopMusic();
     }
+
+    if (screen === 'LEVEL_CLEAR' || screen === 'GAME_OVER') {
+      void showAdMobInterstitial();
+    }
   }, [screen, activeLevelId, updateMusicForLevel]);
+
+  // Initialize native AdMob bridge on startup (no-op in standard web browsers)
+  useEffect(() => {
+    void initializeAdMob();
+  }, []);
 
   // Robust keyboard controls listener using keysHeld Set
   useEffect(() => {

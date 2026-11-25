@@ -3,12 +3,13 @@ import {
   Play, RotateCcw, Menu as MenuIcon, Volume2, VolumeX, Music,
   Lock, Check, Trophy, Shield, Sword, X, ChevronRight, ChevronUp, ChevronDown,
   Flame, Zap, AlertTriangle, HelpCircle, Settings,
-  Star, Heart, Sparkles, Map, Scroll, Award, Store, ShoppingBag, Palette
+  Star, Heart, Sparkles, Map, Scroll, Award, Store, ShoppingBag, Palette, BookOpen
 } from 'lucide-react';
 import { GameScreen, SaveData, GrowthStage, ChickenGender, ArmorType, SwordType } from '../game/types';
 import { LEVELS } from '../game/levels';
 import { Renderer } from '../game/renderer';
 import { getQuestsWithStatus, getBadgesWithStatus, countUnclaimedQuests } from '../game/quests';
+import { getBestiaryProgress } from '../game/bestiary';
 import { audio } from '../game/audio';
 import { CHICKEN_SKINS, getSkinDefinition } from '../game/skins';
 import { BadgeItem } from '../game/types';
@@ -19,6 +20,7 @@ import {
 } from './PixelIcons';
 import { AdBanner } from './AdBanner';
 import { PrivacyPolicyModal } from './PrivacyPolicyModal';
+import { BestiaryView } from './BestiaryView';
 
 interface ModalProps {
   currentScreen: GameScreen;
@@ -1071,17 +1073,18 @@ export const GameModals: React.FC<ModalProps> = ({
     // Play signature vocal melodic speech track
     audio.playSilkieSpeech(speechType);
 
+    const chars = Array.from(fullText);
     let charIndex = 0;
     typewriterTimerRef.current = window.setInterval(() => {
       charIndex++;
-      setDisplayedDialogue(fullText.slice(0, charIndex));
+      setDisplayedDialogue(chars.slice(0, charIndex).join(''));
 
       // Play light speech typewriter chirp every few characters
-      if (charIndex % 3 === 0 && charIndex < fullText.length) {
+      if (charIndex % 3 === 0 && charIndex < chars.length) {
         audio.playSilkieSpeechChirp(charIndex);
       }
 
-      if (charIndex >= fullText.length) {
+      if (charIndex >= chars.length) {
         if (typewriterTimerRef.current) {
           clearInterval(typewriterTimerRef.current);
           typewriterTimerRef.current = null;
@@ -1732,6 +1735,30 @@ export const GameModals: React.FC<ModalProps> = ({
                       REWARDS
                     </span>
                   )}
+                </button>
+              );
+            })()}
+
+            {/* 4.5. BESTIARY BUTTON */}
+            {(() => {
+              const { discovered, total } = getBestiaryProgress(saveData);
+              return (
+                <button
+                  type="button"
+                  onClick={() => onOpenScreen('BESTIARY')}
+                  className="w-full py-2.5 px-3.5 sm:px-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 text-slate-950 border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.3)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-between cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-6 h-6 rounded-lg bg-yellow-200/90 border border-amber-700/60 flex items-center justify-center shadow-inner">
+                      <BookOpen className="w-3.5 h-3.5 text-slate-950 stroke-[2.5]" />
+                    </div>
+                    <span className="font-pixel-arcade text-[10px] sm:text-[11px] text-slate-950 font-bold drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]">
+                      BESTIARY
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-pixel-arcade text-slate-950 font-bold tabular-nums px-2 py-0.5 rounded bg-yellow-200 border border-amber-700/60">
+                    {discovered}/{total} FOUND
+                  </span>
                 </button>
               );
             })()}
@@ -3360,12 +3387,28 @@ export const GameModals: React.FC<ModalProps> = ({
                           ) : isUnlocked ? (
                             <button
                               type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onEquipSkin?.(skin.id);
-                                setPreviewSkinId(skin.id);
-                                speakDialogue(`Equipped the ${skin.name}! You look splendid!`, 'purchase');
-                              }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (postBossTimerRef.current) {
+                                    clearTimeout(postBossTimerRef.current);
+                                    postBossTimerRef.current = null;
+                                  }
+                                  if (postBossTimer2Ref.current) {
+                                    clearTimeout(postBossTimer2Ref.current);
+                                    postBossTimer2Ref.current = null;
+                                  }
+                                  if (postBossTimer3Ref.current) {
+                                    clearTimeout(postBossTimer3Ref.current);
+                                    postBossTimer3Ref.current = null;
+                                  }
+                                  onEquipSkin?.(skin.id);
+                                  setPreviewSkinId(skin.id);
+                                  if (skin.id === 'thanksgiving_roast') {
+                                    speakDialogue('oh that looks.. good?😅', 'talk');
+                                  } else {
+                                    speakDialogue(`Equipped the ${skin.name}! You look splendid!`, 'purchase');
+                                  }
+                                }}
                               className="w-full py-1.5 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950 font-pixel-arcade text-[9px] font-bold border border-amber-600 shadow-[0_2px_0_#78350f] active:translate-y-0.5 cursor-pointer"
                             >
                               EQUIP SKIN
@@ -3391,7 +3434,11 @@ export const GameModals: React.FC<ModalProps> = ({
                                   const ok = onBuySkin?.(skin.id, skin.price);
                                   if (ok) {
                                     setPreviewSkinId(skin.id);
-                                    speakDialogue(`Unlocked the ${skin.name}! Enjoy your new plumage!`, 'purchase');
+                                    if (skin.id === 'thanksgiving_roast') {
+                                      speakDialogue('oh that looks.. good?😅', 'talk');
+                                    } else {
+                                      speakDialogue(`Unlocked the ${skin.name}! Enjoy your new plumage!`, 'purchase');
+                                    }
                                   }
                                 }}
                                 disabled={!canAfford || isShopClosed}
@@ -3469,7 +3516,10 @@ export const GameModals: React.FC<ModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setShowSecretSkinModal(false)}
+                  onClick={() => {
+                    setShowSecretSkinModal(false);
+                    speakDialogue('oh that looks.. good?😅', 'talk');
+                  }}
                   className="w-full py-2.5 rounded-2xl bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950 font-pixel-arcade text-xs font-bold border border-amber-600 shadow-[0_3px_0_#78350f] active:translate-y-0.5 cursor-pointer"
                 >
                   AWESOME! THANKS SILKIE SAM!
@@ -3697,6 +3747,10 @@ export const GameModals: React.FC<ModalProps> = ({
         </div>
       </div>
     );
+  }
+
+  if (currentScreen === 'BESTIARY') {
+    return <BestiaryView saveData={saveData} onReturnToMenu={onReturnToMenu} />;
   }
 
   return null;

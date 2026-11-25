@@ -40,14 +40,14 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({ onClose 
 
           <section>
             <h3 className="font-pixel-arcade text-[10px] text-amber-300 mb-1">
-              2. GOOGLE ADSENSE & COOKIES
+              2. GOOGLE ADSENSE, ADMOB &amp; COOKIES
             </h3>
             <p>
-              This website may display advertisements served by Google AdSense. Third-party vendors,
-              including Google, use cookies to serve ads based on a user&apos;s prior visits to this
-              website or other websites. Google&apos;s use of advertising cookies enables it and its
-              partners to serve ads to users based on their visit to this site and/or other sites on
-              the Internet.
+              This game may display advertisements served by Google AdSense (on web) and Google AdMob
+              (in mobile app builds). Third-party vendors, including Google, use cookies or mobile
+              advertising identifiers to serve ads based on a user&apos;s prior visits or app usage.
+              Google&apos;s use of advertising identifiers enables it and its partners to serve ads to
+              users based on their activity.
             </p>
             <p className="mt-2">
               Users may opt out of personalized advertising by visiting{' '}

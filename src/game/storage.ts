@@ -23,6 +23,8 @@ const DEFAULT_SAVE: SaveData = {
   difficulty: 'normal',
   collectedCoinIds: [],
   activatedCheckpointIds: [],
+  encounteredEnemies: [],
+  enemyDefeatCounts: {},
 };
 
 export function loadSaveData(): SaveData {
@@ -69,6 +71,8 @@ export function loadSaveData(): SaveData {
       difficulty: validDiff as any,
       collectedCoinIds: Array.isArray(parsed.collectedCoinIds) ? parsed.collectedCoinIds : [],
       activatedCheckpointIds: Array.isArray(parsed.activatedCheckpointIds) ? parsed.activatedCheckpointIds : [],
+      encounteredEnemies: Array.isArray(parsed.encounteredEnemies) ? parsed.encounteredEnemies.filter((id: unknown) => typeof id === 'string') : [],
+      enemyDefeatCounts: parsed.enemyDefeatCounts && typeof parsed.enemyDefeatCounts === 'object' ? parsed.enemyDefeatCounts : {},
       upgrades: parsed.upgrades && typeof parsed.upgrades === 'object' ? parsed.upgrades : {
         extraHearts: 0,
         speedBoost: 0,
