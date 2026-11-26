@@ -109,6 +109,31 @@ function bear(id: string, x: number, y: number, patrolLeft: number, patrolRight:
   };
 }
 
+function snake(id: string, x: number, y: number, patrolLeft: number, patrolRight: number): Enemy {
+  return {
+    id,
+    type: 'snake',
+    x,
+    y,
+    vx: 1.45,
+    vy: 0,
+    width: 38,
+    height: 14,
+    patrolLeft,
+    patrolRight,
+    facing: 'right',
+    health: 2,
+    maxHealth: 2,
+    speed: 1.45,
+    damage: 1,
+    state: 'patrol',
+    detectionRadius: 155,
+    isGrounded: true,
+    animTimer: 0,
+    hurtTimer: 0
+  };
+}
+
 function volcano(id: string, x: number, y: number, warning = 1.6, erupt = 2.0, cool = 2.4): VolcanoHazard {
   return {
     id,
@@ -552,8 +577,11 @@ export const LEVELS: LevelConfig[] = [
       volcano('v12_2', 1650, 448, 1.6, 2.0, 2.0),
       volcano('v12_3', 1820, 448, 1.2, 1.8, 2.4),
     ],
+    enemies: [
+      snake('jg12_s1', 2480, 466, 2320, 2610),
+    ],
     checkpoints: [cp('jg12_cp', 1495, 480)],
-    hint: 'Never rush past a smoking volcano vent; wait for cooldown!'
+    hint: 'Never rush past a smoking volcano vent, and watch for venomous jungle snakes!'
   },
   {
     id: 13,
@@ -618,9 +646,10 @@ export const LEVELS: LevelConfig[] = [
     enemies: [
       fox('jg14_f1', 750, 458, 540, 1020),
       fox('jg14_f2', 1800, 458, 1570, 2120),
+      snake('jg14_s1', 2460, 466, 2280, 2680),
     ],
     checkpoints: [cp('jg14_cp', 1180, 410)],
-    hint: 'Foxes will charge when they spot you. Strike with X or K!'
+    hint: 'Foxes will charge when they spot you, and jungle snakes inflict venom! Strike with X or K!'
   },
   {
     id: 15,
@@ -653,6 +682,7 @@ export const LEVELS: LevelConfig[] = [
     chests: [],
     enemies: [
       fox('jg15_f1', 1370, 318, 1300, 1450),
+      snake('jg15_s1', 2560, 466, 2390, 2790),
     ],
     volcanoes: [
       volcano('v15_1', 780, 388, 1.5, 2.0, 2.2),
@@ -694,6 +724,9 @@ export const LEVELS: LevelConfig[] = [
       boulder('b16_2', 1580, 422, -3.2),
       boulder('b16_3', 2400, 462, -3.0),
     ],
+    enemies: [
+      snake('jg16_s1', 2660, 466, 2560, 2810),
+    ],
     checkpoints: [cp('jg16_cp', 1725, 380)],
     hint: 'Time your jumps over boulders on every terrace!'
   },
@@ -711,29 +744,30 @@ export const LEVELS: LevelConfig[] = [
     platforms: [
       p('jg17_f1', 0, 480, 450, 120, 'ruins'),
       p('jg17_f2', 530, 480, 650, 120, 'ruins'),
-      p('jg17_high1', 800, 310, 150, 24, 'stone'),
+      p('jg17_high1', 800, 380, 150, 24, 'stone'),
       p('jg17_f3', 1260, 480, 700, 120, 'ruins'),
-      p('jg17_high2', 1520, 300, 195, 24, 'stone'),
+      p('jg17_high2', 1520, 375, 195, 24, 'stone'),
       p('jg17_f4', 2040, 480, 650, 120, 'ruins'),
       p('jg17_f5', 2760, 480, 340, 120, 'ruins'),
     ],
     coins: [
       ...coinLine('jg17_1', 200, 440, 4),
-      ...coinLine('jg17_sec1', 820, 280, 3),
-      ...coinLine('jg17_sec2', 1560, 270, 3),
+      ...coinLine('jg17_sec1', 820, 350, 3),
+      ...coinLine('jg17_sec2', 1560, 345, 3),
       ...coinLine('jg17_2', 2800, 440, 4),
     ],
     chests: [
-      chest('jg17_c1', 850, 284, 'heart', 1),
-      chest('jg17_c2', 1660, 274, 'coins', 40),
+      chest('jg17_c1', 850, 354, 'heart', 1),
+      chest('jg17_c2', 1660, 349, 'coins', 40),
     ],
     enemies: [
       fox('jg17_f1', 700, 458, 550, 1150),
       fox('jg17_f2', 1450, 458, 1280, 1920),
       fox('jg17_f3', 2250, 458, 2060, 2650),
+      snake('jg17_s1', 2440, 466, 2120, 2660),
     ],
-    checkpoints: [cp('jg17_cp', 1560, 300)],
-    hint: 'Use high platforms to avoid ground foxes and claim twin treasure chests.'
+    checkpoints: [cp('jg17_cp', 1560, 375)],
+    hint: 'Use the stone ledges to avoid ground foxes and claim twin treasure chests.'
   },
   {
     id: 18,
@@ -771,6 +805,10 @@ export const LEVELS: LevelConfig[] = [
       boulder('b18_1', 900, 462, -2.8),
       boulder('b18_2', 2550, 462, -3.2),
     ],
+    enemies: [
+      snake('jg18_s1', 1520, 466, 1240, 1650),
+      snake('jg18_s2', 2840, 466, 2710, 2990),
+    ],
     checkpoints: [cp('jg18_cp', 1075, 410)],
     hint: 'Keep moving! Volcanoes and rolling rocks are relentless!'
   },
@@ -806,7 +844,9 @@ export const LEVELS: LevelConfig[] = [
     ],
     enemies: [
       fox('jg19_f1', 880, 458, 700, 1180),
+      snake('jg19_s1', 940, 466, 720, 1190),
       fox('jg19_f2', 1850, 458, 1620, 2120),
+      snake('jg19_s2', 2820, 466, 2690, 3080),
     ],
     volcanoes: [
       volcano('v19_1', 1050, 448, 1.4, 1.9, 2.3),
@@ -1259,23 +1299,23 @@ export const LEVELS: LevelConfig[] = [
     chests: [],
     checkpoints: [],
     silkieSam: {
-      x: 270,
-      y: -120,
+      x: -48,
+      y: 432,
       vx: 0,
       vy: 0,
-      targetY: 340,
+      targetY: 432,
       state: 'waiting',
       dialogueTimer: 0,
       dialogueCharIndex: 0,
       speechText: '',
       shieldDropped: false,
-      shieldX: 250,
-      shieldY: 340,
+      shieldX: 220,
+      shieldY: 432,
       shieldVy: 0,
       shieldCollected: false,
       swordDropped: false,
-      swordX: 290,
-      swordY: 340,
+      swordX: 256,
+      swordY: 432,
       swordVy: 0,
       swordCollected: false,
       wingAngle: 0,

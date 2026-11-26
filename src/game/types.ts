@@ -11,6 +11,8 @@ export type GameScreen =
   | 'PAUSED'
   | 'EVOLUTION'
   | 'WORLD_LOADING'
+  | 'RESTART_LOADING'
+  | 'DEATH_LOADING'
   | 'LEVEL_CLEAR'
   | 'GAME_OVER'
   | 'VICTORY'
@@ -59,6 +61,10 @@ export interface PlayerState {
   walkAnimTimer: number;
   onMovingPlatform: Platform | null;
   fireResistTimer?: number;
+  poisonTimer?: number;
+  poisonTickTimer?: number;
+  poisonTickInterval?: number;
+  poisonDrainRemaining?: number;
 }
 
 export type PlatformType = 'wood' | 'grass' | 'stone' | 'ruins' | 'bridge' | 'fence';
@@ -180,7 +186,7 @@ export interface ThundercloudHazard {
   isNormal?: boolean;
 }
 
-export type EnemyType = 'wolf' | 'fox' | 'bear';
+export type EnemyType = 'wolf' | 'fox' | 'bear' | 'snake';
 
 export interface Enemy {
   id: string;
@@ -338,7 +344,7 @@ export interface SilkieSamFriend {
   vx: number;
   vy: number;
   targetY: number;
-  state: 'waiting' | 'flying_in' | 'talk_1' | 'dropping_shield' | 'talk_2' | 'dropping_sword' | 'talk_3' | 'flying_away' | 'gone';
+  state: 'waiting' | 'flying_in' | 'talk_psst' | 'talk_1' | 'dropping_shield' | 'talk_2' | 'dropping_sword' | 'talk_3' | 'flying_away' | 'gone';
   dialogueTimer: number;
   dialogueCharIndex: number;
   speechText: string;
@@ -450,6 +456,7 @@ export interface SaveData {
   difficulty?: 'easy' | 'normal' | 'hard';
   collectedCoinIds?: string[];
   activatedCheckpointIds?: string[];
+  openedChestIds?: string[];
   encounteredEnemies?: string[];
   enemyDefeatCounts?: Record<string, number>;
 }

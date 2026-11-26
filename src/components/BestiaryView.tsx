@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Lock, Shield, Skull, Compass, ChevronLeft } from 'lucide-react';
+import { BookOpen, Lock, Shield, Skull, Compass, ChevronLeft, Leaf } from 'lucide-react';
 import {
   BESTIARY_ENTRIES,
   BestiaryCategory,
@@ -28,7 +28,9 @@ const BestiarySpriteCanvas: React.FC<{
   entryId: BestiaryEntryId;
   unlocked: boolean;
   variant: 'thumb' | 'hero';
-}> = ({ entryId, unlocked, variant }) => {
+  colorVariantIndex?: number;
+  isBaby?: boolean;
+}> = ({ entryId, unlocked, variant, colorVariantIndex = 0, isBaby = false }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const width = variant === 'hero' ? 280 : 68;
   const height = variant === 'hero' ? 164 : 46;
@@ -69,19 +71,25 @@ const BestiarySpriteCanvas: React.FC<{
         const scale = variant === 'hero' ? 3.2 : 0.95;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 12 : 4));
-        renderer.drawWolfSprite(ctx, 36, 24, false, time * 1.15, scale);
+        renderer.drawWolfSprite(ctx, 36, 24, false, time * 1.15, scale, colorVariantIndex);
         ctx.restore();
       } else if (entryId === 'fox') {
         const scale = variant === 'hero' ? 3.2 : 0.95;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 14 : 4));
-        renderer.drawFoxSprite(ctx, 38, 22, false, time * 1.5, scale);
+        renderer.drawFoxSprite(ctx, 38, 22, false, time * 1.5, scale, colorVariantIndex);
+        ctx.restore();
+      } else if (entryId === 'snake') {
+        const scale = variant === 'hero' ? 3.4 : 1.05;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 22 : 6));
+        renderer.drawSnakeSprite(ctx, 38, 14, false, time * 1.4, scale, colorVariantIndex);
         ctx.restore();
       } else if (entryId === 'bear') {
         const scale = variant === 'hero' ? 2.6 : 0.8;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 12 : 3));
-        renderer.drawBearSprite(ctx, 48, 36, false, time * 0.95, scale);
+        renderer.drawBearSprite(ctx, 48, 36, false, time * 0.95, scale, colorVariantIndex);
         ctx.restore();
       } else if (entryId === 'cockatrice') {
         const s = variant === 'hero' ? 0.44 : 0.14;
@@ -130,7 +138,7 @@ const BestiarySpriteCanvas: React.FC<{
         const isWarning = cycle <= 1.2;
         const lavaParticles = isErupting
           ? [0, 1, 2, 3, 4].map((idx) => {
-              const phase = ((time * 2.2 + idx * 0.23) % 1);
+              const phase = (time * 2.2 + idx * 0.23) % 1;
               const spread = (idx - 2) * 12;
               return {
                 x: 34 + spread * phase,
@@ -208,6 +216,57 @@ const BestiarySpriteCanvas: React.FC<{
         ctx.scale(s, s);
         renderer.renderThundercloud(cloud, camera, time);
         ctx.restore();
+      } else if (entryId === 'sheep') {
+        const scale = variant === 'hero' ? (isBaby ? 2.1 : 2.15) : 0.68;
+        renderer.renderGrazingSheep(
+          width / 2,
+          height / 2 + (variant === 'hero' ? 32 : 12),
+          time,
+          { facing: 'right', scale, isLamb: isBaby, animOffset: 0.8, variantIndex: colorVariantIndex }
+        );
+      } else if (entryId === 'monkey') {
+        const s = variant === 'hero' ? (isBaby ? 3.2 : 2.85) : 0.92;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 18 : 6));
+        ctx.scale(s, s);
+        // Subtle jungle branch perch beneath the monkey
+        ctx.fillStyle = '#451a03';
+        ctx.fillRect(-20, 11, 40, 4);
+        ctx.fillStyle = '#78350f';
+        ctx.fillRect(-18, 11, 36, 2);
+        // treeIndex=1 uses branchOffset=-14, so passing tx=14 centers monkey at x=0 facing right
+        renderer.renderJungleMonkey(14, -4, time, false, 1, false, colorVariantIndex, { isBaby, activity: 'squeak' });
+        ctx.restore();
+      } else if (entryId === 'hare') {
+        const scale = variant === 'hero' ? (isBaby ? 3.5 : 3.2) : 1.0;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 24 : 8));
+        renderer.drawSnowshoeHareSprite(ctx, time, scale, false, colorVariantIndex, isBaby, 'eat');
+        ctx.restore();
+      } else if (entryId === 'butterfly') {
+        const scale = variant === 'hero' ? 4.4 : 1.45;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 2 : 1));
+        renderer.drawButterflySprite(ctx, time, scale, colorVariantIndex);
+        ctx.restore();
+      } else if (entryId === 'dragonfly') {
+        const scale = variant === 'hero' ? 4.0 : 1.3;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 - (variant === 'hero' ? 4 : 1));
+        renderer.drawDragonflySprite(ctx, time, scale, colorVariantIndex);
+        ctx.restore();
+      } else if (entryId === 'honeybee') {
+        const scale = variant === 'hero' ? 4.6 : 1.5;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 4 : 2));
+        renderer.drawHoneybeeSprite(ctx, time, scale, colorVariantIndex);
+        ctx.restore();
+      } else if (entryId === 'ladybug') {
+        const scale = variant === 'hero' ? 4.8 : 1.55;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 18 : 6));
+        renderer.drawLadybugSprite(ctx, time, scale, colorVariantIndex);
+        ctx.restore();
       }
 
       // Apply clean dark shadow silhouette for unencountered entries
@@ -223,7 +282,7 @@ const BestiarySpriteCanvas: React.FC<{
 
     rafId = requestAnimationFrame(drawFrame);
     return () => cancelAnimationFrame(rafId);
-  }, [entryId, unlocked, variant, width, height]);
+  }, [entryId, unlocked, variant, width, height, colorVariantIndex, isBaby]);
 
   return (
     <canvas
@@ -245,6 +304,14 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
     const firstDiscovered = BESTIARY_ENTRIES.find(e => discoveredSet.has(e.id));
     return firstDiscovered ? firstDiscovered.id : BESTIARY_ENTRIES[0].id;
   });
+  const [selectedMorphIndex, setSelectedMorphIndex] = useState<number>(0);
+  const [showBabyForm, setShowBabyForm] = useState<boolean>(false);
+
+  // Reset selected coat/morph and adult/baby view when switching entries
+  useEffect(() => {
+    setSelectedMorphIndex(0);
+    setShowBabyForm(false);
+  }, [selectedId]);
 
   // Allow Escape key to return cleanly to Main Menu
   useEffect(() => {
@@ -272,6 +339,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
   }, [filteredEntries, selectedId]);
 
   const isSelectedUnlocked = discoveredSet.has(selectedEntry.id);
+  const isWildlife = selectedEntry.category === 'wildlife';
   const selectedIndex = BESTIARY_ENTRIES.findIndex(e => e.id === selectedEntry.id) + 1;
   const defeatCount = saveData.enemyDefeatCounts?.[selectedEntry.id] || 0;
 
@@ -281,6 +349,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
       creature: BESTIARY_ENTRIES.filter(e => e.category === 'creature').length,
       boss: BESTIARY_ENTRIES.filter(e => e.category === 'boss').length,
       hazard: BESTIARY_ENTRIES.filter(e => e.category === 'hazard').length,
+      wildlife: BESTIARY_ENTRIES.filter(e => e.category === 'wildlife').length,
     }),
     []
   );
@@ -296,32 +365,41 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
   const categoryLabel = (cat: BestiaryCategory) => {
     if (cat === 'boss') return 'Boss';
     if (cat === 'hazard') return 'Hazard';
+    if (cat === 'wildlife') return 'Wildlife';
     return 'Creature';
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/92 backdrop-blur-sm p-2.5 sm:p-4 overflow-hidden">
       <div className="w-full max-w-4xl max-h-[92vh] bg-slate-950 border-2 border-yellow-400 shadow-[0_0_40px_rgba(250,204,21,0.2)] flex flex-col overflow-hidden">
-        {/* Header Bar */}
-        <header className="px-4 sm:px-5 py-3.5 bg-slate-900 border-b-2 border-slate-800 flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 bg-amber-400 border-2 border-amber-700 flex items-center justify-center shrink-0">
+        {/* Header Bar with Field Journal Completion Progress */}
+        <header className="px-4 sm:px-5 py-3.5 bg-gradient-to-r from-slate-900 via-slate-900 to-amber-950/40 border-b-2 border-slate-800 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="w-9 h-9 bg-gradient-to-b from-yellow-300 to-amber-500 border-2 border-amber-700 shadow-[0_2px_0_#78350f] flex items-center justify-center shrink-0">
               <BookOpen className="w-5 h-5 text-slate-950 stroke-[2.5]" />
             </div>
-            <div className="min-w-0">
-              <h2 className="font-pixel-arcade text-sm sm:text-base text-yellow-300 tracking-wider truncate">
-                ADVENTURER BESTIARY
-              </h2>
-              <p className="font-pixel-arcade text-[9px] sm:text-[10px] text-slate-400 tabular-nums mt-0.5">
-                FIELD JOURNAL · {discoveredSet.size} / {BESTIARY_ENTRIES.length} DISCOVERED
-              </p>
+            <div className="min-w-0 flex-1 max-w-md">
+              <div className="flex items-baseline justify-between gap-2">
+                <h2 className="font-pixel-arcade text-sm sm:text-base text-yellow-300 tracking-wider truncate">
+                  ADVENTURER BESTIARY
+                </h2>
+                <span className="font-pixel-arcade text-[9px] text-amber-300 tabular-nums shrink-0">
+                  {discoveredSet.size}/{BESTIARY_ENTRIES.length}
+                </span>
+              </div>
+              <div className="w-full h-2 bg-slate-950 border border-slate-700 mt-1.5 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all duration-300"
+                  style={{ width: `${Math.round((discoveredSet.size / BESTIARY_ENTRIES.length) * 100)}%` }}
+                />
+              </div>
             </div>
           </div>
 
           <button
             type="button"
             onClick={onReturnToMenu}
-            className="min-h-[40px] px-3 sm:px-4 bg-slate-800 hover:bg-slate-700 text-yellow-300 border-2 border-slate-600 font-pixel-arcade text-[9px] sm:text-[10px] tracking-wider flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+            className="min-h-[40px] px-3 sm:px-4 bg-slate-800 hover:bg-slate-700 active:translate-y-0.5 text-yellow-300 border-2 border-slate-600 shadow-[0_3px_0_#0f172a] font-pixel-arcade text-[9px] sm:text-[10px] tracking-wider flex items-center gap-1.5 shrink-0 cursor-pointer transition-all"
           >
             <ChevronLeft className="w-3.5 h-3.5 stroke-[2.5]" />
             <span>MENU</span>
@@ -337,9 +415,10 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
           {(
             [
               { id: 'all', label: `ALL (${filterCounts.all})` },
-              { id: 'creature', label: `CREATURES (${filterCounts.creature})` },
+              { id: 'creature', label: `ENEMIES (${filterCounts.creature})` },
               { id: 'boss', label: `BOSS (${filterCounts.boss})` },
               { id: 'hazard', label: `HAZARDS (${filterCounts.hazard})` },
+              { id: 'wildlife', label: `WILDLIFE (${filterCounts.wildlife})` },
             ] as { id: FilterTab; label: string }[]
           ).map(tab => {
             const active = activeFilter === tab.id;
@@ -363,7 +442,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
         </div>
 
         {/* Two-Pane Body */}
-        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[260px_1fr] overflow-hidden">
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[268px_1fr] overflow-hidden">
           {/* Left Roster Column */}
           <aside className="border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950/90 overflow-y-auto p-2.5 sm:p-3 max-h-[28vh] md:max-h-none touch-pan-y">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 gap-2">
@@ -426,11 +505,11 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
             >
               {/* Subtle top typographic metadata */}
               <div className="absolute top-2.5 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none">
-                <span className="font-pixel-arcade text-[9px] text-slate-200/80 tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                <span className="font-pixel-arcade text-[9px] text-slate-100/90 tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
                   NO. {String(selectedIndex).padStart(2, '0')} ·{' '}
                   {isSelectedUnlocked ? selectedEntry.threatRank : 'UNIDENTIFIED'}
                 </span>
-                <span className="font-pixel-arcade text-[8px] sm:text-[9px] text-yellow-200/85 truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                <span className="font-pixel-arcade text-[8px] sm:text-[9px] text-yellow-200 truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
                   {isSelectedUnlocked ? selectedEntry.habitat : `STAGE ${selectedEntry.firstSeenLevel}`}
                 </span>
               </div>
@@ -450,6 +529,8 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                   entryId={selectedEntry.id}
                   unlocked={isSelectedUnlocked}
                   variant="hero"
+                  colorVariantIndex={selectedMorphIndex}
+                  isBaby={Boolean(selectedEntry.hasBabyForm && showBabyForm)}
                 />
                 {!isSelectedUnlocked && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -461,12 +542,88 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
               </div>
             </div>
 
-            {/* Entry Title */}
+            {/* Adult / Baby Life Stage Switcher (for innocent mammals with babies) */}
+            {isSelectedUnlocked && selectedEntry.hasBabyForm && (
+              <div className="mb-3 bg-slate-900/90 border border-slate-800 p-2.5 flex flex-wrap items-center justify-between gap-2">
+                <div className="font-pixel-arcade text-[8px] text-slate-400 tracking-wider">
+                  LIFE STAGE PREVIEW
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowBabyForm(false)}
+                    className={`min-h-[34px] px-3 py-1 border-2 font-pixel-arcade text-[8px] sm:text-[9px] cursor-pointer transition-all whitespace-nowrap ${
+                      !showBabyForm
+                        ? 'bg-yellow-400 text-slate-950 border-amber-600 font-bold shadow-[0_2px_0_#78350f]'
+                        : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-slate-500 hover:text-yellow-200'
+                    }`}
+                  >
+                    ADULT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowBabyForm(true)}
+                    className={`min-h-[34px] px-3 py-1 border-2 font-pixel-arcade text-[8px] sm:text-[9px] cursor-pointer transition-all whitespace-nowrap ${
+                      showBabyForm
+                        ? 'bg-emerald-400 text-slate-950 border-emerald-700 font-bold shadow-[0_2px_0_#064e3b]'
+                        : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-emerald-500 hover:text-emerald-200'
+                    }`}
+                  >
+                    BABY ({(selectedEntry.babyName || 'BABY').toUpperCase()})
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Interactive Natural Color / Breed Morph Selector */}
+            {isSelectedUnlocked && selectedEntry.colorVariants && selectedEntry.colorVariants.length > 0 && (
+              <div className="mb-4 bg-slate-900/90 border border-slate-800 p-2.5">
+                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-2 tracking-wider">
+                  NATURAL COAT &amp; SPECIES VARIATIONS
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedEntry.colorVariants.map((morph, idx) => {
+                    const isActiveMorph = selectedMorphIndex === idx;
+                    return (
+                      <button
+                        key={morph.name}
+                        type="button"
+                        onClick={() => setSelectedMorphIndex(idx)}
+                        className={`min-h-[34px] px-2.5 py-1 border-2 font-pixel-arcade text-[8px] sm:text-[9px] flex items-center gap-2 cursor-pointer transition-all ${
+                          isActiveMorph
+                            ? 'bg-yellow-400 text-slate-950 border-amber-600 font-bold shadow-[0_2px_0_#78350f]'
+                            : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-slate-500 hover:text-yellow-200'
+                        }`}
+                      >
+                        <span
+                          className="w-3 h-3 border border-slate-950/80 shrink-0"
+                          style={{ backgroundColor: morph.swatch }}
+                        />
+                        <span>{morph.name.toUpperCase()}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Entry Title & Naturalist Taxonomy */}
             <div className="mb-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="font-pixel-arcade text-base sm:text-lg text-yellow-300 tracking-wide">
-                  {isSelectedUnlocked ? selectedEntry.name : 'UNDISCOVERED FOE'}
-                </h3>
+                <div className="flex flex-wrap items-baseline gap-2.5">
+                  <h3 className="font-pixel-arcade text-base sm:text-lg text-yellow-300 tracking-wide">
+                    {isSelectedUnlocked
+                      ? selectedEntry.name
+                      : isWildlife
+                        ? 'UNDISCOVERED WILDLIFE'
+                        : 'UNDISCOVERED FOE'}
+                  </h3>
+                  {isSelectedUnlocked && (
+                    <span className="text-xs italic text-amber-300/80 font-body">
+                      {selectedEntry.scientificName}
+                    </span>
+                  )}
+                </div>
                 <span className="font-pixel-arcade text-[9px] text-slate-400 tabular-nums">
                   FIRST SEEN · STAGE {selectedEntry.firstSeenLevel}
                 </span>
@@ -474,50 +631,72 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
               <p className="text-xs sm:text-sm text-slate-400 font-body mt-0.5">
                 {isSelectedUnlocked
                   ? selectedEntry.subtitle
-                  : 'Cross paths with this enemy during your journey to record its pixel portrait and lore.'}
+                  : isWildlife
+                    ? 'Explore its biome during your journey to log this background animal in your field journal.'
+                    : 'Cross paths with this enemy during your journey to record its pixel portrait and lore.'}
               </p>
             </div>
 
-            {/* Combat & Encounter Telemetry Grid */}
+            {/* Combat / Wildlife Telemetry Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
               <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
-                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">HEALTH</div>
-                <div className="font-pixel-arcade text-[10px] sm:text-[11px] text-slate-100 tabular-nums">
+                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">
+                  {isWildlife ? 'NATURE' : 'HEALTH'}
+                </div>
+                <div
+                  className={`font-pixel-arcade text-[10px] sm:text-[11px] tabular-nums ${
+                    isWildlife ? 'text-emerald-300' : 'text-slate-100'
+                  }`}
+                >
                   {isSelectedUnlocked ? selectedEntry.hpLabel : '???'}
                 </div>
               </div>
               <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
-                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">DAMAGE</div>
-                <div className="font-pixel-arcade text-[10px] sm:text-[11px] text-rose-300 tabular-nums">
+                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">
+                  {isWildlife ? 'DANGER' : 'DAMAGE'}
+                </div>
+                <div
+                  className={`font-pixel-arcade text-[10px] sm:text-[11px] tabular-nums ${
+                    isWildlife ? 'text-slate-200' : 'text-rose-300'
+                  }`}
+                >
                   {isSelectedUnlocked ? selectedEntry.damageLabel : '???'}
                 </div>
               </div>
               <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
-                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">TEMPO</div>
+                <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">
+                  {isWildlife ? 'HABIT' : 'TEMPO'}
+                </div>
                 <div className="font-pixel-arcade text-[10px] sm:text-[11px] text-sky-300">
                   {isSelectedUnlocked ? selectedEntry.speedLabel : '???'}
                 </div>
               </div>
               <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
                 <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">
-                  {selectedEntry.trackDefeats ? 'DEFEATED' : 'TYPE'}
+                  {selectedEntry.trackDefeats ? 'DEFEATED' : isWildlife ? 'STATUS' : 'TYPE'}
                 </div>
                 <div className="font-pixel-arcade text-[10px] sm:text-[11px] text-amber-300 tabular-nums">
                   {!isSelectedUnlocked
                     ? '—'
                     : selectedEntry.trackDefeats
                       ? `${defeatCount}`
-                      : 'STAGE TRAP'}
+                      : isWildlife
+                        ? 'FRIENDLY'
+                        : 'STAGE TRAP'}
                 </div>
               </div>
             </div>
 
-            {/* Lore & Tactics OR Discovery Hint */}
+            {/* Lore & Notes OR Discovery Hint */}
             {isSelectedUnlocked ? (
               <div className="space-y-4">
                 <div>
                   <div className="flex items-center gap-2 font-pixel-arcade text-[10px] text-yellow-300 mb-1.5">
-                    <Skull className="w-3.5 h-3.5 text-yellow-400" />
+                    {isWildlife ? (
+                      <Leaf className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Skull className="w-3.5 h-3.5 text-yellow-400" />
+                    )}
                     <span>FIELD LORE</span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-200 font-body leading-relaxed">
@@ -525,10 +704,32 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                   </p>
                 </div>
 
+                {selectedEntry.hasBabyForm && selectedEntry.babyDescription && (
+                  <div className="bg-emerald-950/35 border border-emerald-700/60 p-3.5">
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className="font-pixel-arcade text-[10px] text-emerald-300">
+                        BABY FORM · {(selectedEntry.babyName || 'JUVENILE').toUpperCase()}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowBabyForm(prev => !prev)}
+                        className="font-pixel-arcade text-[8px] text-yellow-300 hover:text-yellow-200 underline underline-offset-2 cursor-pointer"
+                      >
+                        {showBabyForm ? 'VIEW ADULT' : 'PREVIEW BABY'}
+                      </button>
+                    </div>
+                    <p className="text-xs sm:text-sm text-slate-200 font-body leading-relaxed">
+                      {selectedEntry.babyDescription}
+                    </p>
+                  </div>
+                )}
+
                 <div className="bg-slate-900/90 border border-slate-700 p-3.5">
                   <div className="flex items-center gap-2 font-pixel-arcade text-[10px] text-emerald-300 mb-1.5">
                     <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>SILKIE SAM&apos;S BATTLE NOTE</span>
+                    <span>
+                      {isWildlife ? "SILKIE SAM'S FIELD NOTE" : "SILKIE SAM'S BATTLE NOTE"}
+                    </span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-300 font-body leading-relaxed">
                     {selectedEntry.combatTip}

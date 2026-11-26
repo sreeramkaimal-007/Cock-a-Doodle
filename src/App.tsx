@@ -4,12 +4,20 @@ import { GameRenderer } from './game/renderer';
 import { GameScreen, SaveData, GrowthStage, ChickenGender, ChickenSkinId, BadgeItem } from './game/types';
 import { loadSaveData, saveSaveData, clearSaveData } from './game/storage';
 import { audio } from './game/audio';
-import { initializeAdMob, showAdMobInterstitial } from './game/admob';
+import {
+  initializeAdMob,
+  showAdMobInterstitial,
+  hideAdMobBanner,
+  subscribeAdMobInterstitial,
+  notifyAdMobInterstitialClosed,
+  AdMobInterstitialRequest,
+} from './game/admob';
 import { LEVELS } from './game/levels';
 import { getBadgesWithStatus } from './game/quests';
 import { GameHUD } from './components/GameHUD';
 import { GameModals } from './components/GameModals';
 import { TouchControls } from './components/TouchControls';
+import { AdMobInterstitialModal } from './components/AdMobInterstitialModal';
 
 import { onAuthStateChanged, signOut, applyActionCode, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -34,6 +42,7 @@ export default function App() {
   const [playerHealth, setPlayerHealth] = useState<number>(3);
   const [playerStage, setPlayerStage] = useState<GrowthStage>('baby');
   const [playerFireResistTimer, setPlayerFireResistTimer] = useState<number>(0);
+  const [playerPoisonTimer, setPlayerPoisonTimer] = useState<number>(0);
   const [showTouchControls, setShowTouchControls] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024;
@@ -45,6 +54,9 @@ export default function App() {
   const [immersiveFullscreen, setImmersiveFullscreen] = useState<boolean>(false);
   const [fullscreenTip, setFullscreenTip] = useState<string | null>(null);
   const fullscreenTipTimerRef = useRef<number | null>(null);
+  const [activeAdMobRequest, setActiveAdMobRequest] = useState<AdMobInterstitialRequest | null>(null);
+  const activeAdMobRef = useRef<AdMobInterstitialRequest | null>(null);
+  activeAdMobRef.current = activeAdMobRequest;
 
   // Firebase Authentication & Verification Gate
   // Note: user.reload() mutates auth.currentUser in-place, so we track isEmailVerified separately
@@ -403,6 +415,11 @@ export default function App() {
     if (newlyUnlocked) {
       setFoundBadge(newlyUnlocked);
       audio.playBadgeUnlock();
+      void showAdMobInterstitial({
+        reason: 'achievement_badge',
+        title: `Badge Unlocked: ${newlyUnlocked.title}`,
+        subtitle: newlyUnlocked.description,
+      });
       updateSaveData(prev => ({
         ...prev,
         unlockedBadges: [...(prev.unlockedBadges || []), newlyUnlocked.id]
@@ -446,6 +463,7 @@ export default function App() {
     }
 
     setPlayerFireResistTimer(0);
+    setPlayerPoisonTimer(0);
 
     const currentSave = loadSaveData();
     // When starting a new run or entering level 1, only reset equipment if player is not an evolved chicken!
@@ -552,7 +570,7 @@ export default function App() {
           setScreen('EVOLUTION');
         },
         onGameOver: () => {
-          setScreen('GAME_OVER');
+          setScreen('DEATH_LOADING');
         },
         onVictory: (earnedCoins) => {
           updateSaveData(prev => ({
@@ -635,8 +653,10 @@ export default function App() {
     updateMusicForLevel(levelId);
   }, [updateSaveData, updateMusicForLevel]);
 
-  // Handle Starting a New Run: directly starts Level 1 with egg hatching intro without prompting for gender
-  const handleStartNewRun = useCallback(() => {
+  const pendingRestartActionRef = useRef<'level' | 'new_run' | 'respawn'>('level');
+
+  // Execute a brand new run (invoked after heavenly reincarnation loading finishes)
+  const executeStartNewRun = useCallback(() => {
     updateSaveData(prev => ({
       ...prev,
       armor: 'none',
@@ -646,6 +666,7 @@ export default function App() {
       hasCompletedGame: false,
       collectedCoinIds: [],
       activatedCheckpointIds: [],
+      openedChestIds: [],
       levelCoinsCollected: {},
       hasVisitedShop: false,
       hasSeenSamLevel1Joke: false,
@@ -658,6 +679,12 @@ export default function App() {
     audio.stopMusic();
     audio.playEggCrack();
   }, [updateSaveData]);
+
+  // Handle Starting a New Run: show heavenly "recarnation in progress..." loading screen first
+  const handleStartNewRun = useCallback(() => {
+    pendingRestartActionRef.current = 'new_run';
+    setScreen('RESTART_LOADING');
+  }, []);
 
   // Handle Game Start
   const handleStartGame = useCallback((levelId = 1, watchIntro = false) => {
@@ -683,6 +710,7 @@ export default function App() {
         hasCompletedGame: false,
         collectedCoinIds: [],
         activatedCheckpointIds: [],
+        openedChestIds: [],
         levelCoinsCollected: {},
         hasVisitedShop: false,
         hasSeenSamLevel1Joke: false,
@@ -744,21 +772,36 @@ export default function App() {
     setScreen('PLAYING');
   }, [activeLevelId, initLevelEngine]);
 
-  // Restart level handler
-  const handleRestartLevel = useCallback(() => {
-    initLevelEngine(activeLevelId);
-    setScreen('PLAYING');
-  }, [activeLevelId, initLevelEngine]);
+  // Finish death loading transition -> reveal Game Over modal
+  const handleFinishDeathLoading = useCallback(() => {
+    setScreen('GAME_OVER');
+  }, []);
 
-  // Respawn handler (on Level 30 returns straight to the spot where Silkie Sam drops the weapons)
-  const handleRespawn = useCallback(() => {
-    if (activeLevelId === 30 && engineRef.current) {
+  // Finish heavenly reincarnation loading screen -> perform the requested restart
+  const handleFinishRestartLoading = useCallback(() => {
+    const action = pendingRestartActionRef.current;
+    if (action === 'new_run') {
+      executeStartNewRun();
+    } else if (action === 'respawn' && activeLevelId === 30 && engineRef.current) {
       engineRef.current.respawnAtSamSpot();
       setScreen('PLAYING');
     } else {
-      handleRestartLevel();
+      initLevelEngine(activeLevelId);
+      setScreen('PLAYING');
     }
-  }, [activeLevelId, handleRestartLevel]);
+  }, [activeLevelId, executeStartNewRun, initLevelEngine]);
+
+  // Restart level handler -> shows heavenly Clouds of Heaven loading screen
+  const handleRestartLevel = useCallback(() => {
+    pendingRestartActionRef.current = 'level';
+    setScreen('RESTART_LOADING');
+  }, []);
+
+  // Respawn handler -> shows heavenly Clouds of Heaven loading screen (Level 30 returns to Sam's weapon spot)
+  const handleRespawn = useCallback(() => {
+    pendingRestartActionRef.current = activeLevelId === 30 ? 'respawn' : 'level';
+    setScreen('RESTART_LOADING');
+  }, [activeLevelId]);
 
   // Level select handler
   const handleSelectLevel = useCallback((lvlId: number) => {
@@ -788,6 +831,11 @@ export default function App() {
 
   const handleClaimQuest = useCallback((questId: string, rewardCoins: number) => {
     audio.playCoin();
+    void showAdMobInterstitial({
+      reason: 'achievement_quest',
+      title: 'Quest Completed!',
+      subtitle: `Achievement reward claimed (+${rewardCoins.toLocaleString()} coins)`,
+    });
     updateSaveData(prev => ({
       ...prev,
       totalCoins: prev.totalCoins + rewardCoins,
@@ -881,6 +929,11 @@ export default function App() {
       };
     });
     audio.playPowerUp();
+    void showAdMobInterstitial({
+      reason: 'achievement_victory',
+      title: 'Grand Champion Reward Claimed!',
+      subtitle: '1,000,000 Gold Boss Bounty Unlocked',
+    });
   }, [updateSaveData]);
 
   const handleBuySkin = useCallback((skinId: string, cost: number): boolean => {
@@ -914,6 +967,11 @@ export default function App() {
 
   const handleUnlockSkin = useCallback((skinId: string, autoEquip = true) => {
     audio.playBadgeUnlock();
+    void showAdMobInterstitial({
+      reason: 'achievement_skin',
+      title: 'Special Skin Unlocked!',
+      subtitle: 'New appearance achievement earned',
+    });
     updateSaveData(prev => {
       const currentUnlocked = (prev.unlockedSkins || ['classic']) as ChickenSkinId[];
       const typedSkin = skinId as ChickenSkinId;
@@ -953,33 +1011,75 @@ export default function App() {
       screen === 'QUESTS_BADGES' ||
       screen === 'SHOP' ||
       screen === 'BESTIARY' ||
-      screen === 'WORLD_LOADING'
+      screen === 'WORLD_LOADING' ||
+      screen === 'RESTART_LOADING'
     ) {
       audio.playMusic('waiting');
     } else if (screen === 'PLAYING') {
       updateMusicForLevel(activeLevelId);
     } else if (screen === 'ENDING_CINEMATIC' || screen === 'VICTORY') {
       audio.playMusic('victory');
-    } else if (screen === 'INTRO_CINEMATIC') {
+    } else if (screen === 'INTRO_CINEMATIC' || screen === 'DEATH_LOADING') {
       audio.stopMusic();
     }
 
-    if (screen === 'LEVEL_CLEAR' || screen === 'GAME_OVER') {
-      void showAdMobInterstitial();
+    // Trigger AdMob popup interstitial only when reaching in-game achievements (never on losing a life)
+    if (screen === 'LEVEL_CLEAR') {
+      void showAdMobInterstitial({
+        reason: 'achievement_level_clear',
+        title: `Stage ${activeLevelId} Cleared!`,
+        subtitle: 'Level completion achievement unlocked',
+      });
+    } else if (screen === 'WORLD_LOADING') {
+      void showAdMobInterstitial({
+        reason: 'achievement_world',
+        title: 'New World Reached!',
+        subtitle: 'Advancing to the next realm',
+      });
+    } else if (screen === 'EVOLUTION') {
+      void showAdMobInterstitial({
+        reason: 'achievement_evolution',
+        title: 'Chicken Evolved!',
+        subtitle: 'Major growth milestone unlocked',
+      });
+    } else if (screen === 'VICTORY') {
+      void showAdMobInterstitial({
+        reason: 'achievement_victory',
+        title: 'Ancient Cockatrice Defeated!',
+        subtitle: 'Grand Victory Achievement Unlocked',
+      });
     }
   }, [screen, activeLevelId, updateMusicForLevel]);
 
-  // Initialize native AdMob bridge on startup (no-op in standard web browsers)
+  // Initialize native AdMob bridge, keep banners hidden, and subscribe to interstitial popups
   useEffect(() => {
     void initializeAdMob();
+    void hideAdMobBanner();
+    const unsubscribe = subscribeAdMobInterstitial((request) => {
+      if (engineRef.current) {
+        engineRef.current.isPaused = true;
+        engineRef.current.setInput({ left: false, right: false, jump: false, attack: false, block: false });
+      }
+      setActiveAdMobRequest(request);
+    });
+    return unsubscribe;
   }, []);
+
+  const handleCloseAdMobInterstitial = useCallback(() => {
+    setActiveAdMobRequest(null);
+    notifyAdMobInterstitialClosed();
+    if (screen === 'PLAYING' && engineRef.current) {
+      engineRef.current.isPaused = false;
+      engineRef.current.player.invulnerableTimer = Math.max(engineRef.current.player.invulnerableTimer, 1.5);
+    }
+  }, [screen]);
 
   // Robust keyboard controls listener using keysHeld Set
   useEffect(() => {
     const keysHeld = new Set<string>();
 
     const updateControlsFromKeys = () => {
-      if (!engineRef.current || screen !== 'PLAYING') return;
+      if (!engineRef.current || screen !== 'PLAYING' || activeAdMobRef.current) return;
       const left = keysHeld.has('keya') || keysHeld.has('arrowleft') || keysHeld.has('a');
       const right = keysHeld.has('keyd') || keysHeld.has('arrowright') || keysHeld.has('d');
       const jump = keysHeld.has('space') || keysHeld.has('keyw') || keysHeld.has('arrowup') || keysHeld.has('w') || keysHeld.has(' ');
@@ -996,8 +1096,8 @@ export default function App() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Never intercept or preventDefault keys when Auth gate is open or user is typing in a form field
-      if (!hasGameAccess || isFormField(e.target)) {
+      // Never intercept or preventDefault keys when Auth gate or AdMob popup is open, or user is typing in a form field
+      if (!hasGameAccess || activeAdMobRef.current || isFormField(e.target)) {
         return;
       }
 
@@ -1094,7 +1194,7 @@ export default function App() {
 
   // Touch controls input bridge
   const handleTouchInput = useCallback((controls: { left?: boolean; right?: boolean; jump?: boolean; attack?: boolean; block?: boolean }) => {
-    if (engineRef.current && screen === 'PLAYING') {
+    if (engineRef.current && screen === 'PLAYING' && !activeAdMobRef.current) {
       engineRef.current.setInput(controls);
     }
   }, [screen]);
@@ -1163,11 +1263,6 @@ export default function App() {
           : Boolean(saveData.hasCompletedGame);
         renderer.renderBackground(engine.level.theme, engine.camera, engine.time, engine.level.id, isSkyBlue);
 
-        // Silkie Sam (local friend delivering Royal Shield)
-        if (engine.level.silkieSam) {
-          renderer.renderSilkieSam(engine.level.silkieSam, engine.camera, engine.time);
-        }
-
         // Starting Chicken Coop: ONLY appears on Level 1, and never floats (firmly on ground platform)
         if (engine.level.id === 1) {
           renderer.renderStartingCoop(engine.level.spawnPoint, engine.camera, engine.time, engine.level.platforms);
@@ -1191,7 +1286,7 @@ export default function App() {
         }
 
         // Platforms
-        engine.level.platforms.forEach(p => renderer.renderPlatform(p, engine.camera, engine.level.enemies, engine.level.theme));
+        engine.level.platforms.forEach(p => renderer.renderPlatform(p, engine.camera, engine.level.enemies, engine.level.theme, isSkyBlue));
 
         // Spikes Obstacles
         if (engine.level.spikes) {
@@ -1218,9 +1313,9 @@ export default function App() {
         // Coins
         engine.level.coins.forEach(c => renderer.renderCoin(c, engine.camera, engine.time));
 
-        // Enemies
+        // Enemies (biome-authentic coat variants: no Arctic White in grass/jungle; Arctic White + regular only in snowy)
         if (engine.level.enemies) {
-          engine.level.enemies.forEach(e => renderer.renderEnemy(e, engine.camera));
+          engine.level.enemies.forEach(e => renderer.renderEnemy(e, engine.camera, engine.level.theme));
         }
 
         // Player Chick with armor, sword, and equipped appearance skin
@@ -1253,7 +1348,7 @@ export default function App() {
           renderer.renderBossBar(engine.level.cockatrice, engine.time);
         }
 
-        // Sync fire resist buff timer to HUD
+        // Sync fire resist & snake poison timers to HUD
         const currentFireResist = engine.player.fireResistTimer ?? 0;
         setPlayerFireResistTimer(prev => {
           if (prev === 0 && currentFireResist === 0) return prev;
@@ -1261,6 +1356,15 @@ export default function App() {
             return prev;
           }
           return currentFireResist;
+        });
+
+        const currentPoison = engine.player.poisonTimer ?? 0;
+        setPlayerPoisonTimer(prev => {
+          if (prev === 0 && currentPoison === 0) return prev;
+          if (Math.abs(prev - currentPoison) < 0.05 && Math.ceil(prev) === Math.ceil(currentPoison)) {
+            return prev;
+          }
+          return currentPoison;
         });
       }
 
@@ -1341,6 +1445,7 @@ export default function App() {
             armor={saveData.armor}
             sword={saveData.sword}
             fireResistTimer={playerFireResistTimer}
+            poisonTimer={playerPoisonTimer}
             soundEnabled={saveData.soundEnabled}
             musicEnabled={saveData.musicEnabled}
             showTouchControls={showTouchControls}
@@ -1407,6 +1512,8 @@ export default function App() {
         onMarkShopVisited={handleMarkShopVisited}
         onClaimBossReward={handleClaimBossReward}
         onFinishWorldLoading={handleFinishWorldLoading}
+        onFinishRestartLoading={handleFinishRestartLoading}
+        onFinishDeathLoading={handleFinishDeathLoading}
         onToggleShopStatus={handleToggleShopStatus}
         onBuySkin={handleBuySkin}
         onEquipSkin={handleEquipSkin}
@@ -1475,6 +1582,12 @@ export default function App() {
           </button>
         </div>
       )}
+
+      {/* Google AdMob Interstitial Ad Popup (Life Lost & In-Game Achievements) */}
+      <AdMobInterstitialModal
+        request={activeAdMobRequest}
+        onClose={handleCloseAdMobInterstitial}
+      />
 
       {/* Registration & Login Gate: Must be registered & email verified before playing */}
       {authLoading ? (

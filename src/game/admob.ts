@@ -1,5 +1,34 @@
 // Hybrid Google AdMob Bridge for Native Mobile Containers (Capacitor / Android & iOS WebView)
-// On standard web browsers, AdBanner automatically uses Google AdSense instead.
+// with an interactive full-screen AdMob / AdSense Interstitial Popup fallback on Web browsers.
+
+export type AdMobInterstitialReason =
+  | 'life_lost'
+  | 'game_over'
+  | 'achievement_badge'
+  | 'achievement_quest'
+  | 'achievement_level_clear'
+  | 'achievement_evolution'
+  | 'achievement_world'
+  | 'achievement_victory'
+  | 'achievement_skin';
+
+export interface AdMobInterstitialOptions {
+  reason?: AdMobInterstitialReason;
+  title?: string;
+  subtitle?: string;
+  bypassCooldown?: boolean;
+}
+
+export interface AdMobInterstitialRequest {
+  id: number;
+  reason: AdMobInterstitialReason;
+  title: string;
+  subtitle: string;
+  adUnitId: string;
+  isNativeConfigured: boolean;
+}
+
+type InterstitialListener = (request: AdMobInterstitialRequest) => void;
 
 interface CapacitorAdMobPlugin {
   initialize?: (options?: {
@@ -45,8 +74,26 @@ interface NativeBridgeWindow extends Window {
 }
 
 let admobInitialized = false;
-let lastInterstitialAt = 0;
-const INTERSTITIAL_COOLDOWN_MS = 90_000;
+let lastLifeLostAdAt = 0;
+let lastAnyInterstitialAt = 0;
+let interstitialRequestSeq = 0;
+let isWebInterstitialOpen = false;
+
+const LIFE_LOST_COOLDOWN_MS = 12_000;
+const DEDUP_WINDOW_MS = 2_500;
+
+const interstitialListeners = new Set<InterstitialListener>();
+
+export function subscribeAdMobInterstitial(listener: InterstitialListener): () => void {
+  interstitialListeners.add(listener);
+  return () => {
+    interstitialListeners.delete(listener);
+  };
+}
+
+export function notifyAdMobInterstitialClosed(): void {
+  isWebInterstitialOpen = false;
+}
 
 function getPlatform(): 'android' | 'ios' | 'web' {
   if (typeof window === 'undefined') return 'web';
@@ -154,37 +201,93 @@ export async function hideAdMobBanner(): Promise<void> {
   }
 }
 
-export async function showAdMobInterstitial(): Promise<boolean> {
-  if (!isNativeAdMobAvailable()) return false;
+function getDefaultMetaForReason(reason: AdMobInterstitialReason): { title: string; subtitle: string } {
+  switch (reason) {
+    case 'life_lost':
+      return { title: 'Life Lost', subtitle: 'Take a quick breather before continuing' };
+    case 'game_over':
+      return { title: 'Out of Lives', subtitle: 'Defeated in battle — ready for your next attempt' };
+    case 'achievement_badge':
+      return { title: 'Badge Unlocked', subtitle: 'New Hero Achievement Earned' };
+    case 'achievement_quest':
+      return { title: 'Quest Completed', subtitle: 'Reward Claimed Achievement' };
+    case 'achievement_level_clear':
+      return { title: 'Stage Cleared', subtitle: 'Level Completion Achievement' };
+    case 'achievement_evolution':
+      return { title: 'Chicken Evolved', subtitle: 'Major Growth Milestone Reached' };
+    case 'achievement_world':
+      return { title: 'New World Unlocked', subtitle: 'Advancing to the Next Realm' };
+    case 'achievement_victory':
+      return { title: 'Victory Achieved', subtitle: 'Ancient Cockatrice Defeated' };
+    case 'achievement_skin':
+      return { title: 'Skin Unlocked', subtitle: 'New Appearance Achievement' };
+    default:
+      return { title: 'Sponsored Break', subtitle: 'Google AdMob Interstitial' };
+  }
+}
+
+export async function showAdMobInterstitial(options: AdMobInterstitialOptions = {}): Promise<boolean> {
+  const reason: AdMobInterstitialReason = options.reason || 'achievement_level_clear';
   const now = Date.now();
-  if (now - lastInterstitialAt < INTERSTITIAL_COOLDOWN_MS) return false;
+
+  // Prevent overlapping interstitials or duplicate triggers within the same frame/event burst
+  if (isWebInterstitialOpen) return false;
+  if (!options.bypassCooldown) {
+    if (now - lastAnyInterstitialAt < DEDUP_WINDOW_MS) return false;
+    if (reason === 'life_lost' && now - lastLifeLostAdAt < LIFE_LOST_COOLDOWN_MS) return false;
+  }
 
   const { interstitialId } = getAdMobUnitIds();
-  if (!interstitialId.trim()) return false;
+  const trimmedInterstitialId = interstitialId.trim();
 
-  await initializeAdMob();
-  const win = window as NativeBridgeWindow;
+  // 1. Try native Google AdMob SDK first when running inside Android/iOS native wrapper
+  if (isNativeAdMobAvailable() && trimmedInterstitialId) {
+    await initializeAdMob();
+    const win = window as NativeBridgeWindow;
 
-  try {
-    const plugin = win.Capacitor?.Plugins?.AdMob;
-    if (plugin?.prepareInterstitial && plugin?.showInterstitial) {
-      await plugin.prepareInterstitial({ adId: interstitialId.trim() });
-      await plugin.showInterstitial();
-      lastInterstitialAt = now;
-      return true;
+    try {
+      const plugin = win.Capacitor?.Plugins?.AdMob;
+      if (plugin?.prepareInterstitial && plugin?.showInterstitial) {
+        await plugin.prepareInterstitial({ adId: trimmedInterstitialId });
+        await plugin.showInterstitial();
+        lastAnyInterstitialAt = now;
+        if (reason === 'life_lost') lastLifeLostAdAt = now;
+        return true;
+      }
+      if (win.AndroidAdMob?.showInterstitial) {
+        win.AndroidAdMob.showInterstitial(trimmedInterstitialId);
+        lastAnyInterstitialAt = now;
+        if (reason === 'life_lost') lastLifeLostAdAt = now;
+        return true;
+      }
+      if (win.webkit?.messageHandlers?.admob) {
+        win.webkit.messageHandlers.admob.postMessage({ action: 'showInterstitial', adUnitId: trimmedInterstitialId });
+        lastAnyInterstitialAt = now;
+        if (reason === 'life_lost') lastLifeLostAdAt = now;
+        return true;
+      }
+    } catch {
+      // Fall through to in-app interstitial modal if native call fails
     }
-    if (win.AndroidAdMob?.showInterstitial) {
-      win.AndroidAdMob.showInterstitial(interstitialId.trim());
-      lastInterstitialAt = now;
-      return true;
-    }
-    if (win.webkit?.messageHandlers?.admob) {
-      win.webkit.messageHandlers.admob.postMessage({ action: 'showInterstitial', adUnitId: interstitialId.trim() });
-      lastInterstitialAt = now;
-      return true;
-    }
-  } catch {
-    // Ignore interstitial failures
   }
+
+  // 2. Web / PWA / Preview fallback: emit an AdMob Interstitial Popup request to the UI
+  if (interstitialListeners.size > 0) {
+    const defaults = getDefaultMetaForReason(reason);
+    const request: AdMobInterstitialRequest = {
+      id: ++interstitialRequestSeq,
+      reason,
+      title: options.title || defaults.title,
+      subtitle: options.subtitle || defaults.subtitle,
+      adUnitId: trimmedInterstitialId || 'ca-pub-3743078627568874',
+      isNativeConfigured: Boolean(trimmedInterstitialId),
+    };
+    isWebInterstitialOpen = true;
+    lastAnyInterstitialAt = now;
+    if (reason === 'life_lost') lastLifeLostAdAt = now;
+    interstitialListeners.forEach((listener) => listener(request));
+    return true;
+  }
+
   return false;
 }

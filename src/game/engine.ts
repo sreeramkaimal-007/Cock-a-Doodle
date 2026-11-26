@@ -7,6 +7,7 @@ import { audio } from './audio';
 export interface GameEngineCallbacks {
   onLevelClear: (levelId: number, coinsEarned: number) => void;
   onGameOver: () => void;
+  onLifeLost?: (remainingHealth: number, maxHealth: number, cause: 'enemy' | 'pit') => void;
   onVictory: (totalCoins: number) => void;
   onEvolution: (stage: 'juvenile' | 'teen' | 'adult') => void;
   onStatsUpdate: (health: number, coins: number, stage: PlayerState['stage'], armor?: ArmorType, sword?: SwordType, hasShield?: boolean) => void;
@@ -124,6 +125,10 @@ export class GameEngine {
       walkAnimTimer: 0,
       onMovingPlatform: null,
       fireResistTimer: 0,
+      poisonTimer: 0,
+      poisonTickTimer: 0,
+      poisonTickInterval: 1.6,
+      poisonDrainRemaining: 0,
     };
 
     this.currentCheckpoint = { ...this.level.spawnPoint };
@@ -225,25 +230,32 @@ export class GameEngine {
         b.vx = 0;
         b.vy = 0;
       });
-
-      // Post-Boss Level Replay: Mark previously collected coins and checkpoints as finished!
-      // Any coins or checkpoints that were NOT collected yet will still be there waiting.
-      const collectedSet = new Set(this.saveData.collectedCoinIds || []);
-      this.level.coins.forEach(c => {
-        const coinKey = `${levelId}_${c.id}`;
-        if (collectedSet.has(coinKey)) {
-          c.collected = true;
-        }
-      });
-
-      const checkpointSet = new Set(this.saveData.activatedCheckpointIds || []);
-      this.level.checkpoints.forEach(cp => {
-        const cpKey = `${levelId}_${cp.id}`;
-        if (checkpointSet.has(cpKey)) {
-          cp.reached = true;
-        }
-      });
     }
+
+    // Always restore previously collected coins, opened chests, and stepped-on checkpoints when revisiting a level
+    const collectedSet = new Set(this.saveData.collectedCoinIds || []);
+    this.level.coins.forEach(c => {
+      const coinKey = `${levelId}_${c.id}`;
+      if (collectedSet.has(coinKey)) {
+        c.collected = true;
+      }
+    });
+
+    const openedChestSet = new Set(this.saveData.openedChestIds || []);
+    this.level.chests.forEach(chest => {
+      const chestKey = `${levelId}_${chest.id}`;
+      if (openedChestSet.has(chestKey)) {
+        chest.opened = true;
+      }
+    });
+
+    const checkpointSet = new Set(this.saveData.activatedCheckpointIds || []);
+    this.level.checkpoints.forEach(cp => {
+      const cpKey = `${levelId}_${cp.id}`;
+      if (checkpointSet.has(cpKey)) {
+        cp.reached = true;
+      }
+    });
 
     // In Level 30, Silkie Sam always prepares to gift the Royal Shield and Netherite Sword!
     if (this.level.silkieSam) {
@@ -281,9 +293,9 @@ export class GameEngine {
   public respawnAtSamSpot() {
     const sam = this.level.silkieSam;
     const groundY = 460;
-    const samCenterX = sam ? sam.x : 270;
+    const samCenterX = 240;
 
-    // Return directly to the spot where Silkie Sam drops the Royal Shield & Netherite Sword
+    // Return directly to the spot where Silkie Sam leaves the Royal Shield & Netherite Sword
     this.player.x = Math.round(samCenterX - this.player.width / 2);
     this.player.y = groundY - this.player.height;
     this.player.vx = 0;
@@ -296,13 +308,16 @@ export class GameEngine {
     this.player.knockbackTimer = 0;
     this.player.invulnerableTimer = 2.0;
     this.player.fireResistTimer = 0;
+    this.player.poisonTimer = 0;
+    this.player.poisonTickTimer = 0;
+    this.player.poisonDrainRemaining = 0;
     this.player.onMovingPlatform = null;
     this.player.health = this.player.maxHealth;
 
     if (sam) {
       if (!sam.shieldCollected) {
         sam.shieldDropped = true;
-        sam.shieldX = sam.x - 14;
+        sam.shieldX = samCenterX - 18;
         sam.shieldY = 440;
         sam.shieldVy = 0;
       } else {
@@ -312,7 +327,7 @@ export class GameEngine {
 
       if (!sam.swordCollected) {
         sam.swordDropped = true;
-        sam.swordX = sam.x + 18;
+        sam.swordX = samCenterX + 20;
         sam.swordY = 440;
         sam.swordVy = 0;
       } else {
@@ -380,22 +395,22 @@ export class GameEngine {
 
   private getSizeForStage(stage: PlayerState['stage'], gender: ChickenGender = 'rooster'): { w: number; h: number } {
     if (gender === 'rooster') {
-      // Rooster: taller, athletic upright stance, tall crown comb
+      // Rooster: accurate, nimble chicken proportions scaled naturally against wolves, foxes, and bears
       switch (stage) {
-        case 'baby': return { w: 22, h: 25 };
-        case 'juvenile': return { w: 26, h: 30 };
-        case 'teen': return { w: 30, h: 36 };
-        case 'adult': return { w: 34, h: 42 };
-        default: return { w: 24, h: 28 };
+        case 'baby': return { w: 16, h: 18 };
+        case 'juvenile': return { w: 19, h: 22 };
+        case 'teen': return { w: 22, h: 26 };
+        case 'adult': return { w: 25, h: 30 };
+        default: return { w: 18, h: 20 };
       }
     } else {
-      // Hen: broader, rounder, plumper body profile, compact center of gravity
+      // Hen: compact, rounded chicken proportions scaled naturally against world wildlife and foes
       switch (stage) {
-        case 'baby': return { w: 24, h: 22 };
-        case 'juvenile': return { w: 29, h: 26 };
-        case 'teen': return { w: 34, h: 30 };
-        case 'adult': return { w: 40, h: 36 };
-        default: return { w: 26, h: 24 };
+        case 'baby': return { w: 17, h: 16 };
+        case 'juvenile': return { w: 21, h: 19 };
+        case 'teen': return { w: 24, h: 22 };
+        case 'adult': return { w: 29, h: 26 };
+        default: return { w: 19, h: 17 };
       }
     }
   }
@@ -465,8 +480,8 @@ export class GameEngine {
     const reach = this.swordType === 'netherite' ? 56 : (this.swordType === 'diamond' ? 44 : (this.swordType === 'gold' ? 36 : 24));
     const hitX = this.player.facing === 'right' ? this.player.x + this.player.width : this.player.x - reach;
     const hitW = reach;
-    const hitY = this.player.y;
-    const hitH = this.player.height;
+    const hitY = this.player.y - 6;
+    const hitH = this.player.height + 6;
 
     // Check hit against enemies
     if (this.level.enemies) {
@@ -580,6 +595,7 @@ export class GameEngine {
     if (enemy.type === 'wolf') audio.playWolfHurt();
     else if (enemy.type === 'fox') audio.playFoxHurt();
     else if (enemy.type === 'bear') audio.playBearHurt();
+    else if (enemy.type === 'snake') audio.playSnakeHurt();
     else audio.playEnemyDefeat();
 
     // Knockback enemy slightly
@@ -590,9 +606,6 @@ export class GameEngine {
     if (enemy.health <= 0) {
       enemy.state = 'defeated';
       this.addDefeatExplosion(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
-      this.addFloatingText('+COINS!', enemy.x + enemy.width / 2, enemy.y - 20, '#facc15');
-      this.coinsEarnedThisLevel += 5;
-      audio.playCoin();
       this.callbacks.onActionStat?.('enemiesDefeated');
       this.reportEncounter(enemy.type);
       this.callbacks.onEnemyDefeated?.(enemy.type);
@@ -624,6 +637,7 @@ export class GameEngine {
 
     this.updateMovingPlatforms(delta);
     this.updatePlayer(delta);
+    this.updatePoison(delta);
     this.updateHazards(delta);
     this.updateEnemies(delta);
     this.updateCockatrice(delta);
@@ -634,6 +648,90 @@ export class GameEngine {
     this.updateFloatingTexts(delta);
     this.updateCamera();
     this.checkBestiaryEncounters();
+  }
+
+  private inflictPoison() {
+    // Slowly drain half of the player's max health in 0.5-heart ticks
+    const halfMax = Math.max(0.5, Math.round((this.player.maxHealth * 0.5) * 2) / 2);
+    const tickInterval = 1.6;
+    const ticks = Math.max(1, Math.ceil(halfMax / 0.5));
+    this.player.poisonDrainRemaining = halfMax;
+    this.player.poisonTickInterval = tickInterval;
+    this.player.poisonTickTimer = tickInterval;
+    this.player.poisonTimer = ticks * tickInterval;
+
+    this.addFloatingText('☠ VENOM BITE! POISONED!', this.player.x + this.player.width / 2, this.player.y - 24, '#4ade80');
+    for (let i = 0; i < 12; i++) {
+      this.particles.push({
+        x: this.player.x + this.player.width / 2 + (Math.random() - 0.5) * 16,
+        y: this.player.y + this.player.height / 2 + (Math.random() - 0.5) * 16,
+        vx: (Math.random() - 0.5) * 90,
+        vy: -Math.random() * 85 - 25,
+        size: 3 + Math.random() * 2.5,
+        color: i % 2 === 0 ? '#22c55e' : '#a3e635',
+        life: 0.55,
+        maxLife: 0.55,
+      });
+    }
+  }
+
+  private updatePoison(dt: number) {
+    if ((this.player.poisonTimer ?? 0) <= 0 || (this.player.poisonDrainRemaining ?? 0) <= 0) {
+      this.player.poisonTimer = 0;
+      this.player.poisonDrainRemaining = 0;
+      return;
+    }
+
+    this.player.poisonTimer = Math.max(0, (this.player.poisonTimer ?? 0) - dt);
+    this.player.poisonTickTimer = (this.player.poisonTickTimer ?? 1.6) - dt;
+
+    // Emit rising venom bubbles while poisoned
+    if (Math.random() < dt * 7.5) {
+      this.particles.push({
+        x: this.player.x + this.player.width / 2 + (Math.random() - 0.5) * 18,
+        y: this.player.y + this.player.height * 0.65,
+        vx: (Math.random() - 0.5) * 20,
+        vy: -35 - Math.random() * 35,
+        size: 2.5 + Math.random() * 2,
+        color: Math.random() > 0.4 ? '#4ade80' : '#84cc16',
+        life: 0.55,
+        maxLife: 0.55,
+      });
+    }
+
+    if ((this.player.poisonTickTimer ?? 0) <= 0) {
+      const remaining = this.player.poisonDrainRemaining ?? 0;
+      const tickDamage = Math.min(0.5, remaining);
+      this.player.poisonDrainRemaining = Math.max(0, Math.round((remaining - tickDamage) * 2) / 2);
+      this.player.poisonTickTimer = this.player.poisonTickInterval || 1.6;
+      this.tookDamageThisLevel = true;
+      this.player.health = Math.max(0, Math.round((this.player.health - tickDamage) * 2) / 2);
+      audio.playPoisonTick();
+      this.addFloatingText('-0.5 POISON', this.player.x + this.player.width / 2, this.player.y - 18, '#4ade80');
+      this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage);
+
+      if (this.player.health <= 0) {
+        if (this.saveData.upgrades?.reviveToken && !this.reviveTokenUsed) {
+          this.reviveTokenUsed = true;
+          this.player.health = this.player.maxHealth;
+          this.player.poisonTimer = 0;
+          this.player.poisonDrainRemaining = 0;
+          this.player.invulnerableTimer = 2.5;
+          audio.playEvolution();
+          this.addFloatingText('★ PHOENIX FEATHER REVIVAL! POISON CURED! ★', this.player.x + this.player.width / 2, this.player.y - 35, '#facc15');
+          this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage);
+          return;
+        }
+        this.player.poisonTimer = 0;
+        this.player.poisonDrainRemaining = 0;
+        this.handleGameOver();
+        return;
+      }
+
+      if ((this.player.poisonDrainRemaining ?? 0) <= 0) {
+        this.player.poisonTimer = 0;
+      }
+    }
   }
 
   private reportEncounter(enemyId: string) {
@@ -685,6 +783,23 @@ export class GameEngine {
           break;
         }
       }
+    }
+
+    // Background Wildlife Discoveries by Biome
+    if (this.level.id <= 10) {
+      this.reportEncounter('sheep');
+    } else if (this.level.world === 4) {
+      this.reportEncounter('monkey');
+    } else if (this.level.world === 5) {
+      this.reportEncounter('hare');
+    } else if (
+      this.level.id === 30 &&
+      (this.saveData.hasCompletedGame || this.level.cockatrice?.state === 'defeated')
+    ) {
+      this.reportEncounter('butterfly');
+      this.reportEncounter('dragonfly');
+      this.reportEncounter('honeybee');
+      this.reportEncounter('ladybug');
     }
   }
 
@@ -1338,6 +1453,7 @@ export class GameEngine {
           if (enemy.type === 'wolf') audio.playWolfHowl();
           else if (enemy.type === 'fox') audio.playFoxBark();
           else if (enemy.type === 'bear') audio.playBearRoar();
+          else if (enemy.type === 'snake') audio.playSnakeHiss();
         }
         // Chase player
         enemy.state = 'chase';
@@ -1370,13 +1486,41 @@ export class GameEngine {
         this.player.y + this.player.height > enemy.y
       ) {
         // Jump Stomp from above!
-        if (this.player.vy > 0 && this.player.y + this.player.height < enemy.y + 14) {
+        const stompMargin = enemy.type === 'snake' ? 10 : 14;
+        if (this.player.vy > 0 && this.player.y + this.player.height < enemy.y + stompMargin) {
           this.player.vy = -380; // bounce up
           this.damageEnemy(enemy, 2);
         } else if (this.player.invulnerableTimer <= 0) {
-          if (enemy.type === 'wolf') audio.playWolfBite();
-          else if (enemy.type === 'bear') audio.playBearSlam();
-          this.takeDamage(enemy.damage, enemy.facing === 'right' ? 1 : -1);
+          if (enemy.type === 'snake') {
+            this.reportEncounter('snake');
+            const dir = enemy.facing === 'right' ? 1 : -1;
+            if (this.player.isBlocking) {
+              audio.playShieldBlock();
+              this.player.invulnerableTimer = 0.6;
+              this.player.knockbackTimer = 0.14;
+              this.player.vx = dir * 160;
+              this.addFloatingText('BLOCKED FANGS!', this.player.x + this.player.width / 2, this.player.y - 18, '#38bdf8');
+            } else {
+              audio.playSnakeHiss();
+              const alreadyPoisoned = (this.player.poisonTimer ?? 0) > 0;
+              if (alreadyPoisoned) {
+                this.takeDamage(0.5, dir);
+                if (this.player.health > 0) this.inflictPoison();
+              } else {
+                this.tookDamageThisLevel = true;
+                this.player.invulnerableTimer = 1.0;
+                this.player.knockbackTimer = 0.2;
+                this.player.vx = dir * 190;
+                this.player.vy = -220;
+                audio.playHurt();
+                this.inflictPoison();
+              }
+            }
+          } else {
+            if (enemy.type === 'wolf') audio.playWolfBite();
+            else if (enemy.type === 'bear') audio.playBearSlam();
+            this.takeDamage(enemy.damage, enemy.facing === 'right' ? 1 : -1);
+          }
         }
       }
     });
@@ -1587,7 +1731,6 @@ export class GameEngine {
         if (t >= 2.1) {
           boss.defeatSubState = 'escaped';
           boss.ashExplodeFlash = 0;
-          this.coinsEarnedThisLevel += 300;
           this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage, this.armorType, this.swordType, this.player.hasShield);
           audio.playBossDefeat();
           audio.playMusic('coop');
@@ -1604,8 +1747,7 @@ export class GameEngine {
       boss.dialogueTimer += dt;
       const dialogues = [
         "who dares enter my realm?",
-        "well.. i guess i need to spice things up!",
-        "when you defeat me.. it will be the last thing you will ever know"
+        "well.. i guess i need to spice things up!"
       ];
       const currentText = dialogues[boss.dialogueIndex] || '';
 
@@ -1679,10 +1821,12 @@ export class GameEngine {
       return;
     }
 
-    // 1.5. WAITING FOR SAM TO DELIVER SHIELD (Boss hovers observantly waiting)
+    // 1.5. WAITING FOR SAM TO SNEAK IN QUIETLY (Boss turns away gloating high in the sky so he doesn't spot Sam!)
     if (boss.state === 'waiting_for_sam') {
-      boss.wingAngle = Math.sin(this.time * 6) * 0.22;
-      boss.y += (170 - boss.y) * 2.5 * dt;
+      boss.facing = 'right';
+      boss.wingAngle = Math.sin(this.time * 5.2) * 0.2;
+      boss.y += (118 - boss.y) * 2.2 * dt;
+      boss.x += (760 - boss.x) * 1.8 * dt;
       return;
     }
 
@@ -1746,10 +1890,10 @@ export class GameEngine {
         const standingPlat = this.level.platforms.find(p => playerCenter >= p.x - 30 && playerCenter <= p.x + p.width + 30) || this.level.platforms[0];
 
         if (aliveSummons.length === 0 && (attacksSinceSummon >= 3 || attackRoll < 0.22)) {
-          // 0. SUMMON ATTACK (Wolves first, then Foxes, finally Bears; boss waits passively until defeated!)
+          // 0. SUMMON ATTACK (Wolves -> Foxes -> Snakes -> Bears; boss waits passively until defeated!)
           boss.attacksSinceSummon = 0;
-          const wave = (boss.summonWaveIndex ?? 0) % 3;
-          boss.summonWaveType = wave === 0 ? 'wolf' : (wave === 1 ? 'fox' : 'bear');
+          const wave = (boss.summonWaveIndex ?? 0) % 4;
+          boss.summonWaveType = wave === 0 ? 'wolf' : (wave === 1 ? 'fox' : (wave === 2 ? 'snake' : 'bear'));
           boss.state = 'prepare_summon';
           audio.playCockatriceScreech();
         } else {
@@ -1793,10 +1937,10 @@ export class GameEngine {
       }
     }
 
-    // 2.5. PREPARE & EXECUTE SUMMON ATTACK (WOLVES -> FOXES -> BEARS)
+    // 2.5. PREPARE & EXECUTE SUMMON ATTACK (WOLVES -> FOXES -> SNAKES -> BEARS)
     else if (boss.state === 'prepare_summon') {
-      const wave = (boss.summonWaveIndex ?? 0) % 3;
-      const waveType = wave === 0 ? 'wolf' : (wave === 1 ? 'fox' : 'bear');
+      const wave = (boss.summonWaveIndex ?? 0) % 4;
+      const waveType = wave === 0 ? 'wolf' : (wave === 1 ? 'fox' : (wave === 2 ? 'snake' : 'bear'));
       boss.summonWaveType = waveType;
 
       // Hover high & center while channeling summons
@@ -1810,8 +1954,10 @@ export class GameEngine {
         audio.playCockatriceScreech();
         const label = waveType === 'wolf'
           ? '🐺 COCKATRICE SUMMONS WOLVES! 🐺'
-          : (waveType === 'fox' ? '🦊 COCKATRICE SUMMONS FOXES! 🦊' : '🐻 COCKATRICE SUMMONS BEARS! 🐻');
-        this.addFloatingText(label, bossCenter, boss.y - 24, '#c084fc');
+          : (waveType === 'fox'
+            ? '🦊 COCKATRICE SUMMONS FOXES! 🦊'
+            : (waveType === 'snake' ? '🐍 COCKATRICE SUMMONS VENOMOUS SNAKES! 🐍' : '🐻 COCKATRICE SUMMONS BEARS! 🐻'));
+        this.addFloatingText(label, bossCenter, boss.y - 24, waveType === 'snake' ? '#4ade80' : '#c084fc');
       }
 
       // Ground summoning sparkles
@@ -1825,7 +1971,7 @@ export class GameEngine {
           vx: (Math.random() - 0.5) * 40,
           vy: -Math.random() * 110 - 30,
           size: 3.5 + Math.random() * 3,
-          color: Math.random() > 0.5 ? '#c084fc' : '#f43f5e',
+          color: waveType === 'snake' ? (Math.random() > 0.5 ? '#22c55e' : '#a3e635') : (Math.random() > 0.5 ? '#c084fc' : '#f43f5e'),
           life: 0.45,
           maxLife: 0.45
         });
@@ -1849,10 +1995,11 @@ export class GameEngine {
 
           const isBear = waveType === 'bear';
           const isFox = waveType === 'fox';
-          const eWidth = isBear ? 48 : (isFox ? 38 : 36);
-          const eHeight = isBear ? 36 : (isFox ? 22 : 24);
+          const isSnake = waveType === 'snake';
+          const eWidth = isBear ? 48 : (isFox ? 38 : (isSnake ? 38 : 36));
+          const eHeight = isBear ? 36 : (isFox ? 22 : (isSnake ? 14 : 24));
           const eHealth = isBear ? 5 : (isFox ? 3 : 2);
-          const eSpeed = isBear ? 1.0 : (isFox ? 1.75 : 1.25);
+          const eSpeed = isBear ? 1.0 : (isFox ? 1.75 : (isSnake ? 1.5 : 1.25));
           const eDamage = isBear ? 2 : 1;
 
           const summonedEnemy: Enemy = {
@@ -1888,7 +2035,7 @@ export class GameEngine {
               vx: (Math.random() - 0.5) * 180,
               vy: -Math.random() * 140 - 20,
               size: 4,
-              color: sp % 2 === 0 ? '#c084fc' : '#facc15',
+              color: isSnake ? (sp % 2 === 0 ? '#22c55e' : '#facc15') : (sp % 2 === 0 ? '#c084fc' : '#facc15'),
               life: 0.55,
               maxLife: 0.55
             });
@@ -1897,9 +2044,10 @@ export class GameEngine {
 
         if (waveType === 'wolf') audio.playWolfHowl();
         else if (waveType === 'fox') audio.playFoxBark();
+        else if (waveType === 'snake') audio.playSnakeHiss();
         else audio.playBearRoar();
 
-        boss.summonWaveIndex = (wave + 1) % 3;
+        boss.summonWaveIndex = (wave + 1) % 4;
         boss.state = 'waiting_summons';
         boss.stateTimer = 0;
         boss.jawOpen = 0;
@@ -2651,7 +2799,6 @@ export class GameEngine {
           boss.burntMarksCount = nextMarks;
           boss.burnIntensity = boss.burntMarksCount / 3;
           boss.health = nextHealth;
-          this.coinsEarnedThisLevel += 25;
           this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage);
 
           if (boss.health <= 0) {
@@ -2726,7 +2873,6 @@ export class GameEngine {
       }
     });
 
-    this.coinsEarnedThisLevel += 300;
     this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage);
     this.addDefeatExplosion(boss.x + boss.width / 2, boss.y + boss.height / 2);
     audio.playEnemyDefeat();
@@ -2769,7 +2915,6 @@ export class GameEngine {
     }
 
     boss.health = Math.max(0, boss.health - dmg);
-    this.coinsEarnedThisLevel += 25;
     this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage);
 
     audio.playEnemyDefeat();
@@ -2815,12 +2960,11 @@ export class GameEngine {
     boss.stunHitsNeeded--;
     // Drain 20 hearts of boss health on each jump stomp!
     boss.health = Math.max(0, boss.health - 20);
-    this.coinsEarnedThisLevel += 25;
     this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage);
     audio.playEnemyDefeat();
 
     const currentHit = 3 - boss.stunHitsNeeded;
-    this.addFloatingText(`JUMP STOMP ${currentHit}/3! -20 HP! +25 EXP! [${boss.health}/200]`, boss.x + boss.width / 2, boss.y - 15, '#facc15');
+    this.addFloatingText(`JUMP STOMP ${currentHit}/3! -20 HP! [${boss.health}/200]`, boss.x + boss.width / 2, boss.y - 15, '#facc15');
     this.addDefeatExplosion(boss.x + boss.width / 2, boss.y + boss.height / 2);
 
     for (let i = 0; i < 16; i++) {
@@ -2915,8 +3059,7 @@ export class GameEngine {
     if (boss.state !== 'intro_dialogue') return;
     const dialogues = [
       "who dares enter my realm?",
-      "well.. i guess i need to spice things up!",
-      "when you defeat me.. it will be the last thing you will ever know"
+      "well.. i guess i need to spice things up!"
     ];
     const currentText = dialogues[boss.dialogueIndex] || '';
     if (boss.dialogueCharIndex < currentText.length) {
@@ -2950,47 +3093,73 @@ export class GameEngine {
     const sam = this.level.silkieSam;
     if (!sam || sam.state === 'waiting') return;
 
-    sam.wingAngle = Math.sin(this.time * 16) * 0.45;
+    // Keep Sam's wings tucked quietly down while sneaking so he doesn't alert the Cockatrice!
+    sam.wingAngle = Math.sin(this.time * 4.5) * 0.08;
 
     // Fast-skip dialogues with tap or jump/attack keys
     const wantsSkipDialogue = this.input.jump || this.input.attack || this.input.block;
 
-    // 1. FLYING IN FROM THE SKY
+    // 1. QUIETLY SNEAKING IN LOW BEHIND THE PLAYER (so the boss doesn't see him!)
     if (sam.state === 'flying_in') {
-      sam.y += (sam.targetY - sam.y) * 4 * dt;
-      sam.shieldX = sam.x - 12;
-      sam.shieldY = sam.y + 16;
-      sam.swordX = sam.x + 16;
-      sam.swordY = sam.y + 16;
-      if (Math.abs(sam.y - sam.targetY) < 4) {
-        sam.y = sam.targetY;
-        sam.state = 'talk_1';
+      const targetX = Math.max(76, Math.min(230, this.player.x - 42));
+      const sneakSpeed = 115;
+      sam.y = 432;
+      if (sam.x < targetX) {
+        sam.x = Math.min(targetX, sam.x + sneakSpeed * dt);
+      } else {
+        sam.x = Math.max(targetX, sam.x - sneakSpeed * dt);
+      }
+      sam.shieldX = sam.x - 10;
+      sam.shieldY = sam.y + 8;
+      sam.swordX = sam.x + 14;
+      sam.swordY = sam.y + 8;
+      if (Math.abs(sam.x - targetX) < 3) {
+        sam.x = targetX;
+        sam.state = 'talk_psst';
         sam.dialogueTimer = 0;
         sam.dialogueCharIndex = 0;
       }
     }
 
-    // 2. TALK 1: "here take this" -> drops shield
+    // 1.5. TALK PSST: "psst!" (hushed whisper so the boss doesn't hear!)
+    else if (sam.state === 'talk_psst') {
+      sam.dialogueTimer += dt;
+      const linePsst = "psst!";
+      if (sam.dialogueCharIndex < linePsst.length) {
+        if (wantsSkipDialogue) {
+          sam.dialogueCharIndex = linePsst.length;
+        } else if (sam.dialogueTimer > 0.055) {
+          sam.dialogueTimer = 0;
+          sam.dialogueCharIndex++;
+        }
+      } else {
+        if (sam.dialogueTimer > 0.9 || (wantsSkipDialogue && sam.dialogueTimer > 0.2)) {
+          sam.state = 'talk_1';
+          sam.dialogueTimer = 0;
+          sam.dialogueCharIndex = 0;
+        }
+      }
+    }
+
+    // 2. TALK 1: "here take this" -> quietly sets down the shield
     else if (sam.state === 'talk_1') {
       sam.dialogueTimer += dt;
       const line1 = "here take this";
       if (sam.dialogueCharIndex < line1.length) {
         if (wantsSkipDialogue) {
           sam.dialogueCharIndex = line1.length;
-        } else if (sam.dialogueTimer > 0.022) {
+        } else if (sam.dialogueTimer > 0.025) {
           sam.dialogueTimer = 0;
           sam.dialogueCharIndex++;
-          if (sam.dialogueCharIndex % 2 === 0) {
-            audio.playBossDialogueVoice();
-          }
         }
       } else {
         if (sam.dialogueTimer > 0.65 || (wantsSkipDialogue && sam.dialogueTimer > 0.2)) {
           sam.state = 'dropping_shield';
           sam.dialogueTimer = 0;
           sam.shieldDropped = true;
-          sam.shieldX = sam.x - 14;
-          sam.shieldVy = 30;
+          sam.shieldX = sam.x + 24;
+          sam.shieldY = 434;
+          sam.shieldVy = 15;
           audio.playEvolution();
         }
       }
@@ -3006,27 +3175,25 @@ export class GameEngine {
       }
     }
 
-    // 4. TALK 2: "oh here is a sword" -> drops netherite sword!
+    // 4. TALK 2: "oh here is a sword" -> quietly sets down the netherite sword!
     else if (sam.state === 'talk_2') {
       sam.dialogueTimer += dt;
       const line2 = "oh here is a sword";
       if (sam.dialogueCharIndex < line2.length) {
         if (wantsSkipDialogue) {
           sam.dialogueCharIndex = line2.length;
-        } else if (sam.dialogueTimer > 0.022) {
+        } else if (sam.dialogueTimer > 0.025) {
           sam.dialogueTimer = 0;
           sam.dialogueCharIndex++;
-          if (sam.dialogueCharIndex % 2 === 0) {
-            audio.playBossDialogueVoice();
-          }
         }
       } else {
         if (sam.dialogueTimer > 0.65 || (wantsSkipDialogue && sam.dialogueTimer > 0.2)) {
           sam.state = 'dropping_sword';
           sam.dialogueTimer = 0;
           sam.swordDropped = true;
-          sam.swordX = sam.x + 18;
-          sam.swordVy = 30;
+          sam.swordX = sam.x + 52;
+          sam.swordY = 434;
+          sam.swordVy = 15;
           audio.playEvolution();
         }
       }
@@ -3042,39 +3209,35 @@ export class GameEngine {
       }
     }
 
-    // 6. TALK 3: "good luck!" (last line)
+    // 6. TALK 3: "good luck!" (last whispered line)
     else if (sam.state === 'talk_3') {
       sam.dialogueTimer += dt;
       const line3 = "good luck!";
       if (sam.dialogueCharIndex < line3.length) {
         if (wantsSkipDialogue) {
           sam.dialogueCharIndex = line3.length;
-        } else if (sam.dialogueTimer > 0.022) {
+        } else if (sam.dialogueTimer > 0.025) {
           sam.dialogueTimer = 0;
           sam.dialogueCharIndex++;
-          if (sam.dialogueCharIndex % 2 === 0) {
-            audio.playBossDialogueVoice();
-          }
         }
       } else {
         if (sam.dialogueTimer > 0.65 || (wantsSkipDialogue && sam.dialogueTimer > 0.2)) {
           sam.state = 'flying_away';
           sam.dialogueTimer = 0;
-          audio.playJump(false);
         }
       }
     }
 
-    // 7. FLAP AWAY A LITTLE UP INTO THE SKY -> THEN COUNTDOWN STARTS & BOSS FIGHT BEGINS!
+    // 7. TIPTOE QUIETLY BACK OUT OF SIGHT -> THEN BOSS TURNS AROUND & COUNTDOWN BEGINS!
     else if (sam.state === 'flying_away') {
-      sam.y -= 190 * dt;
-      sam.x += 70 * dt;
-      sam.wingAngle = Math.sin(this.time * 24) * 0.7;
-      if (sam.y < 80) {
+      sam.x -= 145 * dt;
+      sam.y = 432;
+      if (sam.x < -58) {
         sam.state = 'gone';
-        // When Silkie Sam flies a little away after talking, the retro countdown officially begins!
+        // Once Silkie Sam sneaks safely out of sight, the Cockatrice turns back around and begins the countdown!
         const boss = this.level.cockatrice;
         if (boss && (boss.state === 'waiting_for_sam' || boss.state === 'flying_idle')) {
+          boss.facing = 'left';
           boss.state = 'countdown';
           boss.countdownTimer = 3.99;
           boss.countdownText = '3..';
@@ -3299,8 +3462,11 @@ export class GameEngine {
       this.coinsEarnedThisLevel += chest.rewardAmount;
       this.addFloatingText(`+${chest.rewardAmount} COINS!`, chest.x + chest.width / 2, chest.y - 24, '#facc15');
     } else if (chest.rewardType === 'heart') {
+      const wasPoisoned = (this.player.poisonTimer ?? 0) > 0;
       this.player.health = Math.min(this.player.maxHealth, this.player.health + 1);
-      this.addFloatingText('+1 HEART!', chest.x + chest.width / 2, chest.y - 24, '#f43f5e');
+      this.player.poisonTimer = 0;
+      this.player.poisonDrainRemaining = 0;
+      this.addFloatingText(wasPoisoned ? '+1 HEART! POISON CURED!' : '+1 HEART!', chest.x + chest.width / 2, chest.y - 24, wasPoisoned ? '#4ade80' : '#f43f5e');
     } else if (chest.rewardType === 'iron_armor') {
       this.armorType = 'iron';
       this.addFloatingText('IRON ARMOR!', chest.x + chest.width / 2, chest.y - 24, '#e2e8f0');
@@ -3339,6 +3505,15 @@ export class GameEngine {
           maxLife: 0.8
         });
       }
+    }
+
+    // Permanently remember this chest as already opened/empty when returning to this level
+    const chestKey = `${this.level.id}_${chest.id}`;
+    const currentChests = this.saveData.openedChestIds || [];
+    if (!currentChests.includes(chestKey)) {
+      const nextChests = [...currentChests, chestKey];
+      this.saveData.openedChestIds = nextChests;
+      this.callbacks.onSaveDataUpdate?.({ openedChestIds: nextChests });
     }
 
     this.callbacks.onStatsUpdate(
@@ -3399,6 +3574,8 @@ export class GameEngine {
         return;
       }
       this.handleGameOver();
+    } else if (actualDamage > 0) {
+      this.callbacks.onLifeLost?.(this.player.health, this.player.maxHealth, 'enemy');
     }
   }
 
@@ -3432,6 +3609,7 @@ export class GameEngine {
     this.player.isJumping = false;
     this.player.isGrounded = true;
     this.player.invulnerableTimer = 2.5;
+    this.callbacks.onLifeLost?.(this.player.health, this.player.maxHealth, 'pit');
   }
 
   private handleGameOver() {
@@ -3590,6 +3768,9 @@ export class GameEngine {
       p.life -= dt;
     });
     this.particles = this.particles.filter(p => p.life > 0);
+    if (this.particles.length > 160) {
+      this.particles = this.particles.slice(this.particles.length - 160);
+    }
   }
 
   private updateFloatingTexts(dt: number) {
@@ -3598,5 +3779,8 @@ export class GameEngine {
       ft.life -= dt;
     });
     this.floatingTexts = this.floatingTexts.filter(ft => ft.life > 0);
+    if (this.floatingTexts.length > 24) {
+      this.floatingTexts = this.floatingTexts.slice(this.floatingTexts.length - 24);
+    }
   }
 }

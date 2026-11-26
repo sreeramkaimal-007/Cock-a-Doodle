@@ -8,7 +8,9 @@ class AudioManager {
   private currentMusicTheme: string | null = null;
   private masterGain: GainNode | null = null;
   private musicGain: GainNode | null = null;
+  private musicFilter: BiquadFilterNode | null = null;
   private sfxGain: GainNode | null = null;
+  private noiseBuffer: AudioBuffer | null = null;
   private unlocked = false;
 
   constructor() {
@@ -93,6 +95,47 @@ class AudioManager {
     });
   }
 
+  private getNoiseBuffer(): AudioBuffer | null {
+    if (!this.ctx) return null;
+    if (!this.noiseBuffer) {
+      const length = Math.floor(this.ctx.sampleRate * 0.5);
+      const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < length; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      this.noiseBuffer = buffer;
+    }
+    return this.noiseBuffer;
+  }
+
+  private playNoiseBurst(
+    duration: number,
+    filterFreq: number,
+    filterType: BiquadFilterType,
+    volume: number,
+    target: AudioNode,
+    delay = 0
+  ) {
+    if (!this.ctx) return;
+    const buffer = this.getNoiseBuffer();
+    if (!buffer) return;
+    const now = this.ctx.currentTime + delay;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.setValueAtTime(filterFreq, now);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(Math.max(0.001, volume), now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(target);
+    src.start(now);
+    src.stop(now + duration + 0.01);
+  }
+
   private initContext() {
     if (typeof window === 'undefined') return;
     if (!this.ctx) {
@@ -108,16 +151,31 @@ class AudioManager {
         }
       };
 
+      const compressor = this.ctx.createDynamicsCompressor();
+      compressor.threshold.value = -14;
+      compressor.knee.value = 18;
+      compressor.ratio.value = 4;
+      compressor.attack.value = 0.005;
+      compressor.release.value = 0.14;
+      compressor.connect(this.ctx.destination);
+
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = 0.85;
-      this.masterGain.connect(this.ctx.destination);
+      this.masterGain.gain.value = 0.88;
+      this.masterGain.connect(compressor);
+
+      // Warm music bus with subtle low-pass smoothing for rich non-harsh timber
+      this.musicFilter = this.ctx.createBiquadFilter();
+      this.musicFilter.type = 'lowpass';
+      this.musicFilter.frequency.value = 3400;
+      this.musicFilter.Q.value = 0.6;
+      this.musicFilter.connect(this.masterGain);
 
       this.musicGain = this.ctx.createGain();
-      this.musicGain.gain.value = this.musicEnabled ? 0.35 : 0;
-      this.musicGain.connect(this.masterGain);
+      this.musicGain.gain.value = this.musicEnabled ? 0.36 : 0;
+      this.musicGain.connect(this.musicFilter);
 
       this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.value = this.soundEnabled ? 0.75 : 0;
+      this.sfxGain.gain.value = this.soundEnabled ? 0.78 : 0;
       this.sfxGain.connect(this.masterGain);
     }
     if (this.ctx.state !== 'running') {
@@ -154,32 +212,34 @@ class AudioManager {
     return this.musicEnabled;
   }
 
-  // --- Sound Effects ---
+  // --- Sound Effects (Layered Organic + Retro Synthesis) ---
 
   public playJump(isBig = false) {
     if (!this.soundEnabled) return;
     this.initContext();
     if (!this.ctx || !this.sfxGain) return;
 
+    const now = this.ctx.currentTime;
+    // Soft feather wing-flutter transient
+    this.playNoiseBurst(0.085, isBig ? 1400 : 1900, 'bandpass', 0.16, this.sfxGain);
+
+    // Crisp upward avian spring tone
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    const now = this.ctx.currentTime;
-
-    osc.type = 'square';
-    const startFreq = isBig ? 280 : 380;
-    const endFreq = isBig ? 620 : 880;
+    osc.type = 'triangle';
+    const startFreq = isBig ? 250 : 340;
+    const endFreq = isBig ? 580 : 820;
 
     osc.frequency.setValueAtTime(startFreq, now);
-    osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.14);
+    osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.13);
 
-    gain.gain.setValueAtTime(0.4, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.16);
+    gain.gain.setValueAtTime(0.36, now);
+    gain.gain.exponentialRampToValueAtTime(0.008, now + 0.16);
 
     osc.connect(gain);
     gain.connect(this.sfxGain);
-
     osc.start(now);
-    osc.stop(now + 0.16);
+    osc.stop(now + 0.17);
   }
 
   public playCoin() {
@@ -188,21 +248,25 @@ class AudioManager {
     if (!this.ctx || !this.sfxGain) return;
 
     const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(987.77, now); // B5
-    osc.frequency.setValueAtTime(1318.51, now + 0.08); // E6
-
-    gain.gain.setValueAtTime(0.3, now);
-    gain.gain.exponentialRampToValueAtTime(0.005, now + 0.28);
-
-    osc.connect(gain);
-    gain.connect(this.sfxGain);
-
-    osc.start(now);
-    osc.stop(now + 0.28);
+    // Dual-harmonic shimmering bell chime (B5 -> E6 + octave sparkle)
+    const tones = [
+      { freq: 987.77, delay: 0, dur: 0.14, vol: 0.24, type: 'triangle' as OscillatorType },
+      { freq: 1318.51, delay: 0.065, dur: 0.24, vol: 0.26, type: 'sine' as OscillatorType },
+      { freq: 2637.02, delay: 0.07, dur: 0.16, vol: 0.09, type: 'sine' as OscillatorType },
+    ];
+    tones.forEach(t => {
+      if (!this.ctx || !this.sfxGain) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = t.type;
+      osc.frequency.setValueAtTime(t.freq, now + t.delay);
+      gain.gain.setValueAtTime(t.vol, now + t.delay);
+      gain.gain.exponentialRampToValueAtTime(0.004, now + t.delay + t.dur);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now + t.delay);
+      osc.stop(now + t.delay + t.dur + 0.01);
+    });
   }
 
   public playAttack(isGold = false) {
@@ -211,21 +275,28 @@ class AudioManager {
     if (!this.ctx || !this.sfxGain) return;
 
     const now = this.ctx.currentTime;
+    // Crisp air-cutting blade swoosh
+    this.playNoiseBurst(0.11, isGold ? 2800 : 2100, 'bandpass', 0.24, this.sfxGain);
+
+    // Metallic blade harmonic ring
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-
     osc.type = isGold ? 'sawtooth' : 'triangle';
-    osc.frequency.setValueAtTime(isGold ? 700 : 500, now);
-    osc.frequency.exponentialRampToValueAtTime(120, now + 0.12);
+    osc.frequency.setValueAtTime(isGold ? 880 : 620, now);
+    osc.frequency.exponentialRampToValueAtTime(160, now + 0.11);
 
-    gain.gain.setValueAtTime(0.4, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2400, now);
 
-    osc.connect(gain);
+    gain.gain.setValueAtTime(0.32, now);
+    gain.gain.exponentialRampToValueAtTime(0.008, now + 0.12);
+
+    osc.connect(filter);
+    filter.connect(gain);
     gain.connect(this.sfxGain);
-
     osc.start(now);
-    osc.stop(now + 0.12);
+    osc.stop(now + 0.13);
   }
 
   public playHurt() {
@@ -234,21 +305,29 @@ class AudioManager {
     if (!this.ctx || !this.sfxGain) return;
 
     const now = this.ctx.currentTime;
+    // Impact thud noise
+    this.playNoiseBurst(0.12, 650, 'lowpass', 0.28, this.sfxGain);
+
     const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
     const gain = this.ctx.createGain();
 
     osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(280, now);
-    osc.frequency.linearRampToValueAtTime(70, now + 0.22);
+    osc.frequency.setValueAtTime(260, now);
+    osc.frequency.exponentialRampToValueAtTime(75, now + 0.21);
 
-    gain.gain.setValueAtTime(0.5, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(950, now);
 
-    osc.connect(gain);
+    gain.gain.setValueAtTime(0.42, now);
+    gain.gain.exponentialRampToValueAtTime(0.008, now + 0.22);
+
+    osc.connect(filter);
+    filter.connect(gain);
     gain.connect(this.sfxGain);
 
     osc.start(now);
-    osc.stop(now + 0.22);
+    osc.stop(now + 0.23);
   }
 
   public playEnemyDefeat() {
@@ -257,21 +336,33 @@ class AudioManager {
     if (!this.ctx || !this.sfxGain) return;
 
     const now = this.ctx.currentTime;
+    // Satisfying stomp punch + soft puff
+    this.playNoiseBurst(0.09, 1200, 'bandpass', 0.22, this.sfxGain);
+
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(320, now);
-    osc.frequency.exponentialRampToValueAtTime(80, now + 0.18);
-
-    gain.gain.setValueAtTime(0.4, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
-
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(340, now);
+    osc.frequency.exponentialRampToValueAtTime(72, now + 0.16);
+    gain.gain.setValueAtTime(0.42, now);
+    gain.gain.exponentialRampToValueAtTime(0.008, now + 0.17);
     osc.connect(gain);
     gain.connect(this.sfxGain);
-
     osc.start(now);
     osc.stop(now + 0.18);
+
+    // Quick bright confirmation pop
+    const pop = this.ctx.createOscillator();
+    const popGain = this.ctx.createGain();
+    pop.type = 'sine';
+    pop.frequency.setValueAtTime(520, now + 0.05);
+    pop.frequency.exponentialRampToValueAtTime(860, now + 0.14);
+    popGain.gain.setValueAtTime(0.18, now + 0.05);
+    popGain.gain.exponentialRampToValueAtTime(0.005, now + 0.15);
+    pop.connect(popGain);
+    popGain.connect(this.sfxGain);
+    pop.start(now + 0.05);
+    pop.stop(now + 0.16);
   }
 
   public playEggCrack() {
@@ -280,39 +371,27 @@ class AudioManager {
     if (!this.ctx || !this.sfxGain) return;
 
     const now = this.ctx.currentTime;
-    // Cracking crunch noise
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
+    // Crisp organic eggshell snap
+    this.playNoiseBurst(0.075, 2400, 'highpass', 0.28, this.sfxGain);
+    this.playNoiseBurst(0.055, 1600, 'bandpass', 0.2, this.sfxGain, 0.04);
 
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(450, now);
-    osc.frequency.exponentialRampToValueAtTime(120, now + 0.12);
-
-    gain.gain.setValueAtTime(0.35, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.14);
-
-    osc.connect(gain);
-    gain.connect(this.sfxGain);
-
-    osc.start(now);
-    osc.stop(now + 0.14);
-
-    // Baby chirp follow-up
+    // Cute baby chick peep follow-up
     setTimeout(() => {
       if (!this.ctx || !this.sfxGain || !this.soundEnabled) return;
       const t = this.ctx.currentTime;
       const chirp = this.ctx.createOscillator();
       const chirpGain = this.ctx.createGain();
       chirp.type = 'sine';
-      chirp.frequency.setValueAtTime(1400, t);
-      chirp.frequency.linearRampToValueAtTime(1800, t + 0.08);
-      chirpGain.gain.setValueAtTime(0.25, t);
-      chirpGain.gain.exponentialRampToValueAtTime(0.01, t + 0.12);
+      chirp.frequency.setValueAtTime(1450, t);
+      chirp.frequency.exponentialRampToValueAtTime(1950, t + 0.07);
+      chirp.frequency.exponentialRampToValueAtTime(1600, t + 0.12);
+      chirpGain.gain.setValueAtTime(0.24, t);
+      chirpGain.gain.exponentialRampToValueAtTime(0.008, t + 0.13);
       chirp.connect(chirpGain);
       chirpGain.connect(this.sfxGain);
       chirp.start(t);
-      chirp.stop(t + 0.12);
-    }, 120);
+      chirp.stop(t + 0.14);
+    }, 115);
   }
 
   public playChest() {
@@ -320,24 +399,26 @@ class AudioManager {
     this.initContext();
     if (!this.ctx || !this.sfxGain) return;
 
-    const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+    // Subtle wooden latch click + sparkling treasure arpeggio
+    this.playNoiseBurst(0.05, 900, 'bandpass', 0.18, this.sfxGain);
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51];
     notes.forEach((freq, idx) => {
       if (!this.ctx || !this.sfxGain) return;
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      const noteTime = this.ctx.currentTime + idx * 0.09;
+      const noteTime = this.ctx.currentTime + idx * 0.08;
 
-      osc.type = 'triangle';
+      osc.type = idx === notes.length - 1 ? 'sine' : 'triangle';
       osc.frequency.setValueAtTime(freq, noteTime);
 
-      gain.gain.setValueAtTime(0.35, noteTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, noteTime + 0.2);
+      gain.gain.setValueAtTime(0.3, noteTime);
+      gain.gain.exponentialRampToValueAtTime(0.008, noteTime + 0.26);
 
       osc.connect(gain);
       gain.connect(this.sfxGain);
 
       osc.start(noteTime);
-      osc.stop(noteTime + 0.22);
+      osc.stop(noteTime + 0.28);
     });
   }
 
@@ -1047,6 +1128,86 @@ class AudioManager {
     osc.stop(now + 0.28);
   }
 
+  public playSnakeHiss() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const duration = 0.28;
+    const sampleRate = this.ctx.sampleRate;
+    const bufferSize = Math.floor(sampleRate * duration);
+    const buffer = this.ctx.createBuffer(1, bufferSize, sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(3800, now);
+    filter.frequency.exponentialRampToValueAtTime(6200, now + 0.14);
+    filter.frequency.exponentialRampToValueAtTime(2800, now + duration);
+    filter.Q.value = 3.2;
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.32, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.008, now + duration);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+
+    noise.start(now);
+    noise.stop(now + duration);
+  }
+
+  public playSnakeHurt() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(620, now);
+    osc.frequency.exponentialRampToValueAtTime(190, now + 0.16);
+
+    gain.gain.setValueAtTime(0.28, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.16);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.16);
+  }
+
+  public playPoisonTick() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(280, now);
+    osc.frequency.exponentialRampToValueAtTime(160, now + 0.14);
+
+    gain.gain.setValueAtTime(0.22, now);
+    gain.gain.exponentialRampToValueAtTime(0.008, now + 0.15);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.15);
+  }
+
   // --- Cockatrice Boss Sound Effects ---
 
   public playBossDialogueVoice() {
@@ -1312,7 +1473,7 @@ class AudioManager {
     this.playBossDefeat();
   }
 
-  // --- Procedural Chiptune Music Loops ---
+  // --- Procedural Adventure Music Loops (Warm Filtered Multi-Voice Arrangements) ---
 
   public playMusic(theme: string) {
     if (this.currentMusicTheme === theme && this.musicInterval !== null) {
@@ -1326,45 +1487,93 @@ class AudioManager {
     this.stopMusic();
 
     let step = 0;
-    // Scale notes in Hz
     const A2 = 110.00;
-    const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, B4 = 493.88, C5 = 523.25;
     const C3 = 130.81, D3 = 146.83, E3 = 164.81, F3 = 174.61, G3 = 196.00, A3 = 220.00, Bb3 = 233.08, B3 = 246.94;
+    const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, Bb4 = 466.16, B4 = 493.88;
+    const C5 = 523.25, D5 = 587.33, E5 = 659.25, F5 = 698.46, G5 = 783.99, A5 = 880.00;
 
     let melody: number[] = [];
+    let harmony: number[] = [];
     let bass: number[] = [];
     let bpm = 130;
 
     if (theme === 'coop') {
-      melody = [C5, 0, E4, G4, C5, G4, E4, 0, D4, 0, F4, A4, G4, F4, E4, D4];
-      bass = [C3, C3, G3, G3, F3, F3, G3, G3];
+      // Cozy sunlit country barnyard theme
+      melody = [
+        C5, 0, E4, G4, C5, G4, E4, 0,
+        D4, 0, F4, A4, G4, F4, E4, D4,
+        E4, G4, C5, D5, C5, A4, G4, 0,
+        F4, A4, G4, E4, D4, G4, C5, 0
+      ];
+      harmony = [E4, 0, C4, E4, G4, E4, C4, 0, F4, 0, D4, F4, E4, D4, C4, B3];
+      bass = [C3, C3, G3, G3, F3, F3, G3, G3, C3, E3, F3, D3, G3, G3, C3, G3];
       bpm = 118;
     } else if (theme === 'trail') {
-      melody = [E4, G4, C5, D4, E4, G4, A4, G4, C5, B4, A4, G4, E4, F4, G4, C5];
+      // Bright rolling-hills adventure theme
+      melody = [
+        E4, G4, C5, D5, E5, D5, C5, G4,
+        A4, C5, B4, A4, G4, E4, D4, 0,
+        E4, G4, C5, D5, E5, G5, E5, C5,
+        D5, C5, B4, A4, G4, A4, C5, 0
+      ];
+      harmony = [C4, E4, G4, B4, C5, B4, G4, E4, F4, A4, G4, F4, E4, C4, B3, 0];
       bass = [C3, G3, A3, F3, C3, G3, F3, G3];
-      bpm = 136;
+      bpm = 134;
     } else if (theme === 'juvenile') {
-      melody = [A4, C5, E4, G4, A4, B4, C5, A4, F4, A4, G4, E4, D4, E4, F4, G4];
+      // Determined rising-hero theme (World 3: The Heat Up)
+      melody = [
+        A4, C5, E5, D5, C5, B4, A4, E4,
+        F4, A4, C5, B4, A4, G4, E4, 0,
+        A4, B4, C5, E5, D5, C5, B4, G4,
+        F4, G4, A4, B4, A4, 0, E4, 0
+      ];
+      harmony = [E4, A4, C5, B4, A4, G4, E4, C4, D4, F4, A4, G4, F4, E4, B3, 0];
       bass = [A3, E3, F3, G3, A3, F3, D3, E3];
-      bpm = 142;
+      bpm = 140;
     } else if (theme === 'jungle') {
-      melody = [D4, F4, G4, A4, 0, A4, G4, F4, D4, 0, F4, D4, C4, D4, F4, A4];
+      // Rhythmic tropical canopy groove (World 4)
+      melody = [
+        D4, F4, G4, A4, 0, A4, G4, F4,
+        D4, 0, F4, D4, C4, D4, F4, A4,
+        D5, C5, A4, G4, F4, G4, A4, 0,
+        G4, F4, E4, D4, F4, E4, D4, 0
+      ];
+      harmony = [A3, D4, E4, F4, 0, F4, E4, D4, A3, 0, D4, A3, G3, A3, D4, F4];
       bass = [D3, D3, A3, D3, F3, F3, G3, A3];
-      bpm = 148;
+      bpm = 146;
+    } else if (theme === 'snowy') {
+      // Dedicated crystalline alpine winter theme (World 5: The Arctic Lands!)
+      melody = [
+        E5, 0, B4, C5, D5, 0, C5, B4,
+        A4, 0, A4, C5, E5, 0, D5, C5,
+        B4, 0, C5, D5, E5, 0, C5, A4,
+        G4, A4, B4, G4, A4, 0, 0, 0
+      ];
+      harmony = [
+        C5, 0, G4, A4, B4, 0, A4, G4,
+        E4, 0, E4, A4, C5, 0, B4, A4
+      ];
+      bass = [A3, E3, G3, D3, F3, C3, E3, B3];
+      bpm = 126;
     } else if (theme === 'storm') {
       melody = [E4, 0, G4, 0, B4, A4, G4, E4, D4, 0, F4, 0, A4, G4, F4, D4];
+      harmony = [B3, 0, E4, 0, G4, F4, E4, B3, A3, 0, D4, 0, F4, E4, D4, A3];
       bass = [E3, E3, B3, E3, D3, D3, A3, D3];
       bpm = 152;
     } else if (theme === 'boss') {
-      // Extremely cool, epic high-octane Boss Fight Theme with galloping minor bass, heroic arpeggios & driving percussion
-      const Csharp3 = 138.59;
-      const C4 = 261.63, Csharp4 = 277.18, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, Bb4 = 466.16, B4 = 493.88;
-      const C5 = 523.25, Csharp5 = 554.37, D5 = 587.33, E5 = 659.25, F5 = 698.46, G5 = 783.99, A5 = 880.00;
+      // Epic high-octane Boss Fight Theme with galloping minor bass, heroic arpeggios & driving percussion
+      const Csharp3 = 138.59, Csharp4 = 277.18, Csharp5 = 554.37;
       melody = [
         D4, F4, A4, D5, C5, A4, F4, G4,
         A4, D5, F5, E5, D5, Csharp5, D5, A5,
         F5, D5, Bb4, G4, A4, C5, F5, E5,
         D5, C5, Bb4, A4, G4, E4, Csharp4, D4
+      ];
+      harmony = [
+        A3, D4, F4, A4, G4, F4, D4, E4,
+        F4, A4, D5, C5, Bb4, A4, A4, F5,
+        D5, Bb4, G4, E4, F4, A4, D5, C5,
+        Bb4, A4, G4, F4, E4, Csharp4, A3, A3
       ];
       bass = [
         D3, D3, A2, D3, F3, F3, C3, F3,
@@ -1374,13 +1583,16 @@ class AudioManager {
       ];
       bpm = 176;
     } else if (theme === 'waiting') {
-      // Relaxing, mellow elevator / lounge waiting theme for pause menu, main menu & settings
-      const D5 = 587.33, E5 = 659.25;
+      // Warm, inviting acoustic lounge theme for menus & shop
       melody = [
         C5, 0, E4, G4, A4, 0, G4, E4,
         F4, A4, C5, D5, C5, 0, A4, 0,
         D5, 0, B4, G4, E5, 0, C5, G4,
         A4, C5, D5, E5, C5, 0, 0, 0
+      ];
+      harmony = [
+        G4, 0, C4, E4, F4, 0, E4, C4,
+        C4, F4, A4, B4, A4, 0, F4, 0
       ];
       bass = [
         C3, C3, G3, G3, F3, F3, C3, C3,
@@ -1388,40 +1600,45 @@ class AudioManager {
       ];
       bpm = 104;
     } else if (theme === 'victory') {
-      // Glorious, triumphant fanfare victory theme for the ending cutscene
-      const D5 = 587.33, E5 = 659.25, F5 = 698.46, G5 = 783.99;
+      // Glorious, triumphant fanfare victory theme
       melody = [
         C4, G4, C5, E5, G5, 0, E5, G5,
         F5, E5, D5, C5, D5, 0, G4, 0,
         E5, 0, E5, F5, G5, 0, E5, C5,
         D5, E5, D5, C5, C5, 0, 0, 0
       ];
+      harmony = [
+        E4, C5, E4, G4, C5, 0, G4, C5,
+        A4, G4, F4, E4, G4, 0, D4, 0
+      ];
       bass = [
         C3, C3, G3, G3, F3, F3, G3, G3,
         C3, C3, E3, E3, F3, G3, C3, C3
       ];
       bpm = 136;
-    } else { // 'fields' / default meadow
-      melody = [C5, E4, G4, C5, D4, F4, A4, D4, E4, G4, C5, B4, C5, 0, 0, 0];
+    } else { // 'fields' / default restored meadow
+      melody = [C5, E4, G4, C5, D5, F4, A4, D5, E5, G4, C5, B4, C5, 0, G4, 0];
+      harmony = [G4, C4, E4, G4, A4, D4, F4, A4, C5, E4, G4, G4, E4, 0, E4, 0];
       bass = [C3, G3, F3, C3, C3, G3, F3, G3];
-      bpm = 110;
+      bpm = 112;
     }
 
     const stepMs = (60 / bpm / 2) * 1000;
+    const stepSec = stepMs / 1000;
 
     this.musicInterval = window.setInterval(() => {
       if (!this.ctx || !this.musicGain || !this.musicEnabled || this.ctx.state !== 'running') return;
 
       const now = this.ctx.currentTime;
       const melodyNote = melody[step % melody.length];
+      const harmonyNote = harmony.length > 0 ? harmony[step % harmony.length] : 0;
       const bassNote = bass[Math.floor(step / 2) % bass.length];
 
-      // Play lead note with rich color
+      // 1. Expressive Lead Voice with soft envelope attack
       if (melodyNote > 0) {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
-        // Tone customization by theme
-        if (theme === 'waiting') {
+        if (theme === 'waiting' || theme === 'snowy') {
           osc.type = 'sine';
         } else if (theme === 'victory' || theme === 'boss') {
           osc.type = 'sawtooth';
@@ -1430,81 +1647,98 @@ class AudioManager {
         }
         osc.frequency.setValueAtTime(melodyNote, now);
 
-        const leadVol = theme === 'waiting' ? 0.12 : (theme === 'boss' ? 0.22 : (theme === 'victory' ? 0.20 : 0.18));
-        gain.gain.setValueAtTime(leadVol, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + (stepMs / 1000) * 0.88);
+        const leadVol =
+          theme === 'waiting' ? 0.13 :
+          theme === 'snowy' ? 0.16 :
+          theme === 'boss' ? 0.21 :
+          theme === 'victory' ? 0.19 : 0.17;
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.linearRampToValueAtTime(leadVol, now + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + stepSec * (theme === 'snowy' ? 1.35 : 0.9));
 
         osc.connect(gain);
         gain.connect(this.musicGain);
-
         osc.start(now);
-        osc.stop(now + (stepMs / 1000) * 0.92);
+        osc.stop(now + stepSec * (theme === 'snowy' ? 1.4 : 0.95));
 
-        // Rich 5th harmonic undertone for boss and victory themes
-        if ((theme === 'boss' || theme === 'victory') && step % 4 === 0) {
-          const hOsc = this.ctx.createOscillator();
-          const hGain = this.ctx.createGain();
-          hOsc.type = 'triangle';
-          hOsc.frequency.setValueAtTime(melodyNote * (theme === 'victory' ? 1.5 : 0.75), now);
-          hGain.gain.setValueAtTime(0.10, now);
-          hGain.gain.exponentialRampToValueAtTime(0.001, now + (stepMs / 1000) * 0.8);
-          hOsc.connect(hGain);
-          hGain.connect(this.musicGain);
-          hOsc.start(now);
-          hOsc.stop(now + (stepMs / 1000) * 0.85);
+        // Crystalline bell overtone for snowy Arctic theme
+        if (theme === 'snowy' && step % 2 === 0) {
+          const bell = this.ctx.createOscillator();
+          const bGain = this.ctx.createGain();
+          bell.type = 'sine';
+          bell.frequency.setValueAtTime(melodyNote * 2, now);
+          bGain.gain.setValueAtTime(0.055, now);
+          bGain.gain.exponentialRampToValueAtTime(0.001, now + stepSec * 1.1);
+          bell.connect(bGain);
+          bGain.connect(this.musicGain);
+          bell.start(now);
+          bell.stop(now + stepSec * 1.15);
         }
       }
 
-      // Play bass pulse note on even steps
+      // 2. Soft Warm Harmony Pad / Counter-Melody
+      if (harmonyNote > 0 && (step % 2 === 0 || theme === 'boss')) {
+        const hOsc = this.ctx.createOscillator();
+        const hGain = this.ctx.createGain();
+        hOsc.type = 'triangle';
+        hOsc.frequency.setValueAtTime(harmonyNote, now);
+        const hVol = theme === 'boss' ? 0.095 : (theme === 'waiting' ? 0.055 : 0.075);
+        hGain.gain.setValueAtTime(0.001, now);
+        hGain.gain.linearRampToValueAtTime(hVol, now + 0.018);
+        hGain.gain.exponentialRampToValueAtTime(0.001, now + stepSec * 1.5);
+        hOsc.connect(hGain);
+        hGain.connect(this.musicGain);
+        hOsc.start(now);
+        hOsc.stop(now + stepSec * 1.55);
+      }
+
+      // 3. Warm Grounded Bass Pulse on Even Steps
       if (step % 2 === 0 && bassNote > 0) {
         const bOsc = this.ctx.createOscillator();
         const bGain = this.ctx.createGain();
         bOsc.type = theme === 'boss' ? 'triangle' : 'sine';
         bOsc.frequency.setValueAtTime(bassNote, now);
 
-        const bassVol = theme === 'waiting' ? 0.16 : (theme === 'boss' ? 0.28 : 0.22);
-        bGain.gain.setValueAtTime(bassVol, now);
-        bGain.gain.exponentialRampToValueAtTime(0.001, now + (stepMs / 1000) * 1.8);
+        const bassVol = theme === 'waiting' ? 0.15 : (theme === 'boss' ? 0.27 : 0.21);
+        bGain.gain.setValueAtTime(0.001, now);
+        bGain.gain.linearRampToValueAtTime(bassVol, now + 0.01);
+        bGain.gain.exponentialRampToValueAtTime(0.001, now + stepSec * 1.85);
 
         bOsc.connect(bGain);
         bGain.connect(this.musicGain);
-
         bOsc.start(now);
-        bOsc.stop(now + (stepMs / 1000) * 1.9);
+        bOsc.stop(now + stepSec * 1.9);
       }
 
-      // Driving percussive chiptune beat for boss fight and triumphant victory
-      if ((theme === 'boss' || theme === 'victory') && step % 2 === 0) {
-        const pOsc = this.ctx.createOscillator();
-        const pGain = this.ctx.createGain();
-        pOsc.type = 'square';
-        // Alternating kick and punchy snare
-        const isSnare = (step % 4 === 2);
-        pOsc.frequency.setValueAtTime(isSnare ? 320 : 130, now);
-        pOsc.frequency.exponentialRampToValueAtTime(isSnare ? 80 : 35, now + 0.055);
-        pGain.gain.setValueAtTime(theme === 'boss' ? 0.20 : 0.14, now);
-        pGain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
-
-        pOsc.connect(pGain);
-        pGain.connect(this.musicGain);
-
-        pOsc.start(now);
-        pOsc.stop(now + 0.065);
-      } else if (theme === 'boss' && step % 2 === 1) {
-        // High-speed metallic hi-hat tick on off-beats
-        const hOsc = this.ctx.createOscillator();
-        const hGain = this.ctx.createGain();
-        hOsc.type = 'square';
-        hOsc.frequency.setValueAtTime(1400 + (step % 4) * 200, now);
-        hOsc.frequency.exponentialRampToValueAtTime(400, now + 0.025);
-        hGain.gain.setValueAtTime(0.06, now);
-        hGain.gain.exponentialRampToValueAtTime(0.001, now + 0.028);
-
-        hOsc.connect(hGain);
-        hGain.connect(this.musicGain);
-
-        hOsc.start(now);
-        hOsc.stop(now + 0.028);
+      // 4. Organic Acoustic/Retro Percussion Groove
+      const hasGroove = theme === 'boss' || theme === 'victory' || theme === 'jungle' || theme === 'juvenile' || theme === 'trail';
+      if (hasGroove && step % 2 === 0) {
+        const isSnare = step % 4 === 2;
+        if (isSnare) {
+          this.playNoiseBurst(
+            0.065,
+            theme === 'jungle' ? 1400 : 2200,
+            'bandpass',
+            theme === 'boss' ? 0.16 : 0.09,
+            this.musicGain
+          );
+        } else {
+          // Punchy warm kick drum
+          const kOsc = this.ctx.createOscillator();
+          const kGain = this.ctx.createGain();
+          kOsc.type = 'sine';
+          kOsc.frequency.setValueAtTime(128, now);
+          kOsc.frequency.exponentialRampToValueAtTime(42, now + 0.065);
+          kGain.gain.setValueAtTime(theme === 'boss' ? 0.26 : 0.14, now);
+          kGain.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+          kOsc.connect(kGain);
+          kGain.connect(this.musicGain);
+          kOsc.start(now);
+          kOsc.stop(now + 0.08);
+        }
+      } else if ((theme === 'boss' || theme === 'jungle') && step % 2 === 1) {
+        // Crisp off-beat hi-hat / shaker
+        this.playNoiseBurst(0.028, 5200, 'highpass', theme === 'boss' ? 0.075 : 0.045, this.musicGain);
       }
 
       step++;

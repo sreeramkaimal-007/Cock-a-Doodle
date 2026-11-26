@@ -18,7 +18,6 @@ import {
   PixelHen, PixelCrown, PixelBell, PixelLock, PixelSecret, PixelCheck,
   PixelCoins, PixelShop
 } from './PixelIcons';
-import { AdBanner } from './AdBanner';
 import { PrivacyPolicyModal } from './PrivacyPolicyModal';
 import { BestiaryView } from './BestiaryView';
 
@@ -49,6 +48,8 @@ interface ModalProps {
   onMarkShopVisited?: () => void;
   onClaimBossReward?: () => void;
   onFinishWorldLoading?: () => void;
+  onFinishRestartLoading?: () => void;
+  onFinishDeathLoading?: () => void;
   onToggleShopStatus?: () => void;
   onBuySkin?: (skinId: string, cost: number) => boolean;
   onEquipSkin?: (skinId: string) => void;
@@ -827,13 +828,19 @@ const SilkiePortraitCanvas: React.FC<{ size?: number; isSpeaking?: boolean }> = 
       ctx.ellipse(cx, cy + 2, 11, 10, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Signature Turquoise / Sky-Blue Earlobe (The unique biological hallmark of Silkie chickens!)
+      // Signature Turquoise / Sky-Blue Earlobe (Biological hallmark of Silkie chickens with glossy sheen)
+      ctx.fillStyle = '#0891b2';
+      ctx.beginPath();
+      ctx.ellipse(cx - 7, cy + 4, 3.8, 4.8, -0.2, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = '#06b6d4';
       ctx.beginPath();
-      ctx.ellipse(cx - 7, cy + 4, 3.5, 4.5, -0.2, 0, Math.PI * 2);
+      ctx.ellipse(cx - 7.2, cy + 3.6, 3.0, 3.8, -0.2, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#67e8f9';
-      ctx.fillRect(cx - 8, cy + 2, 1.5, 2.5);
+      ctx.fillStyle = '#a5f3fc';
+      ctx.beginPath();
+      ctx.arc(cx - 7.8, cy + 2.4, 1.3, 0, Math.PI * 2);
+      ctx.fill();
 
       // Friendly, sparkling anime eye
       const isBlinking = isSpeaking ? (Math.sin(time * 12) > 0.88) : false;
@@ -969,6 +976,8 @@ export const GameModals: React.FC<ModalProps> = ({
   onMarkShopVisited,
   onClaimBossReward,
   onFinishWorldLoading,
+  onFinishRestartLoading,
+  onFinishDeathLoading,
   onToggleShopStatus,
   onBuySkin,
   onEquipSkin,
@@ -1039,6 +1048,43 @@ export const GameModals: React.FC<ModalProps> = ({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [currentScreen, worldLoadPercent, onFinishWorldLoading]);
+
+  // 1% -> 100% Heavenly Restart ("recarnation in progress...") & Death Loading Screen Progress
+  const [transitionLoadPercent, setTransitionLoadPercent] = useState<number>(1);
+  useEffect(() => {
+    if (currentScreen !== 'RESTART_LOADING' && currentScreen !== 'DEATH_LOADING') {
+      setTransitionLoadPercent(1);
+      return;
+    }
+    setTransitionLoadPercent(1);
+    const stepMs = currentScreen === 'RESTART_LOADING' ? 18 : 14;
+    const interval = window.setInterval(() => {
+      setTransitionLoadPercent(prev => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          return 100;
+        }
+        return prev + 2;
+      });
+    }, stepMs);
+    return () => clearInterval(interval);
+  }, [currentScreen]);
+
+  useEffect(() => {
+    if (transitionLoadPercent < 100) return;
+    if (currentScreen === 'RESTART_LOADING') {
+      const doneTimer = window.setTimeout(() => {
+        onFinishRestartLoading?.();
+      }, 360);
+      return () => clearTimeout(doneTimer);
+    }
+    if (currentScreen === 'DEATH_LOADING') {
+      const doneTimer = window.setTimeout(() => {
+        onFinishDeathLoading?.();
+      }, 320);
+      return () => clearTimeout(doneTimer);
+    }
+  }, [currentScreen, transitionLoadPercent, onFinishRestartLoading, onFinishDeathLoading]);
 
   // Tablet & Mobile Scroll Container Refs
   const shopScrollRef = useRef<HTMLDivElement>(null);
@@ -1573,39 +1619,37 @@ export const GameModals: React.FC<ModalProps> = ({
                 {/* Continue button */}
                 <button
                   onClick={() => onStartGame(saveData.unlockedLevel, false)}
-                  className="w-full py-2.5 sm:py-3 px-3.5 sm:px-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 text-slate-950 font-pixel-arcade text-[10px] sm:text-[11px] tracking-wider border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.35)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-between cursor-pointer"
+                  className="w-full min-h-[48px] py-3 px-4 bg-gradient-to-b from-yellow-300 via-amber-400 to-amber-500 hover:from-yellow-200 hover:via-amber-300 hover:to-amber-400 text-slate-950 font-pixel-arcade text-[10px] sm:text-xs tracking-wider border-2 border-amber-700 shadow-[0_4px_0_#78350f,inset_0_1px_0_rgba(255,255,255,0.5)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-between cursor-pointer"
                 >
                   <div className="flex items-center gap-2.5">
-                    <div className="w-6 h-6 rounded-lg bg-yellow-200/90 border border-amber-700/60 flex items-center justify-center shadow-inner">
-                      <Play className="w-3.5 h-3.5 fill-current text-slate-950" />
+                    <div className="w-7 h-7 bg-amber-950/15 border border-amber-800/40 flex items-center justify-center shrink-0">
+                      <Play className="w-4 h-4 fill-current text-slate-950" />
                     </div>
-                    <span className="font-pixel-arcade text-slate-950 text-[10px] sm:text-[11px] font-bold drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]">
+                    <span className="font-pixel-arcade text-slate-950 text-[10px] sm:text-xs font-bold">
                       CONTINUE ADVENTURE
                     </span>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-yellow-200 border border-amber-700/60 text-slate-950 text-[9px] font-pixel-arcade font-bold">
-                    STAGE {saveData.unlockedLevel}
+                  <span className="text-amber-950 text-[9px] font-pixel-arcade font-bold tabular-nums">
+                    STAGE {saveData.unlockedLevel} →
                   </span>
                 </button>
 
-                {/* New run button - no emojis */}
+                {/* New run button */}
                 <button
                   onClick={() => {
                     if (onStartNewRun) onStartNewRun();
                     else onOpenScreen('GENDER_SELECT');
                   }}
-                  className="w-full py-2.5 sm:py-3 px-3.5 sm:px-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 text-slate-950 font-pixel-arcade text-[10px] sm:text-[11px] tracking-wider border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.35)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-between cursor-pointer"
+                  className="w-full min-h-[42px] py-2.5 px-4 bg-slate-900/95 hover:bg-slate-800 text-slate-100 font-pixel-arcade text-[10px] sm:text-[11px] tracking-wider border-2 border-slate-600 hover:border-amber-400 shadow-[0_3px_0_#020617] active:translate-y-0.5 active:shadow-[0_1px_0_#020617] transition-all flex items-center justify-between cursor-pointer"
                 >
                   <div className="flex items-center gap-2.5">
-                    <div className="w-6 h-6 rounded-lg bg-yellow-200/90 border border-amber-700/60 flex items-center justify-center shadow-inner">
-                      <RotateCcw className="w-3.5 h-3.5 text-slate-950 stroke-[2.5]" />
-                    </div>
-                    <span className="font-pixel-arcade text-slate-950 text-[10px] sm:text-[11px] font-bold drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]">
+                    <RotateCcw className="w-4 h-4 text-amber-400 stroke-[2.5] shrink-0" />
+                    <span className="font-pixel-arcade text-slate-100 text-[10px] sm:text-[11px]">
                       NEW RUN
                     </span>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-yellow-200 border border-amber-700/60 text-slate-950 text-[9px] font-pixel-arcade font-bold">
-                    RESTART
+                  <span className="text-slate-400 text-[9px] font-pixel-arcade">
+                    STAGE 1
                   </span>
                 </button>
               </>
@@ -1615,41 +1659,37 @@ export const GameModals: React.FC<ModalProps> = ({
                   if (onStartNewRun) onStartNewRun();
                   else onOpenScreen('GENDER_SELECT');
                 }}
-                className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 text-slate-950 font-pixel-arcade text-[10px] sm:text-xs tracking-wider border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_20px_rgba(245,158,11,0.4)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+                className="w-full min-h-[50px] py-3.5 px-5 bg-gradient-to-b from-yellow-300 via-amber-400 to-amber-500 hover:from-yellow-200 hover:via-amber-300 hover:to-amber-400 text-slate-950 font-pixel-arcade text-xs tracking-wider border-2 border-amber-700 shadow-[0_4px_0_#78350f,inset_0_1px_0_rgba(255,255,255,0.5)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
               >
-                <div className="w-6 h-6 rounded-lg bg-yellow-200/90 border border-amber-700/60 flex items-center justify-center shadow-inner">
-                  <Play className="w-3.5 h-3.5 fill-current text-slate-950" />
-                </div>
-                <span className="font-pixel-arcade text-slate-950 text-[10px] sm:text-xs font-bold drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]">
-                  START GAME
+                <Play className="w-4 h-4 fill-current text-slate-950" />
+                <span className="font-pixel-arcade text-slate-950 text-xs font-bold">
+                  START ADVENTURE
                 </span>
               </button>
             )}
 
-            {/* 2. CHICKEN GENDER CUSTOMIZER BUTTON - no emojis */}
+            {/* 2. CHICKEN GENDER CUSTOMIZER BUTTON */}
             <button
               onClick={() => onOpenScreen('GENDER_SELECT')}
-              className="w-full py-2.5 px-3.5 sm:px-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.3)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-between cursor-pointer"
+              className="w-full min-h-[44px] py-2.5 px-4 bg-slate-900/95 hover:bg-slate-800 border-2 border-slate-700 hover:border-amber-400 shadow-[0_3px_0_#020617] active:translate-y-0.5 active:shadow-[0_1px_0_#020617] transition-all flex items-center justify-between cursor-pointer"
             >
-              <div className="flex items-center gap-2.5">
-                <div className="w-6 h-6 rounded-lg bg-yellow-200/90 border border-amber-700/60 flex items-center justify-center shadow-inner">
-                  <Sparkles className="w-3.5 h-3.5 text-slate-950" />
-                </div>
-                <div className="text-left">
-                  <div className="text-[8px] sm:text-[9px] text-amber-950 font-pixel-arcade font-bold">ACTIVE CHARACTER IDENTITY</div>
-                  <div className="text-[10px] sm:text-[11px] font-pixel-arcade font-bold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Sparkles className="w-4 h-4 text-yellow-400 shrink-0" />
+                <div className="text-left min-w-0">
+                  <div className="text-[8px] text-slate-400 font-pixel-arcade">CHARACTER IDENTITY</div>
+                  <div className="text-[10px] sm:text-[11px] font-pixel-arcade font-bold text-yellow-300 truncate">
                     {saveData.gender === 'hen' ? 'HEN (FEMALE)' : 'ROOSTER (MALE)'}
                   </div>
                 </div>
               </div>
-              <span className="text-[9px] font-pixel-arcade px-2 py-0.5 rounded bg-yellow-200 border border-amber-700/60 text-slate-950 font-bold">
-                CUSTOMIZE
+              <span className="text-[9px] font-pixel-arcade text-amber-300 shrink-0">
+                SWITCH →
               </span>
             </button>
 
             {/* 3. UPGRADES AND SKINS BUTTON */}
             {(() => {
-              const isShopClosed = Boolean(saveData.shopClosedUntil && nowTime < saveData.shopClosedUntil);
+              const isShopClosed = !saveData.hasCompletedGame && Boolean(saveData.shopClosedUntil && nowTime < saveData.shopClosedUntil);
               const remainingSec = isShopClosed ? Math.max(0, Math.floor((saveData.shopClosedUntil! - nowTime) / 1000)) : 0;
               const hours = Math.floor(remainingSec / 3600);
               const mins = Math.floor((remainingSec % 3600) / 60);
@@ -1664,164 +1704,142 @@ export const GameModals: React.FC<ModalProps> = ({
                     if (isShopClosed) return;
                     onOpenScreen('SHOP');
                   }}
-                  className={`w-full py-2.5 px-3.5 sm:px-4 rounded-2xl border-2 transition-all flex items-center justify-between ${
+                  className={`w-full min-h-[44px] py-2.5 px-4 border-2 transition-all flex items-center justify-between ${
                     isShopClosed
-                      ? 'bg-slate-900/90 border-slate-700/70 opacity-65 cursor-not-allowed shadow-none'
-                      : 'bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.3)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] cursor-pointer'
+                      ? 'bg-slate-950/90 border-slate-800 opacity-65 cursor-not-allowed shadow-none'
+                      : 'bg-slate-900/95 hover:bg-slate-800 border-amber-500/70 hover:border-yellow-300 shadow-[0_3px_0_#020617] active:translate-y-0.5 active:shadow-[0_1px_0_#020617] cursor-pointer'
                   }`}
                   title={isShopClosed ? `Shop is closed for 2 hours! Reopens in ${timeStr}` : 'Enter Upgrades & Skins Shop'}
                   aria-disabled={isShopClosed}
                 >
-                  <div className="flex items-center gap-2.5">
-                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center shadow-inner ${
-                      isShopClosed ? 'bg-slate-800 border border-slate-700' : 'bg-yellow-200/90 border border-amber-700/60'
-                    }`}>
-                      <Store className={`w-3.5 h-3.5 stroke-[2.5] ${isShopClosed ? 'text-slate-400' : 'text-slate-950'}`} />
-                    </div>
-                    <div className="text-left">
-                      <div className={`text-[8px] sm:text-[9px] font-pixel-arcade font-bold ${
-                        isShopClosed ? 'text-slate-400' : 'text-amber-950'
-                      }`}>
-                        SILKIE CHICKEN SHOP
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Store className={`w-4 h-4 stroke-[2.2] shrink-0 ${isShopClosed ? 'text-slate-500' : 'text-amber-400'}`} />
+                    <div className="text-left min-w-0">
+                      <div className={`text-[8px] font-pixel-arcade ${isShopClosed ? 'text-slate-500' : 'text-slate-400'}`}>
+                        SILKIE SAM&apos;S EMPORIUM
                       </div>
-                      <div className={`text-[10px] sm:text-[11px] font-pixel-arcade font-bold ${
-                        isShopClosed ? 'text-slate-300' : 'text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]'
-                      }`}>
-                        UPGRADES & SKINS
+                      <div className={`text-[10px] sm:text-[11px] font-pixel-arcade font-bold truncate ${isShopClosed ? 'text-slate-400' : 'text-yellow-300'}`}>
+                        UPGRADES &amp; SKINS
                       </div>
                     </div>
                   </div>
                   {isShopClosed ? (
-                    <span 
-                      className="text-[9px] font-pixel-arcade px-2 py-0.5 rounded bg-rose-950/90 border border-rose-500/80 text-rose-300 font-bold flex items-center gap-1 shadow-sm"
-                      title={`Closed for 2 hours (Reopens in ${timeStr})`}
-                    >
-                      <Lock className="w-2.5 h-2.5 text-rose-400" />
-                      <span>CLOSED</span>
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                    <span className="text-[9px] font-pixel-arcade text-rose-400 font-bold flex items-center gap-1 shrink-0 tabular-nums">
+                      <Lock className="w-3 h-3 text-rose-400" />
+                      <span>{timeStr}</span>
                     </span>
                   ) : (
-                    <span className="text-[9px] font-pixel-arcade px-2 py-0.5 rounded bg-yellow-200 border border-amber-700/60 text-slate-950 font-bold flex items-center gap-1 shadow-sm">
-                      <span>OPEN</span>
-                      <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                    <span className="text-[9px] font-pixel-arcade text-emerald-400 font-bold shrink-0">
+                      OPEN →
                     </span>
                   )}
                 </button>
               );
             })()}
 
-            {/* 4. QUESTS & BADGES BUTTON */}
-            {(() => {
-              const unclaimedCount = countUnclaimedQuests(saveData);
-              return (
-                <button
-                  onClick={() => onOpenScreen('QUESTS_BADGES')}
-                  className="w-full py-2.5 px-3.5 sm:px-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.3)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-between cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-6 h-6 rounded-lg bg-yellow-200/90 border border-amber-700/60 flex items-center justify-center shadow-inner">
-                      <Scroll className="w-3.5 h-3.5 text-slate-950 stroke-[2.5]" />
+            {/* 4. QUESTS & BESTIARY TWO-COLUMN ROW */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(() => {
+                const unclaimedCount = countUnclaimedQuests(saveData);
+                return (
+                  <button
+                    onClick={() => onOpenScreen('QUESTS_BADGES')}
+                    className={`w-full min-h-[44px] py-2.5 px-3.5 bg-slate-900/95 hover:bg-slate-800 border-2 shadow-[0_3px_0_#020617] active:translate-y-0.5 active:shadow-[0_1px_0_#020617] transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                      unclaimedCount > 0 ? 'border-amber-400' : 'border-slate-700 hover:border-amber-400'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Scroll className="w-4 h-4 text-amber-400 stroke-[2.2] shrink-0" />
+                      <span className="font-pixel-arcade text-[9px] sm:text-[10px] text-slate-100 font-bold truncate">
+                        QUESTS
+                      </span>
                     </div>
-                    <span className="font-pixel-arcade text-[10px] sm:text-[11px] text-slate-950 font-bold drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]">
-                      QUESTS & BADGES
-                    </span>
-                  </div>
-                  {unclaimedCount > 0 ? (
-                    <span className="px-2 py-0.5 rounded-full bg-rose-600 border border-rose-800 text-white text-[9px] font-pixel-arcade font-bold animate-bounce shadow">
-                      {unclaimedCount} CLAIM!
-                    </span>
-                  ) : (
-                    <span className="text-[9px] font-pixel-arcade text-slate-950 font-bold px-2 py-0.5 rounded bg-yellow-200 border border-amber-700/60">
-                      REWARDS
-                    </span>
-                  )}
-                </button>
-              );
-            })()}
+                    {unclaimedCount > 0 ? (
+                      <span className="text-[8px] font-pixel-arcade text-rose-400 font-bold tabular-nums shrink-0">
+                        {unclaimedCount} READY
+                      </span>
+                    ) : (
+                      <span className="text-[8px] font-pixel-arcade text-slate-400 shrink-0">
+                        BADGES
+                      </span>
+                    )}
+                  </button>
+                );
+              })()}
 
-            {/* 4.5. BESTIARY BUTTON */}
-            {(() => {
-              const { discovered, total } = getBestiaryProgress(saveData);
-              return (
-                <button
-                  type="button"
-                  onClick={() => onOpenScreen('BESTIARY')}
-                  className="w-full py-2.5 px-3.5 sm:px-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 text-slate-950 border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.3)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-between cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-6 h-6 rounded-lg bg-yellow-200/90 border border-amber-700/60 flex items-center justify-center shadow-inner">
-                      <BookOpen className="w-3.5 h-3.5 text-slate-950 stroke-[2.5]" />
+              {(() => {
+                const { discovered, total } = getBestiaryProgress(saveData);
+                return (
+                  <button
+                    type="button"
+                    onClick={() => onOpenScreen('BESTIARY')}
+                    className="w-full min-h-[44px] py-2.5 px-3.5 bg-slate-900/95 hover:bg-slate-800 border-2 border-slate-700 hover:border-amber-400 shadow-[0_3px_0_#020617] active:translate-y-0.5 active:shadow-[0_1px_0_#020617] transition-all flex items-center justify-between gap-2 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <BookOpen className="w-4 h-4 text-emerald-400 stroke-[2.2] shrink-0" />
+                      <span className="font-pixel-arcade text-[9px] sm:text-[10px] text-slate-100 font-bold truncate">
+                        BESTIARY
+                      </span>
                     </div>
-                    <span className="font-pixel-arcade text-[10px] sm:text-[11px] text-slate-950 font-bold drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]">
-                      BESTIARY
+                    <span className="text-[8px] font-pixel-arcade text-amber-300 font-bold tabular-nums shrink-0">
+                      {discovered}/{total}
                     </span>
-                  </div>
-                  <span className="text-[9px] font-pixel-arcade text-slate-950 font-bold tabular-nums px-2 py-0.5 rounded bg-yellow-200 border border-amber-700/60">
-                    {discovered}/{total} FOUND
-                  </span>
-                </button>
-              );
-            })()}
+                  </button>
+                );
+              })()}
+            </div>
 
             {/* 5. CAMPAIGN LEVEL SELECT BUTTON */}
             <button
               onClick={() => onOpenScreen('LEVEL_SELECT')}
-              className="w-full py-2.5 px-3.5 sm:px-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 text-slate-950 border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.3)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-between cursor-pointer"
+              className="w-full min-h-[44px] py-2.5 px-4 bg-slate-900/95 hover:bg-slate-800 border-2 border-slate-700 hover:border-amber-400 shadow-[0_3px_0_#020617] active:translate-y-0.5 active:shadow-[0_1px_0_#020617] transition-all flex items-center justify-between cursor-pointer"
             >
               <div className="flex items-center gap-2.5">
-                <div className="w-6 h-6 rounded-lg bg-yellow-200/90 border border-amber-700/60 flex items-center justify-center shadow-inner">
-                  <Trophy className="w-3.5 h-3.5 text-slate-950 stroke-[2.5]" />
-                </div>
-                <span className="font-pixel-arcade text-[10px] sm:text-[11px] text-slate-950 font-bold drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]">
+                <Trophy className="w-4 h-4 text-yellow-400 stroke-[2.2] shrink-0" />
+                <span className="font-pixel-arcade text-[10px] sm:text-[11px] text-slate-100 font-bold">
                   LEVEL SELECTION
                 </span>
               </div>
-              <span className="text-[9px] font-pixel-arcade text-slate-950 font-bold px-2 py-0.5 rounded bg-yellow-200 border border-amber-700/60">
-                30 LEVELS
+              <span className="text-[9px] font-pixel-arcade text-slate-400 tabular-nums">
+                30 STAGES
               </span>
             </button>
 
-            {/* 6. HOW TO PLAY BUTTON */}
-            <button
-              onClick={() => onOpenScreen('HOW_TO_PLAY')}
-              className="w-full py-2.5 px-3.5 sm:px-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 text-slate-950 border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.3)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
-            >
-              <HelpCircle className="w-4 h-4 text-slate-950 stroke-[2.5]" />
-              <span className="font-pixel-arcade text-[10px] sm:text-[11px] text-slate-950 font-bold drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]">
-                HOW TO PLAY & CONTROLS
-              </span>
-            </button>
+            {/* 6. HOW TO PLAY & SETTINGS TWO-COLUMN ROW */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => onOpenScreen('HOW_TO_PLAY')}
+                className="w-full min-h-[42px] py-2 px-3 bg-slate-900/90 hover:bg-slate-800 border-2 border-slate-700 hover:border-sky-400 shadow-[0_3px_0_#020617] active:translate-y-0.5 active:shadow-[0_1px_0_#020617] transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <HelpCircle className="w-4 h-4 text-sky-400 stroke-[2.2] shrink-0" />
+                <span className="font-pixel-arcade text-[9px] sm:text-[10px] text-slate-200 font-bold whitespace-nowrap">
+                  GUIDE
+                </span>
+              </button>
 
-            {/* 7. SETTINGS & AUDIO BUTTON */}
-            <button
-              onClick={() => onOpenScreen('SETTINGS')}
-              className="w-full py-2.5 px-3.5 sm:px-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 active:from-yellow-300 active:to-yellow-400 text-slate-950 border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.3)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
-            >
-              <Settings className="w-4 h-4 text-slate-950 stroke-[2.5]" />
-              <span className="font-pixel-arcade text-[10px] sm:text-[11px] text-slate-950 font-bold drop-shadow-[0_1px_0_rgba(255,255,255,0.6)]">
-                SETTINGS & AUDIO
-              </span>
-            </button>
+              <button
+                onClick={() => onOpenScreen('SETTINGS')}
+                className="w-full min-h-[42px] py-2 px-3 bg-slate-900/90 hover:bg-slate-800 border-2 border-slate-700 hover:border-amber-400 shadow-[0_3px_0_#020617] active:translate-y-0.5 active:shadow-[0_1px_0_#020617] transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Settings className="w-4 h-4 text-amber-300 stroke-[2.2] shrink-0" />
+                <span className="font-pixel-arcade text-[9px] sm:text-[10px] text-slate-200 font-bold whitespace-nowrap">
+                  SETTINGS
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Tablet & Mobile Scroll Helper */}
           <TabletScrollButtons containerRef={menuScrollRef} className="mt-3" />
 
-          {/* Policy-Compliant AdSense Slot */}
-          <AdBanner
-            slotId={import.meta.env.VITE_ADSENSE_SLOT_MENU || '8859422748'}
-            format="auto"
-            className="mt-3"
-          />
-
-          {/* Privacy Policy link (Required for Google AdSense review & user transparency) */}
+          {/* Privacy Policy link */}
           <div className="mt-3 pt-2 border-t border-slate-800/80 w-full flex items-center justify-center">
             <button
               type="button"
               onClick={() => setShowPrivacyPolicy(true)}
               className="font-pixel text-[8px] text-slate-400 hover:text-yellow-300 underline underline-offset-2 cursor-pointer transition-colors"
             >
-              PRIVACY POLICY & ADS INFO
+              PRIVACY POLICY
             </button>
           </div>
         </div>
@@ -1917,110 +1935,112 @@ export const GameModals: React.FC<ModalProps> = ({
     );
   }
 
-  // --- How To Play & Guide ---
+  // --- How To Play & Adventurer Field Manual ---
   if (currentScreen === 'HOW_TO_PLAY') {
     return wrapWithPopup(
-      <div ref={howToPlayScrollRef} className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col pt-14 px-4 pb-4 sm:pt-16 sm:px-6 sm:pb-6 z-40 overflow-y-auto">
-        <div className="max-w-2xl mx-auto w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
-            <h2 className="font-pixel text-xl text-amber-400">
-              HOW TO PLAY COCK A DOODLE
-            </h2>
+      <div ref={howToPlayScrollRef} className="absolute inset-0 bg-slate-950/92 backdrop-blur-md flex flex-col pt-12 px-3 pb-4 sm:pt-14 sm:px-6 sm:pb-6 z-40 overflow-y-auto">
+        <div className="max-w-2xl mx-auto w-full bg-slate-900 border-2 border-yellow-400 pixel-panel-bevel p-5 sm:p-7">
+          <div className="flex items-center justify-between pb-4 border-b-2 border-slate-800 mb-5">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-gradient-to-b from-yellow-300 to-amber-500 border-2 border-amber-700 flex items-center justify-center shrink-0">
+                <HelpCircle className="w-4 h-4 text-slate-950 stroke-[2.5]" />
+              </div>
+              <div>
+                <h2 className="font-pixel-arcade text-sm sm:text-base text-yellow-300 tracking-wide">
+                  ADVENTURER FIELD MANUAL
+                </h2>
+                <p className="font-pixel text-[9px] text-slate-400 mt-0.5">
+                  CONTROLS · EVOLUTION · WILDLIFE · COMBAT
+                </p>
+              </div>
+            </div>
             <button
+              type="button"
               onClick={onReturnToMenu}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer"
+              className="min-w-[40px] min-h-[40px] p-2 bg-slate-800 hover:bg-slate-700 text-yellow-300 border-2 border-slate-600 shadow-[0_3px_0_#0f172a] active:translate-y-0.5 cursor-pointer flex items-center justify-center"
+              aria-label="Close How to Play"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="space-y-6 text-sm text-slate-300 font-body">
-            {/* Controls - Centered for Desktop & Laptop */}
-            <div className="flex flex-col items-center">
-              <h3 className="text-amber-300 font-semibold mb-3 flex items-center justify-center gap-2 font-pixel text-xs tracking-wider">
-                <Play className="w-4 h-4 text-amber-400" /> DESKTOP & LAPTOP KEYBOARD CONTROLS
+          <div className="space-y-5 text-sm text-slate-300 font-body">
+            {/* Controls Grid */}
+            <div>
+              <h3 className="text-yellow-300 font-pixel-arcade text-[10px] sm:text-xs tracking-wider mb-3 flex items-center gap-2">
+                <Play className="w-3.5 h-3.5 text-amber-400" />
+                <span>KEYBOARD &amp; TOUCH CONTROLS</span>
               </h3>
-              <div className="w-full max-w-lg bg-slate-800/90 p-4 sm:p-5 rounded-2xl border border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.15)] mx-auto">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                  <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 flex flex-col items-center text-center">
-                    <span className="font-pixel text-[10px] text-amber-400 mb-1">A / ◀ LEFT ARROW</span>
-                    <span className="text-slate-200">Walk Left</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                {[
+                  { key: 'A / D · ◀ ▶', action: 'Walk & Sprint' },
+                  { key: 'SPACE / W / ▲', action: 'Jump (Hold for Higher Arc)' },
+                  { key: 'X / K', action: 'Sword Slash / Peck Strike' },
+                  { key: 'C / S / ▼', action: 'Raise Royal Shield & Deflect' },
+                  { key: 'E', action: "Open Silkie Sam's Shop" },
+                  { key: 'ESC / P · R', action: 'Pause Menu · Quick Restart' },
+                ].map(item => (
+                  <div
+                    key={item.key}
+                    className="bg-slate-950/90 px-3 py-2.5 border-2 border-slate-800 flex items-center justify-between gap-2"
+                  >
+                    <span className="font-pixel-arcade text-[9px] text-amber-300 bg-slate-900 px-2 py-1 border border-amber-500/40 shrink-0">
+                      {item.key}
+                    </span>
+                    <span className="text-[11px] text-slate-200 text-right">{item.action}</span>
                   </div>
-                  <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 flex flex-col items-center text-center">
-                    <span className="font-pixel text-[10px] text-amber-400 mb-1">D / ▶ RIGHT ARROW</span>
-                    <span className="text-slate-200">Walk Right</span>
-                  </div>
-                  <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 flex flex-col items-center text-center">
-                    <span className="font-pixel text-[10px] text-amber-400 mb-1">SPACE / W / ▲ UP</span>
-                    <span className="text-slate-200">Jump (Hold for Higher Jump)</span>
-                  </div>
-                  <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 flex flex-col items-center text-center">
-                    <span className="font-pixel text-[10px] text-amber-400 mb-1">X / K</span>
-                    <span className="text-slate-200">Attack with Sword / Peck</span>
-                  </div>
-                  <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 flex flex-col items-center text-center">
-                    <span className="font-pixel text-[10px] text-amber-400 mb-1">C / S / ▼ DOWN</span>
-                    <span className="text-slate-200">Block & Deflect with Royal Shield</span>
-                  </div>
-                  <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 flex flex-col items-center text-center">
-                    <span className="font-pixel text-[10px] text-amber-400 mb-1">ESCAPE / P</span>
-                    <span className="text-slate-200">Pause Game</span>
-                  </div>
-                  <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-700/80 flex flex-col items-center text-center">
-                    <span className="font-pixel text-[10px] text-amber-400 mb-1">R</span>
-                    <span className="text-slate-200">Restart Current Level</span>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
 
             {/* Growth Stages */}
             <div>
-              <h3 className="text-amber-300 font-semibold mb-2 flex items-center gap-2">
-                <Trophy className="w-4 h-4" /> Character Evolution Stages
+              <h3 className="text-yellow-300 font-pixel-arcade text-[10px] sm:text-xs tracking-wider mb-2.5 flex items-center gap-2">
+                <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                <span>CHICKEN GROWTH &amp; EVOLUTION</span>
               </h3>
-              <div className="space-y-2 text-xs">
-                <div className="bg-slate-800/60 p-2.5 rounded-lg border border-slate-700/40">
-                  <strong className="text-amber-400 font-pixel">1. Baby Chick (Levels 1–9):</strong> Small and cute, basic jumps and stomps.
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div className="bg-slate-950/80 p-3 border border-slate-800">
+                  <div className="text-yellow-300 font-pixel-arcade text-[9px] mb-1">1. BABY CHICK (STAGES 1–9)</div>
+                  <p className="text-[11px] text-slate-300 leading-snug">Nimble hatchling learning jumps, pellet collecting, and pasture trails.</p>
                 </div>
-                <div className="bg-slate-800/60 p-2.5 rounded-lg border border-slate-700/40">
-                  <strong className="text-amber-400 font-pixel">2. Juvenile Chicken (Level 10):</strong> Taller, stronger legs, small comb. Encounters wolves!
+                <div className="bg-slate-950/80 p-3 border border-slate-800">
+                  <div className="text-yellow-300 font-pixel-arcade text-[9px] mb-1">2. JUVENILE (STAGES 10–14)</div>
+                  <p className="text-[11px] text-slate-300 leading-snug">Stronger leaps and feathered crest—ready to face wild Timber Wolves.</p>
                 </div>
-                <div className="bg-slate-800/60 p-2.5 rounded-lg border border-slate-700/40">
-                  <strong className="text-amber-400 font-pixel">3. Teen Chicken (Levels 15–19):</strong> Armed with Gold Armor & Gold Sword! Brave enough to cross volcanic jungles.
+                <div className="bg-slate-950/80 p-3 border border-slate-800">
+                  <div className="text-yellow-300 font-pixel-arcade text-[9px] mb-1">3. TEEN HERO (STAGES 15–19)</div>
+                  <p className="text-[11px] text-slate-300 leading-snug">Wields golden armor and blade across volcanic jungle temples.</p>
                 </div>
-                <div className="bg-slate-800/60 p-2.5 rounded-lg border border-slate-700/40">
-                  <strong className="text-amber-400 font-pixel">4. Adult Chicken (Levels 20–30):</strong> The ultimate hero chicken with maximum speed, power, and resilience.
+                <div className="bg-slate-950/80 p-3 border border-slate-800">
+                  <div className="text-yellow-300 font-pixel-arcade text-[9px] mb-1">4. ADULT CHAMPION (STAGES 20–30)</div>
+                  <p className="text-[11px] text-slate-300 leading-snug">Peak speed and power to climb Arctic peaks and defeat the Cockatrice.</p>
                 </div>
               </div>
             </div>
 
-            {/* Hazards & Enemies */}
-            <div>
-              <h3 className="text-amber-300 font-semibold mb-2 flex items-center gap-2">
-                <Flame className="w-4 h-4" /> Enemies & Hazards
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/40">
-                  <span className="font-bold text-rose-400 block mb-1">Enemies:</span>
-                  <p>• <strong>Wolves:</strong> Patrol platforms, stomp or slash.</p>
-                  <p>• <strong>Foxes:</strong> Charge when they spot you! Strike with your Gold Sword.</p>
-                  <p>• <strong>Bears:</strong> Heavy hit points and high damage in mountain levels.</p>
-                </div>
-                <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/40">
-                  <span className="font-bold text-amber-400 block mb-1">Hazards:</span>
-                  <p>• <strong>Volcanoes:</strong> Watch for smoke warning before lava explodes!</p>
-                  <p>• <strong>Boulders:</strong> Roll along platforms; jump high over them.</p>
-                  <p>• <strong>Lightning:</strong> Evacuate the red warning circle before the thundercloud strikes!</p>
-                </div>
+            {/* Creatures, Hazards & Field Journal */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+              <div className="bg-slate-950/80 p-3.5 border border-rose-900/60 space-y-1.5">
+                <span className="font-pixel-arcade text-[9px] text-rose-400 block">WILD PREDATORS &amp; MORPHS</span>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Wolves:</strong> Timber, Arctic, Cinnamon &amp; Black coats—stomp or slash.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Foxes:</strong> Red, Silver, Cross &amp; Arctic—leap early to dodge dashes.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Bears:</strong> Grizzly, Kodiak, Polar &amp; Black—heavy reach in World 5.</p>
+              </div>
+              <div className="bg-slate-950/80 p-3.5 border border-amber-900/60 space-y-1.5">
+                <span className="font-pixel-arcade text-[9px] text-amber-400 block">HAZARDS &amp; BESTIARY LOG</span>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Volcanoes &amp; Boulders:</strong> Read tremor cues before sprinting past.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Stormclouds:</strong> Step clear whenever the crimson lock ring flashes.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Bestiary:</strong> Every foe and background animal logs automatically with coat morph previews!</p>
               </div>
             </div>
 
             <button
+              type="button"
               onClick={onReturnToMenu}
-              className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold font-pixel text-xs tracking-wide transition-colors cursor-pointer"
+              className="w-full min-h-[44px] py-3 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:to-amber-400 text-slate-950 font-bold font-pixel-arcade text-xs tracking-wider border-2 border-amber-700 shadow-[0_4px_0_#78350f] active:translate-y-1 active:shadow-[0_1px_0_#78350f] cursor-pointer"
             >
-              GOT IT, LET'S PLAY!
+              GOT IT — RETURN TO MENU
             </button>
           </div>
         </div>
@@ -2142,44 +2162,52 @@ export const GameModals: React.FC<ModalProps> = ({
               </div>
             </div>
 
-            {/* Sound & Music Controls with Pixelated Style */}
-            <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border-[2.5px] border-black shadow-[0_3px_0_#000000]">
+            {/* Sound & Music Controls */}
+            <div className="flex items-center justify-between p-3 bg-slate-950 border-2 border-slate-700 shadow-[0_3px_0_#000000]">
               <div className="flex items-center gap-2.5">
                 <Volume2 className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-pixel-arcade text-slate-200 font-bold">SOUND EFFECTS</span>
+                <div>
+                  <span className="text-xs font-pixel-arcade text-slate-100 font-bold block">SOUND EFFECTS</span>
+                  <span className="text-[9px] text-slate-400 font-body">Layered feather, steel &amp; wildlife audio</span>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={onToggleSound}
-                className={`px-3 py-1.5 rounded-lg text-[10px] font-pixel-arcade font-bold border-[2px] border-black transition-all cursor-pointer ${
+                className={`min-h-[38px] px-3.5 py-1.5 text-[10px] font-pixel-arcade font-bold border-2 border-black transition-all cursor-pointer active:translate-y-0.5 ${
                   saveData.soundEnabled
-                    ? 'bg-emerald-500 text-slate-950 shadow-[0_2px_0_#000000]'
-                    : 'bg-slate-800 text-slate-400 shadow-[0_2px_0_#000000]'
+                    ? 'bg-emerald-500 text-slate-950 shadow-[0_3px_0_#064e3b]'
+                    : 'bg-slate-800 text-slate-400 shadow-[0_3px_0_#000000]'
                 }`}
               >
-                {saveData.soundEnabled ? 'ENABLED' : 'MUTED'}
+                {saveData.soundEnabled ? 'ON' : 'MUTED'}
               </button>
             </div>
 
-            <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border-[2.5px] border-black shadow-[0_3px_0_#000000]">
+            <div className="flex items-center justify-between p-3 bg-slate-950 border-2 border-slate-700 shadow-[0_3px_0_#000000]">
               <div className="flex items-center gap-2.5">
                 <Music className="w-4 h-4 text-yellow-400" />
-                <span className="text-xs font-pixel-arcade text-slate-200 font-bold">CHIPTUNE MUSIC</span>
+                <div>
+                  <span className="text-xs font-pixel-arcade text-slate-100 font-bold block">BIOME SOUNDTRACK</span>
+                  <span className="text-[9px] text-slate-400 font-body">6 world themes, boss symphony &amp; lounge</span>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={onToggleMusic}
-                className={`px-3 py-1.5 rounded-lg text-[10px] font-pixel-arcade font-bold border-[2px] border-black transition-all cursor-pointer ${
+                className={`min-h-[38px] px-3.5 py-1.5 text-[10px] font-pixel-arcade font-bold border-2 border-black transition-all cursor-pointer active:translate-y-0.5 ${
                   saveData.musicEnabled
-                    ? 'bg-yellow-400 text-slate-950 shadow-[0_2px_0_#000000]'
-                    : 'bg-slate-800 text-slate-400 shadow-[0_2px_0_#000000]'
+                    ? 'bg-yellow-400 text-slate-950 shadow-[0_3px_0_#78350f]'
+                    : 'bg-slate-800 text-slate-400 shadow-[0_3px_0_#000000]'
                 }`}
               >
-                {saveData.musicEnabled ? 'ENABLED' : 'MUTED'}
+                {saveData.musicEnabled ? 'ON' : 'MUTED'}
               </button>
             </div>
 
             {/* Coop Shop 2-Hour Cooldown Status & Toggle */}
             {onToggleShopStatus && (() => {
-              const isShopClosed = Boolean(saveData.shopClosedUntil && nowTime < saveData.shopClosedUntil);
+              const isShopClosed = !saveData.hasCompletedGame && Boolean(saveData.shopClosedUntil && nowTime < saveData.shopClosedUntil);
               const remainingSec = isShopClosed ? Math.max(0, Math.floor((saveData.shopClosedUntil! - nowTime) / 1000)) : 0;
               const hours = Math.floor(remainingSec / 3600);
               const mins = Math.floor((remainingSec % 3600) / 60);
@@ -2376,20 +2404,55 @@ export const GameModals: React.FC<ModalProps> = ({
     );
   }
 
-  // --- Next World Loading Screen (1% to 100%, Tap Screen Button hidden until 100%) ---
+  // --- Next World Loading Screen (1% to 100%, Biome Preview & Field Tip) ---
   if (currentScreen === 'WORLD_LOADING') {
     const targetLevel = LEVELS.find(l => l.id === activeLevelId) || LEVELS[0];
     const isReady = worldLoadPercent >= 100;
     const loadingStatus =
       worldLoadPercent < 30
-        ? 'GENERATING PIXEL WORLD...'
+        ? 'SHAPING BIOME TERRAIN...'
         : worldLoadPercent < 65
         ? 'PLACING SAFE CHECKPOINTS...'
         : worldLoadPercent < 95
-        ? 'SUMMONING WILDLIFE & TREASURE...'
+        ? 'SUMMONING WILDLIFE & COAT MORPHS...'
         : isReady
-        ? 'WORLD READY! 100%'
-        : 'FINALIZING BIOME...';
+        ? 'BIOME READY — 100%'
+        : 'TUNING ATMOSPHERE...';
+
+    const worldThemes: Record<number, { gradient: string; accent: string; tip: string }> = {
+      1: {
+        gradient: 'from-sky-950 via-slate-950 to-emerald-950',
+        accent: 'border-emerald-400 text-emerald-300',
+        tip: 'Collect every golden corn pellet you spot—Silkie Sam rewards early explorers with lasting upgrades.',
+      },
+      2: {
+        gradient: 'from-sky-950 via-slate-950 to-teal-950',
+        accent: 'border-sky-400 text-sky-300',
+        tip: 'Heritage Suffolk, Merino, Jacob, and Herdwick sheep graze these hills—all log automatically in your Bestiary.',
+      },
+      3: {
+        gradient: 'from-indigo-950 via-slate-950 to-amber-950',
+        accent: 'border-amber-400 text-amber-300',
+        tip: 'Timber Wolves patrol in 4 natural coat colors. Leap cleanly onto their backs or strike after they turn.',
+      },
+      4: {
+        gradient: 'from-emerald-950 via-slate-950 to-lime-950',
+        accent: 'border-lime-400 text-lime-300',
+        tip: 'Cunning Foxes dash fast beneath the monkeys’ canopy—watch magma vent tremors before crossing stone bridges.',
+      },
+      5: {
+        gradient: 'from-slate-900 via-blue-950 to-slate-950',
+        accent: 'border-cyan-400 text-cyan-300',
+        tip: 'Grizzly, Kodiak, Polar, and Black Bears roam these peaks. Keep moving when Stormclouds lock a red ring underfoot.',
+      },
+      6: {
+        gradient: 'from-red-950 via-slate-950 to-amber-950',
+        accent: 'border-rose-400 text-rose-300',
+        tip: 'Hold Block (S / Down) with the Royal Shield to deflect the Ancient Cockatrice’s fireballs back at it!',
+      },
+    };
+    const wt = worldThemes[targetLevel.world] || worldThemes[1];
+    const filledSegments = Math.round((worldLoadPercent / 100) * 12);
 
     return wrapWithPopup(
       <div
@@ -2402,38 +2465,52 @@ export const GameModals: React.FC<ModalProps> = ({
           isReady ? 'cursor-pointer' : 'cursor-wait'
         }`}
       >
-        <div className="w-full max-w-md bg-gradient-to-b from-slate-900 via-slate-950 to-indigo-950 border-4 border-yellow-400 p-6 sm:p-8 flex flex-col items-center text-center shadow-[0_0_60px_rgba(250,204,21,0.35)]">
-          <div className="px-3 py-1 bg-yellow-950/70 border-2 border-yellow-400 text-yellow-300 font-pixel-arcade text-[9px] tracking-widest mb-3">
-            TRAVELING TO NEXT WORLD
+        <div className={`w-full max-w-md bg-gradient-to-b ${wt.gradient} border-4 border-yellow-400 pixel-panel-bevel p-6 sm:p-8 flex flex-col items-center text-center shadow-[0_0_60px_rgba(250,204,21,0.3)]`}>
+          <div className={`px-3 py-1 bg-slate-950/80 border-2 ${wt.accent} font-pixel-arcade text-[9px] tracking-widest mb-3`}>
+            WORLD {targetLevel.world} EXPEDITION
           </div>
 
-          <h2 className="font-pixel-arcade text-lg sm:text-xl text-yellow-400 drop-shadow-[0_3px_0_#3b1302] mb-1.5">
+          <h2 className="font-pixel-arcade text-lg sm:text-xl text-yellow-300 drop-shadow-[0_3px_0_#3b1302] mb-1.5">
             {targetLevel.worldName}
           </h2>
-          <p className="font-pixel text-xs text-sky-300 mb-6">
-            STAGE {targetLevel.id} / 30 • {targetLevel.title}
+          <p className="font-pixel text-xs text-sky-200 mb-5">
+            STAGE {targetLevel.id} / 30 · {targetLevel.title}
           </p>
 
-          {/* 8-Bit Percentage Display */}
+          {/* Percentage Readout */}
           <div className="font-pixel-arcade text-3xl sm:text-4xl text-yellow-300 drop-shadow-[0_3px_0_#000000] tabular-nums mb-3">
             {worldLoadPercent}%
           </div>
 
-          {/* 8-Bit Segmented Pixel Progress Bar */}
-          <div className="w-full h-7 bg-slate-950 border-2 border-yellow-400 p-1 mb-3 shadow-inner">
-            <div
-              className={`h-full transition-all duration-75 ${
-                isReady
-                  ? 'bg-gradient-to-r from-emerald-500 via-green-400 to-lime-300'
-                  : 'bg-gradient-to-r from-amber-600 via-yellow-400 to-yellow-200'
-              }`}
-              style={{ width: `${worldLoadPercent}%` }}
-            />
+          {/* 12-Segment Tactile Retro Progress Bar */}
+          <div className="w-full h-7 bg-slate-950 border-2 border-yellow-400 p-1 mb-2.5 grid grid-cols-12 gap-1 shadow-inner">
+            {Array.from({ length: 12 }).map((_, idx) => (
+              <div
+                key={idx}
+                className={`h-full transition-colors duration-75 ${
+                  idx < filledSegments
+                    ? isReady
+                      ? 'bg-emerald-400'
+                      : 'bg-yellow-400'
+                    : 'bg-slate-800/70'
+                }`}
+              />
+            ))}
           </div>
 
-          <p className="font-pixel text-[10px] text-amber-200/80 tracking-wider mb-6">
+          <p className="font-pixel text-[10px] text-amber-200/85 tracking-wider mb-5">
             {loadingStatus}
           </p>
+
+          {/* Silkie Sam's Trail Tip Box */}
+          <div className="w-full bg-slate-950/85 border-2 border-slate-700 p-3 text-left mb-5">
+            <div className="font-pixel-arcade text-[8px] text-yellow-400 mb-1 tracking-wider">
+              SILKIE SAM&apos;S FIELD TIP
+            </div>
+            <p className="text-[11px] text-slate-200 font-body leading-snug">
+              {wt.tip}
+            </p>
+          </div>
 
           {/* Tap Screen Button ONLY renders once loading hits 100%! */}
           {isReady && (
@@ -2443,11 +2520,164 @@ export const GameModals: React.FC<ModalProps> = ({
                 e.stopPropagation();
                 onFinishWorldLoading?.();
               }}
-              className="w-full py-3.5 px-6 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:to-amber-400 text-slate-950 font-pixel-arcade font-bold text-xs tracking-wider border-2 border-amber-700 shadow-[0_4px_0_#78350f] active:translate-y-1 active:shadow-none cursor-pointer animate-pulse"
+              className="w-full min-h-[46px] py-3.5 px-6 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:to-amber-400 text-slate-950 font-pixel-arcade font-bold text-xs tracking-wider border-2 border-amber-700 shadow-[0_4px_0_#78350f] active:translate-y-1 active:shadow-[0_1px_0_#78350f] cursor-pointer animate-pulse"
             >
-              ▶ TAP SCREEN TO ENTER WORLD {targetLevel.world} ◀
+              ▶ ENTER WORLD {targetLevel.world} ◀
             </button>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // --- Heavenly Clouds Restart Loading Screen ("recarnation in progress...") ---
+  if (currentScreen === 'RESTART_LOADING') {
+    const filledSegments = Math.round((transitionLoadPercent / 100) * 12);
+    return wrapWithPopup(
+      <div
+        onClick={() => {
+          if (transitionLoadPercent >= 100) onFinishRestartLoading?.();
+        }}
+        className="absolute inset-0 overflow-hidden bg-gradient-to-b from-sky-300 via-sky-100 to-amber-50 flex flex-col items-center justify-center p-4 z-40 select-none"
+      >
+        {/* Radiant Heavenly Golden Sunbeams */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-60"
+          style={{
+            background:
+              'radial-gradient(circle at 50% 12%, rgba(254, 240, 138, 0.95) 0%, rgba(254, 249, 195, 0.45) 36%, rgba(186, 230, 253, 0) 72%)',
+          }}
+        />
+        <div
+          className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-[560px] h-[560px] opacity-35"
+          style={{
+            background:
+              'conic-gradient(from 160deg at 50% 0%, transparent 0deg, rgba(253,224,71,0.55) 14deg, transparent 28deg, rgba(255,255,255,0.65) 42deg, transparent 58deg, rgba(253,224,71,0.5) 74deg, transparent 90deg)',
+          }}
+        />
+
+        {/* Billowing Upper Clouds of Heaven */}
+        <div className="pointer-events-none absolute -top-8 left-0 right-0 flex justify-between opacity-90">
+          <div className="w-56 h-24 rounded-full bg-white/90 blur-[2px] -ml-10 shadow-[0_12px_30px_rgba(125,211,252,0.45)]" />
+          <div className="w-72 h-28 rounded-full bg-white/95 blur-[1px] -mt-6 shadow-[0_12px_32px_rgba(253,224,71,0.3)]" />
+          <div className="w-60 h-24 rounded-full bg-white/90 blur-[2px] -mr-10 shadow-[0_12px_30px_rgba(125,211,252,0.45)]" />
+        </div>
+
+        {/* Billowing Lower Sea of Heaven Clouds */}
+        <div className="pointer-events-none absolute -bottom-10 left-0 right-0 flex items-end justify-around">
+          <div className="w-64 h-32 rounded-full bg-white/95 -ml-12 shadow-[0_-10px_30px_rgba(255,255,255,0.9)]" />
+          <div className="w-80 h-36 rounded-full bg-white -mb-4 shadow-[0_-12px_36px_rgba(254,240,138,0.5)]" />
+          <div className="w-72 h-32 rounded-full bg-white/95 -mr-12 shadow-[0_-10px_30px_rgba(255,255,255,0.9)]" />
+        </div>
+
+        {/* Gentle Floating Feathers & Heavenly Light Motes */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute left-[18%] top-[34%] w-2.5 h-2.5 rounded-full bg-yellow-200 animate-bounce opacity-85" />
+          <div className="absolute left-[80%] top-[28%] w-2 h-2 rounded-full bg-white animate-pulse opacity-90" />
+          <div className="absolute left-[24%] bottom-[26%] w-3 h-1.5 rounded-full bg-white/90 -rotate-12 animate-pulse" />
+          <div className="absolute right-[22%] bottom-[30%] w-3 h-1.5 rounded-full bg-amber-100 rotate-12 animate-bounce" />
+        </div>
+
+        {/* Heavenly Reincarnation Shrine Card */}
+        <div className="relative z-10 w-full max-w-md bg-white/85 backdrop-blur-md border-4 border-amber-300 shadow-[0_16px_50px_rgba(14,116,144,0.22),0_0_40px_rgba(253,224,71,0.55)] p-6 sm:p-8 flex flex-col items-center text-center">
+          {/* Glowing Golden Halo + Chick Emblem */}
+          <div className="flex flex-col items-center mb-3">
+            <div className="w-12 h-3 rounded-full border-2 border-amber-400 bg-yellow-200/70 shadow-[0_0_16px_rgba(250,204,21,0.95)] mb-1.5 animate-pulse" />
+            <div className="w-14 h-14 bg-gradient-to-b from-sky-100 to-amber-50 border-2 border-amber-300 flex items-center justify-center shadow-inner">
+              <PixelChick className="w-10 h-10" />
+            </div>
+          </div>
+
+          <h2 className="font-pixel-arcade text-sm sm:text-base text-amber-800 drop-shadow-[0_2px_0_rgba(255,255,255,0.9)] mb-2 leading-relaxed">
+            recarnation in progress...
+          </h2>
+          <p className="font-pixel text-[10px] text-sky-800/90 mb-5">
+            DRIFTING THROUGH THE CLOUDS OF HEAVEN
+          </p>
+
+          {/* Percentage Readout */}
+          <div className="font-pixel-arcade text-2xl sm:text-3xl text-amber-600 tabular-nums mb-3">
+            {transitionLoadPercent}%
+          </div>
+
+          {/* 12-Segment Heavenly Golden Progress Bar */}
+          <div className="w-full h-6 bg-sky-100/90 border-2 border-amber-400 p-1 grid grid-cols-12 gap-1 shadow-inner">
+            {Array.from({ length: 12 }).map((_, idx) => (
+              <div
+                key={idx}
+                className={`h-full transition-colors duration-75 ${
+                  idx < filledSegments ? 'bg-gradient-to-t from-amber-400 to-yellow-300' : 'bg-sky-200/60'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Death Transition Loading Screen (Shown immediately upon dying before Game Over) ---
+  if (currentScreen === 'DEATH_LOADING') {
+    const filledSegments = Math.round((transitionLoadPercent / 100) * 12);
+    return wrapWithPopup(
+      <div
+        onClick={() => {
+          if (transitionLoadPercent >= 100) onFinishDeathLoading?.();
+        }}
+        className="absolute inset-0 overflow-hidden bg-gradient-to-b from-black via-rose-950 to-slate-950 flex flex-col items-center justify-center p-4 z-40 select-none"
+      >
+        {/* Subtle Crimson Fallen Vignette */}
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(circle at 50% 45%, rgba(159, 18, 57, 0.25) 0%, rgba(2, 6, 23, 0.88) 78%)',
+          }}
+        />
+
+        {/* Drifting Fallen Feathers */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-70">
+          <div className="absolute left-[22%] top-[24%] w-3.5 h-1.5 rounded-full bg-rose-200/80 rotate-12 animate-bounce" />
+          <div className="absolute right-[24%] top-[30%] w-3 h-1.5 rounded-full bg-slate-200/75 -rotate-12 animate-pulse" />
+          <div className="absolute left-[32%] bottom-[25%] w-2.5 h-1 rounded-full bg-rose-300/70 rotate-45 animate-pulse" />
+        </div>
+
+        <div className="relative z-10 w-full max-w-md bg-slate-950/90 border-4 border-rose-600/90 p-6 sm:p-8 flex flex-col items-center text-center shadow-[0_0_60px_rgba(225,29,72,0.38)]">
+          {/* Pixelated Fallen Skull Emblem */}
+          <div className="w-12 h-12 bg-rose-950/80 border-2 border-rose-500 flex items-center justify-center mb-3 shadow-[0_0_20px_rgba(244,63,94,0.45)]">
+            <svg viewBox="0 0 10 10" className="w-6 h-6" style={{ shapeRendering: 'crispEdges' }}>
+              <rect x="2" y="1" width="6" height="5" fill="#fb7185" />
+              <rect x="3" y="0" width="4" height="1" fill="#fb7185" />
+              <rect x="3" y="6" width="4" height="3" fill="#fb7185" />
+              <rect x="3" y="3" width="1.5" height="2" fill="#0f172a" />
+              <rect x="5.5" y="3" width="1.5" height="2" fill="#0f172a" />
+              <rect x="4" y="8" width="1" height="1" fill="#0f172a" />
+              <rect x="5" y="8" width="1" height="1" fill="#0f172a" />
+            </svg>
+          </div>
+
+          <h2 className="font-pixel-arcade text-base sm:text-lg text-rose-400 drop-shadow-[0_3px_0_#4c0519] mb-1.5">
+            YOU FELL IN BATTLE...
+          </h2>
+          <p className="font-pixel text-[10px] text-rose-200/80 mb-5">
+            GATHERING SCATTERED FEATHERS · STAGE {activeLevelId}
+          </p>
+
+          <div className="font-pixel-arcade text-2xl sm:text-3xl text-rose-300 tabular-nums mb-3">
+            {transitionLoadPercent}%
+          </div>
+
+          {/* 12-Segment Crimson Progress Bar */}
+          <div className="w-full h-6 bg-slate-950 border-2 border-rose-500 p-1 grid grid-cols-12 gap-1 shadow-inner">
+            {Array.from({ length: 12 }).map((_, idx) => (
+              <div
+                key={idx}
+                className={`h-full transition-colors duration-75 ${
+                  idx < filledSegments ? 'bg-gradient-to-t from-rose-600 to-rose-400' : 'bg-slate-800/80'
+                }`}
+              />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -2551,7 +2781,7 @@ export const GameModals: React.FC<ModalProps> = ({
             </div>
             <div className="bg-slate-900/90 border-2 border-yellow-500/70 rounded-xl p-2.5 text-center shadow-[0_0_12px_rgba(245,158,11,0.2)]">
               <span className="text-[9px] text-yellow-400/80 block font-pixel-arcade">LIFETIME PELLET COINS</span>
-              <span className="font-pixel-arcade text-sm text-yellow-400 font-bold drop-shadow-[0_2px_0_#3b1302]">{saveData.totalCoins + coinsEarned}</span>
+              <span className="font-pixel-arcade text-sm text-yellow-400 font-bold drop-shadow-[0_2px_0_#3b1302]">{saveData.totalCoins}</span>
             </div>
           </div>
 
@@ -2614,12 +2844,6 @@ export const GameModals: React.FC<ModalProps> = ({
               </button>
             </div>
           </div>
-
-          <AdBanner
-            slotId={import.meta.env.VITE_ADSENSE_SLOT_INTERMISSION || '8859422748'}
-            format="auto"
-            className="mt-3"
-          />
 
         </div>
       </div>
@@ -2696,12 +2920,6 @@ export const GameModals: React.FC<ModalProps> = ({
               MAIN MENU
             </button>
           </div>
-
-          <AdBanner
-            slotId={import.meta.env.VITE_ADSENSE_SLOT_INTERMISSION || '8859422748'}
-            format="auto"
-            className="mt-3"
-          />
         </div>
       </div>
     );
@@ -3139,44 +3357,53 @@ export const GameModals: React.FC<ModalProps> = ({
                   return (
                     <div
                       key={item.id}
-                      className={`p-3 rounded-2xl border-2 transition-all flex flex-col justify-between ${
+                      className={`p-3.5 border-2 transition-all flex flex-col justify-between ${
                         item.isMaxed
-                          ? 'bg-yellow-950/30 border-yellow-600/50 opacity-80'
-                          : 'bg-gradient-to-b from-yellow-950/40 to-slate-900/90 border-yellow-500/80 shadow-[0_0_12px_rgba(245,158,11,0.2)] hover:border-yellow-400'
+                          ? 'bg-emerald-950/20 border-emerald-700/60'
+                          : 'bg-gradient-to-b from-slate-900 to-slate-950 border-yellow-500/75 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_3px_0_#000000] hover:border-yellow-300'
                       }`}
                     >
-                      <div className="flex items-start gap-2.5 mb-2">
-                        <div className="w-9 h-9 rounded-xl bg-yellow-400/20 border border-yellow-500/60 flex items-center justify-center shrink-0">
+                      <div className="flex items-start gap-2.5 mb-2.5">
+                        <div className="w-10 h-10 bg-amber-500/15 border-2 border-yellow-500/60 flex items-center justify-center shrink-0">
                           {item.icon}
                         </div>
                         <div className="text-left flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1">
-                            <h4 className="font-pixel-arcade text-[10px] sm:text-[11px] text-yellow-400 font-bold truncate">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <h4 className="font-pixel-arcade text-[10px] sm:text-[11px] text-yellow-300 font-bold truncate">
                               {item.title}
                             </h4>
-                            {item.level !== undefined && (
-                              <span className="text-[9px] font-pixel-arcade text-yellow-400/80 px-1.5 py-0.2 rounded bg-yellow-950/60 border border-yellow-600/50 shrink-0">
-                                Lv {item.level}/{item.maxLevel}
-                              </span>
+                            {item.level !== undefined && item.maxLevel !== undefined && (
+                              <div className="flex items-center gap-1 shrink-0" title={`Level ${item.level}/${item.maxLevel}`}>
+                                {Array.from({ length: item.maxLevel }).map((_, i) => (
+                                  <span
+                                    key={i}
+                                    className={`w-2 h-2 border ${
+                                      i < item.level!
+                                        ? 'bg-yellow-400 border-amber-600'
+                                        : 'bg-slate-800 border-slate-600'
+                                    }`}
+                                  />
+                                ))}
+                              </div>
                             )}
                           </div>
-                          <p className="text-[9px] text-slate-300 font-body leading-tight mt-0.5">
+                          <p className="text-[10px] text-slate-300 font-body leading-snug mt-1">
                             {item.desc}
                           </p>
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-yellow-600/30 flex items-center justify-between">
+                      <div className="pt-2.5 border-t border-slate-800 flex items-center justify-between gap-2">
                         {item.isMaxed ? (
-                          <span className="text-[9px] font-pixel-arcade text-emerald-400 font-bold px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-600 w-full text-center">
-                            ✓ MAXIMUM EQUIPPED
+                          <span className="text-[9px] font-pixel-arcade text-emerald-300 font-bold px-2.5 py-2 bg-emerald-950/70 border border-emerald-500/70 w-full text-center">
+                            ✓ MAXED OUT
                           </span>
                         ) : (
                           <>
                             <div className="flex items-center gap-1.5">
                               <PixelCoins className="w-3.5 h-3.5 shrink-0" />
-                              <span className="font-pixel-arcade text-[10px] text-yellow-400 font-bold tabular-nums">
-                                {item.cost} Pellet Coins
+                              <span className="font-pixel-arcade text-[10px] text-yellow-300 font-bold tabular-nums">
+                                {item.cost}
                               </span>
                             </div>
 
@@ -3184,12 +3411,12 @@ export const GameModals: React.FC<ModalProps> = ({
                               type="button"
                               onClick={() => handleBuyItem(item)}
                               disabled={!canAfford || isShopClosed}
-                              className={`px-3 py-1.5 rounded-xl font-pixel-arcade text-[9px] font-bold transition-all cursor-pointer ${
+                              className={`min-h-[36px] px-3.5 py-1.5 font-pixel-arcade text-[9px] font-bold transition-all cursor-pointer ${
                                 isShopClosed
-                                  ? 'bg-rose-950/80 text-rose-300 border border-rose-600/70 opacity-80'
+                                  ? 'bg-rose-950/80 text-rose-300 border-2 border-rose-600/70 opacity-80'
                                   : canAfford
-                                  ? 'bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-300 hover:to-amber-400 active:from-yellow-300 active:to-yellow-400 text-slate-950 border border-amber-600 shadow-[0_2px_0_#78350f] active:translate-y-0.5 active:shadow-none'
-                                  : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-60'
+                                  ? 'bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-300 hover:to-amber-400 text-slate-950 border-2 border-amber-700 shadow-[0_3px_0_#78350f] active:translate-y-0.5 active:shadow-none'
+                                  : 'bg-slate-800 text-slate-500 border-2 border-slate-700 cursor-not-allowed opacity-60'
                               }`}
                             >
                               {isShopClosed ? 'CLOSED' : 'BUY UPGRADE'}
@@ -3212,25 +3439,25 @@ export const GameModals: React.FC<ModalProps> = ({
           {shopTab === 'appearance' && (
             <div className="flex flex-col mb-2">
               {/* Interactive Growth Stage Switcher for Live Skin Preview */}
-              <div className="flex items-center justify-center gap-1.5 p-1 bg-slate-900/90 border border-yellow-500/40 rounded-xl mb-2.5 w-full">
+              <div className="grid grid-cols-4 gap-1 p-1 bg-slate-950 border-2 border-slate-700 mb-2.5 w-full">
                 {[
-                  { id: 'baby', label: 'Baby Chick', icon: <PixelChick className="w-3.5 h-3.5" /> },
+                  { id: 'baby', label: 'Baby', icon: <PixelChick className="w-3.5 h-3.5" /> },
                   { id: 'juvenile', label: 'Juvenile', icon: <PixelJuvenile className="w-3.5 h-3.5" /> },
                   { id: 'teen', label: 'Teen', icon: <PixelRooster className="w-3.5 h-3.5" /> },
-                  { id: 'adult', label: 'Adult Hero', icon: <PixelCrown className="w-3.5 h-3.5" /> },
+                  { id: 'adult', label: 'Adult', icon: <PixelCrown className="w-3.5 h-3.5" /> },
                 ].map(tab => (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => setAppearanceStage(tab.id as GrowthStage)}
-                    className={`flex-1 py-1 px-1.5 rounded-lg text-[9px] sm:text-[10px] font-pixel-arcade transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                    className={`min-h-[34px] py-1 px-1.5 text-[9px] sm:text-[10px] font-pixel-arcade transition-all cursor-pointer flex items-center justify-center gap-1 border ${
                       appearanceStage === tab.id
-                        ? 'bg-yellow-400 text-slate-950 font-bold shadow-sm'
-                        : 'text-yellow-400/70 hover:text-yellow-300 hover:bg-slate-800'
+                        ? 'bg-yellow-400 text-slate-950 border-amber-600 font-bold shadow-[0_2px_0_#78350f]'
+                        : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-yellow-300 hover:border-slate-600'
                     }`}
                   >
                     {tab.icon}
-                    <span>{tab.label}</span>
+                    <span className="whitespace-nowrap">{tab.label}</span>
                   </button>
                 ))}
               </div>
@@ -3250,10 +3477,10 @@ export const GameModals: React.FC<ModalProps> = ({
                     key={f.id}
                     type="button"
                     onClick={() => setSkinRarityFilter(f.id as typeof skinRarityFilter)}
-                    className={`px-2.5 py-1 rounded-xl text-[8px] sm:text-[9px] font-pixel-arcade font-bold border transition-all cursor-pointer whitespace-nowrap ${
+                    className={`min-h-[32px] px-2.5 py-1 text-[8px] sm:text-[9px] font-pixel-arcade font-bold border-2 transition-all cursor-pointer whitespace-nowrap ${
                       skinRarityFilter === f.id
-                        ? 'bg-yellow-400 text-slate-950 border-amber-600 shadow-sm'
-                        : 'bg-slate-900/90 text-yellow-400/75 border-yellow-500/30 hover:text-yellow-300 hover:bg-slate-800'
+                        ? 'bg-yellow-400 text-slate-950 border-amber-600 shadow-[0_2px_0_#78350f]'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:text-yellow-300 hover:border-slate-500'
                     }`}
                   >
                     {f.label}
@@ -3265,8 +3492,8 @@ export const GameModals: React.FC<ModalProps> = ({
               {(() => {
                 const currentPreviewDef = getSkinDefinition(previewSkinId);
                 return (
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-amber-950/60 border-2 border-yellow-500/70 mb-3 shadow-inner">
-                    <div className="shrink-0">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-gradient-to-r from-slate-950 via-slate-900 to-amber-950/50 border-2 border-yellow-500/80 mb-3 pixel-panel-bevel">
+                    <div className="shrink-0 border-2 border-slate-700 bg-slate-950 p-1">
                       <ChickenPreviewCanvas
                         gender={saveData.gender || 'rooster'}
                         stage={appearanceStage}
@@ -3274,33 +3501,33 @@ export const GameModals: React.FC<ModalProps> = ({
                         sword={saveData.sword || 'none'}
                         skin={previewSkinId}
                         renderer={renderer}
-                        size={110}
+                        size={112}
                       />
                     </div>
 
                     <div className="flex-1 text-left">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-pixel-arcade text-[11px] sm:text-xs text-yellow-400 font-bold">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+                        <span className="font-pixel-arcade text-xs text-yellow-300 font-bold">
                           {currentPreviewDef.name}
                         </span>
-                        <span className="px-2 py-0.5 rounded-full text-[8px] font-pixel-arcade bg-yellow-950 border border-yellow-500/60 text-yellow-300">
-                          {currentPreviewDef.rarity}
+                        <span className="text-[9px] font-pixel-arcade text-amber-300/90">
+                          {currentPreviewDef.rarity.toUpperCase()}
                         </span>
                       </div>
-                      <p className="text-[9px] text-yellow-200/90 font-pixel-arcade mb-1.5">
+                      <p className="text-[9px] text-amber-200/90 font-pixel-arcade mb-1.5">
                         {currentPreviewDef.subtitle}
                       </p>
-                      <p className="text-[9px] text-slate-300 font-body leading-tight">
+                      <p className="text-xs text-slate-300 font-body leading-snug">
                         {currentPreviewDef.description}
                       </p>
 
-                      {/* Color Swatch Dots */}
-                      <div className="flex items-center gap-1.5 mt-2">
-                        <span className="text-[8px] font-pixel-arcade text-yellow-400/80 mr-1">PALETTE:</span>
+                      {/* Crisp Plumage Swatch Tiles */}
+                      <div className="flex items-center gap-1.5 mt-2.5">
+                        <span className="text-[8px] font-pixel-arcade text-slate-400 mr-1">PLUMAGE:</span>
                         {currentPreviewDef.swatches.map((color, idx) => (
                           <div
                             key={idx}
-                            className="w-4 h-4 rounded-full border border-white/40 shadow-sm"
+                            className="w-4 h-4 border border-slate-950/90 ring-1 ring-white/25"
                             style={{ backgroundColor: color }}
                             title={color}
                           />
@@ -3331,31 +3558,31 @@ export const GameModals: React.FC<ModalProps> = ({
                       <div
                         key={skin.id}
                         onClick={() => setPreviewSkinId(skin.id)}
-                        className={`p-3 rounded-2xl border-2 transition-all flex flex-col justify-between cursor-pointer text-left ${
+                        className={`p-3 border-2 transition-all flex flex-col justify-between cursor-pointer text-left ${
                           previewSkinId === skin.id
-                            ? 'ring-2 ring-yellow-400 border-yellow-300 bg-amber-950/50 shadow-[0_0_15px_rgba(250,204,21,0.3)]'
+                            ? 'border-yellow-300 bg-amber-950/45 shadow-[0_0_16px_rgba(250,204,21,0.25)]'
                             : isEquipped
-                            ? 'border-emerald-500 bg-emerald-950/30'
-                            : 'border-yellow-500/60 bg-gradient-to-b from-yellow-950/30 to-slate-900/90 hover:border-yellow-400'
+                            ? 'border-emerald-500 bg-emerald-950/25'
+                            : 'border-slate-700 bg-slate-900/95 hover:border-amber-400'
                         }`}
                       >
                         <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <h4 className="font-pixel-arcade text-[10px] sm:text-[11px] text-yellow-400 font-bold truncate">
+                          <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                            <h4 className="font-pixel-arcade text-[10px] sm:text-[11px] text-yellow-300 font-bold truncate">
                               {skin.name}
                             </h4>
-                            <span className={`text-[8px] font-pixel-arcade px-1.5 py-0.5 rounded border ${
+                            <span className={`text-[8px] font-pixel-arcade shrink-0 ${
                               skin.rarity === 'Secret'
-                                ? 'bg-gradient-to-r from-amber-950 via-yellow-950 to-amber-950 border-amber-400 text-yellow-300 font-bold shadow-[0_0_10px_rgba(250,204,21,0.5)]'
+                                ? 'text-yellow-300 font-bold'
                                 : skin.rarity === 'Mythic'
-                                ? 'bg-rose-950 border-rose-500 text-rose-300'
+                                ? 'text-rose-300'
                                 : skin.rarity === 'Legendary'
-                                ? 'bg-amber-950 border-amber-500 text-amber-300'
+                                ? 'text-amber-300'
                                 : skin.rarity === 'Epic'
-                                ? 'bg-purple-950 border-purple-500 text-purple-300'
-                                : 'bg-slate-900 border-slate-700 text-slate-300'
+                                ? 'text-purple-300'
+                                : 'text-slate-400'
                             }`}>
-                              {skin.rarity === 'Secret' ? '★ SECRET' : skin.rarity}
+                              {skin.rarity === 'Secret' ? '★ SECRET' : skin.rarity.toUpperCase()}
                             </span>
                           </div>
 
@@ -3364,61 +3591,61 @@ export const GameModals: React.FC<ModalProps> = ({
                             {skin.swatches.map((sw, i) => (
                               <div
                                 key={i}
-                                className="w-3.5 h-3.5 rounded-full border border-white/30 shadow-sm shrink-0"
+                                className="w-3.5 h-3.5 border border-slate-950 ring-1 ring-white/20 shrink-0"
                                 style={{ backgroundColor: sw }}
                               />
                             ))}
-                            <span className="text-[8px] text-yellow-400/70 font-pixel-arcade ml-1 truncate">
+                            <span className="text-[8px] text-slate-400 font-pixel-arcade ml-1 truncate">
                               {skin.subtitle}
                             </span>
                           </div>
 
-                          <p className="text-[9px] text-slate-300 font-body leading-tight mb-2">
+                          <p className="text-[11px] text-slate-300 font-body leading-snug mb-2.5">
                             {skin.description}
                           </p>
                         </div>
 
-                        <div className="pt-2 border-t border-yellow-600/30 flex items-center justify-between">
+                        <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
                           {isEquipped ? (
-                            <span className="text-[9px] font-pixel-arcade text-emerald-400 font-bold px-2 py-1 rounded-lg bg-emerald-950/80 border border-emerald-500 w-full text-center flex items-center justify-center gap-1">
+                            <span className="min-h-[36px] text-[9px] font-pixel-arcade text-emerald-300 font-bold px-2 py-1.5 bg-emerald-950/75 border-2 border-emerald-600 w-full text-center flex items-center justify-center gap-1">
                               <span>✓</span>
-                              <span>CURRENTLY EQUIPPED</span>
+                              <span>EQUIPPED</span>
                             </span>
                           ) : isUnlocked ? (
                             <button
                               type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (postBossTimerRef.current) {
-                                    clearTimeout(postBossTimerRef.current);
-                                    postBossTimerRef.current = null;
-                                  }
-                                  if (postBossTimer2Ref.current) {
-                                    clearTimeout(postBossTimer2Ref.current);
-                                    postBossTimer2Ref.current = null;
-                                  }
-                                  if (postBossTimer3Ref.current) {
-                                    clearTimeout(postBossTimer3Ref.current);
-                                    postBossTimer3Ref.current = null;
-                                  }
-                                  onEquipSkin?.(skin.id);
-                                  setPreviewSkinId(skin.id);
-                                  if (skin.id === 'thanksgiving_roast') {
-                                    speakDialogue('oh that looks.. good?😅', 'talk');
-                                  } else {
-                                    speakDialogue(`Equipped the ${skin.name}! You look splendid!`, 'purchase');
-                                  }
-                                }}
-                              className="w-full py-1.5 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950 font-pixel-arcade text-[9px] font-bold border border-amber-600 shadow-[0_2px_0_#78350f] active:translate-y-0.5 cursor-pointer"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (postBossTimerRef.current) {
+                                  clearTimeout(postBossTimerRef.current);
+                                  postBossTimerRef.current = null;
+                                }
+                                if (postBossTimer2Ref.current) {
+                                  clearTimeout(postBossTimer2Ref.current);
+                                  postBossTimer2Ref.current = null;
+                                }
+                                if (postBossTimer3Ref.current) {
+                                  clearTimeout(postBossTimer3Ref.current);
+                                  postBossTimer3Ref.current = null;
+                                }
+                                onEquipSkin?.(skin.id);
+                                setPreviewSkinId(skin.id);
+                                if (skin.id === 'thanksgiving_roast') {
+                                  speakDialogue('oh that looks.. good?😅', 'talk');
+                                } else {
+                                  speakDialogue(`Equipped the ${skin.name}! You look splendid!`, 'purchase');
+                                }
+                              }}
+                              className="w-full min-h-[36px] py-1.5 bg-gradient-to-b from-yellow-300 to-amber-500 hover:from-yellow-200 hover:to-amber-400 text-slate-950 font-pixel-arcade text-[9px] font-bold border-2 border-amber-700 shadow-[0_3px_0_#78350f] active:translate-y-0.5 active:shadow-[0_1px_0_#78350f] cursor-pointer transition-all"
                             >
                               EQUIP SKIN
                             </button>
                           ) : (
                             <>
-                              <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-1.5">
                                 <PixelCoins className="w-3.5 h-3.5 shrink-0" />
-                                <span className="font-pixel-arcade text-[10px] text-yellow-400 font-bold tabular-nums">
-                                  {skin.price} Pellet Coins
+                                <span className="font-pixel-arcade text-[10px] text-yellow-300 font-bold tabular-nums">
+                                  {skin.price}
                                 </span>
                               </div>
 
@@ -3442,12 +3669,12 @@ export const GameModals: React.FC<ModalProps> = ({
                                   }
                                 }}
                                 disabled={!canAfford || isShopClosed}
-                                className={`px-3 py-1.5 rounded-xl font-pixel-arcade text-[9px] font-bold transition-all cursor-pointer ${
+                                className={`min-h-[36px] px-3.5 py-1.5 font-pixel-arcade text-[9px] font-bold border-2 transition-all cursor-pointer whitespace-nowrap ${
                                   isShopClosed
-                                    ? 'bg-rose-950/80 text-rose-300 border border-rose-600 opacity-80'
+                                    ? 'bg-rose-950/80 text-rose-300 border-rose-600 opacity-80'
                                     : canAfford
-                                    ? 'bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950 border border-amber-600 shadow-[0_2px_0_#78350f] active:translate-y-0.5'
-                                    : 'bg-slate-800 text-slate-500 border border-slate-700 opacity-60 cursor-not-allowed'
+                                    ? 'bg-gradient-to-b from-yellow-300 to-amber-500 hover:from-yellow-200 hover:to-amber-400 text-slate-950 border-amber-700 shadow-[0_3px_0_#78350f] active:translate-y-0.5 active:shadow-[0_1px_0_#78350f]'
+                                    : 'bg-slate-800 text-slate-500 border-slate-700 opacity-60 cursor-not-allowed'
                                 }`}
                               >
                                 {isShopClosed ? 'CLOSED' : 'BUY SKIN'}
@@ -3468,7 +3695,7 @@ export const GameModals: React.FC<ModalProps> = ({
           {/* Bottom Navigation */}
           <button
             onClick={onReturnToMenu}
-            className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 text-slate-950 font-pixel-arcade font-bold text-xs tracking-wider border-2 border-amber-600 shadow-[0_4px_0_#78350f,0_0_18px_rgba(245,158,11,0.3)] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all cursor-pointer flex items-center justify-center gap-2"
+            className="w-full min-h-[42px] py-2.5 px-4 bg-gradient-to-b from-yellow-300 via-amber-400 to-amber-500 hover:from-yellow-200 hover:via-amber-300 hover:to-amber-400 text-slate-950 font-pixel-arcade font-bold text-xs tracking-wider border-2 border-amber-700 shadow-[0_4px_0_#78350f] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all cursor-pointer flex items-center justify-center gap-2"
           >
             ← RETURN TO MAIN MENU
           </button>

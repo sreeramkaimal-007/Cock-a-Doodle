@@ -160,9 +160,118 @@ export class GameRenderer {
       ctx.arc(tx + 14, ty + 38, 3.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // MONKEYS ON SOME OF THE TREES!
+      // MONKEYS & BABY MONKEYS: Squeak in trees, climb down to walk/rest/eat bananas, and climb back up!
       if (i % 2 === 0 || i === 3) {
-        this.renderJungleMonkey(tx, ty - 22, time, levelId === 19 && !isBossDefeated, i, isBossDefeated);
+        const isScared = levelId === 19 && !isBossDefeated;
+        const hasBaby = i === 0 || i === 3 || i === 4;
+
+        if (isScared || isBossDefeated) {
+          this.renderJungleMonkey(tx, ty - 22, time, isScared, i, isBossDefeated, i % 4);
+          if (hasBaby) {
+            const babyOffsetX = (i % 2 === 0) ? -14 : 14;
+            this.renderJungleMonkey(tx + babyOffsetX, ty - 16, time + 0.4, isScared, i + 1, isBossDefeated, i % 4, {
+              isBaby: true,
+              activity: 'squeak',
+              skipBranchOffset: true,
+            });
+          }
+        } else {
+          // 22-second autonomous primate routine staggered per tree
+          const period = 22.0;
+          const phase = (time + i * 5.3) % period;
+          const roamDir: 1 | -1 = (i % 2 === 0) ? 1 : -1;
+          const maxRoam = 56;
+          const branchX = tx + ((i % 2 === 0) ? 12 : -12);
+          const branchY = ty - 20;
+          const trunkX = tx + roamDir * 5;
+
+          const getRidgeYAt = (screenX: number) => {
+            const wx = screenX + camera.x * 0.25;
+            return h - 145 + Math.sin(wx * 0.004 + 1.5) * 35;
+          };
+
+          const computeMonkeyPose = (p: number) => {
+            if (p < 5.5) {
+              // Squeaking playfully up in the tree canopy
+              return { x: branchX, y: branchY, activity: 'squeak' as const, facingDir: roamDir };
+            } else if (p < 7.5) {
+              // Climbing smoothly down the tree trunk
+              const t = (p - 5.5) / 2.0;
+              const groundAtTrunk = getRidgeYAt(trunkX) - 6;
+              return {
+                x: branchX + (trunkX - branchX) * t,
+                y: branchY + (groundAtTrunk - branchY) * t,
+                activity: 'climb' as const,
+                facingDir: roamDir,
+              };
+            } else if (p < 11.5) {
+              // Walking out along the jungle ridge floor
+              const t = (p - 7.5) / 4.0;
+              const curX = trunkX + roamDir * maxRoam * t;
+              return {
+                x: curX,
+                y: getRidgeYAt(curX) - 6,
+                activity: 'walk' as const,
+                facingDir: roamDir,
+              };
+            } else if (p < 16.0) {
+              // Resting or eating a banana on the jungle ridge
+              const curX = trunkX + roamDir * maxRoam;
+              const restCycle = Math.floor((time + i * 5.3) / period) + i;
+              const act = (restCycle % 2 === 0) ? ('eat' as const) : ('rest' as const);
+              return {
+                x: curX,
+                y: getRidgeYAt(curX) - 5,
+                activity: act,
+                facingDir: roamDir,
+              };
+            } else if (p < 19.5) {
+              // Walking back toward the tree trunk
+              const t = (p - 16.0) / 3.5;
+              const curX = trunkX + roamDir * maxRoam * (1 - t);
+              return {
+                x: curX,
+                y: getRidgeYAt(curX) - 6,
+                activity: 'walk' as const,
+                facingDir: (roamDir * -1) as 1 | -1,
+              };
+            } else {
+              // Climbing back up into the canopy
+              const t = (p - 19.5) / 2.5;
+              const groundAtTrunk = getRidgeYAt(trunkX) - 6;
+              return {
+                x: trunkX + (branchX - trunkX) * t,
+                y: groundAtTrunk + (branchY - groundAtTrunk) * t,
+                activity: 'climb' as const,
+                facingDir: (roamDir * -1) as 1 | -1,
+              };
+            }
+          };
+
+          const adultPose = computeMonkeyPose(phase);
+          this.renderJungleMonkey(adultPose.x, adultPose.y, time, false, i, false, i % 4, {
+            isBaby: false,
+            activity: adultPose.activity,
+            facingDir: adultPose.facingDir,
+            skipBranchOffset: true,
+          });
+
+          if (hasBaby) {
+            const babyPhase = (phase - 0.85 + period) % period;
+            const babyPose = computeMonkeyPose(babyPhase);
+            const sideGap = babyPose.activity === 'squeak' ? -roamDir * 13 : -roamDir * 14;
+            const bx = babyPose.activity === 'climb' ? babyPose.x - roamDir * 3 : babyPose.x + sideGap;
+            const by = babyPose.activity === 'squeak'
+              ? babyPose.y + 4
+              : (babyPose.activity === 'climb' ? babyPose.y + 8 : getRidgeYAt(bx) - 4);
+            this.renderJungleMonkey(bx, by, time + 0.5, false, i + 2, false, i % 4, {
+              isBaby: true,
+              activity: babyPose.activity,
+              facingDir: babyPose.facingDir,
+              skipBranchOffset: true,
+            });
+          }
+        }
       }
     }
 
@@ -212,101 +321,332 @@ export class GameRenderer {
     }
   }
 
-  // Render Jungle Monkey on Tree Branch (World 4)
-  private renderJungleMonkey(tx: number, ty: number, time: number, isScared: boolean, treeIndex: number, isCheering: boolean = false) {
+  // Render Jungle Monkey (Adult or Baby) with autonomous activities: squeak, climb, walk, eat, rest
+  public renderJungleMonkey(
+    tx: number,
+    ty: number,
+    time: number,
+    isScared: boolean,
+    treeIndex: number,
+    isCheering: boolean = false,
+    variantIndex?: number,
+    options?: {
+      isBaby?: boolean;
+      activity?: 'squeak' | 'climb' | 'walk' | 'eat' | 'rest';
+      facingDir?: 1 | -1;
+      skipBranchOffset?: boolean;
+    }
+  ) {
     const ctx = this.ctx;
     ctx.save();
-    
-    // Position offset on branch
-    const branchOffset = (treeIndex % 2 === 0) ? 14 : -14;
+
+    const isBaby = !!options?.isBaby;
+    const activity = options?.activity ?? 'eat';
+    const morph = ((variantIndex ?? treeIndex) % 4 + 4) % 4;
+    const palettes = [
+      // 0: White-Headed Capuchin
+      { fur: '#5c2d16', furDark: '#3b1b0c', furLight: '#854d27', belly: '#fde6c4', face: '#fbd3a8', earInner: '#f4b6c2' },
+      // 1: Golden Lion Tamarin
+      { fur: '#d97706', furDark: '#92400e', furLight: '#fbbf24', belly: '#fef08a', face: '#b45309', earInner: '#fca5a5' },
+      // 2: Chestnut Rhesus Macaque
+      { fur: '#7c3f1d', furDark: '#4a210d', furLight: '#a16236', belly: '#e7d5c0', face: '#f5c2a8', earInner: '#f4acb7' },
+      // 3: Dusky Spider Monkey
+      { fur: '#292524', furDark: '#171412', furLight: '#57534e', belly: '#d6ccc2', face: '#a89f96', earInner: '#d4a5a5' },
+    ];
+    const p = palettes[morph];
+
+    const branchOffset = options?.skipBranchOffset ? 0 : ((treeIndex % 2 === 0) ? 14 : -14);
     const mx = tx + branchOffset;
     const shudder = isScared ? Math.sin(time * 35 + treeIndex * 2) * 1.5 : 0;
     const cheerHop = isCheering ? Math.abs(Math.sin(time * 8 + treeIndex * 1.7)) * 7 : 0;
-    const my = ty + 4 + shudder - cheerHop;
+    const walkBob = (!isScared && !isCheering && activity === 'walk') ? Math.abs(Math.sin(time * 10 + treeIndex)) * 2.2 : 0;
+    const squeakBob = (!isScared && !isCheering && activity === 'squeak') ? Math.abs(Math.sin(time * 7 + treeIndex)) * 1.8 : 0;
+    const restBreath = (!isScared && !isCheering && activity === 'rest') ? Math.sin(time * 2.4 + treeIndex) * 0.7 : 0;
+    const restDrop = (!isScared && !isCheering && activity === 'rest') ? 2.5 : 0;
+    const my = ty + (options?.skipBranchOffset ? 0 : 4) + shudder - cheerHop - walkBob - squeakBob + restDrop + restBreath;
 
     ctx.translate(mx, my);
-    const facing = (treeIndex % 2 === 0) ? -1 : 1;
-    ctx.scale(facing, 1);
+    const facing = options?.facingDir ?? ((treeIndex % 2 === 0) ? -1 : 1);
+    const babyScale = isBaby ? 0.72 : 1.0;
+    ctx.scale(facing * babyScale, babyScale);
 
-    // 1. Curly Prehensile Tail
-    ctx.strokeStyle = '#78350f';
-    ctx.lineWidth = 2.5;
+    // Subtle ground shadow when on the jungle ridge
+    if (!isScared && (activity === 'walk' || activity === 'eat' || activity === 'rest')) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.beginPath();
+      ctx.ellipse(0, 9.5 + walkBob * 0.5, activity === 'rest' ? 9 : 7.5, 2.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 1. Prehensile Curly Tail with subtle highlight
+    ctx.strokeStyle = p.furDark;
+    ctx.lineWidth = isBaby ? 2.6 : 3;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    const tailSpeed = isCheering ? 12 : (isScared ? 8 : 3);
-    const tailWiggle = Math.sin(time * tailSpeed + treeIndex) * (isScared ? 8 : (isCheering ? 7 : 4));
-    ctx.moveTo(-6, 2);
-    ctx.bezierCurveTo(-14, 0 + tailWiggle, -18, -10, -12, -14);
+    const tailSpeed = isCheering ? 12 : (isScared ? 8 : (activity === 'walk' ? 7 : (activity === 'rest' ? 1.5 : 3.5)));
+    const tailWiggle = Math.sin(time * tailSpeed + treeIndex) * (isScared ? 8 : (isCheering ? 7 : (activity === 'rest' ? 1.5 : 4)));
+    if (activity === 'rest' && !isScared && !isCheering) {
+      // Curled neatly around side while resting
+      ctx.moveTo(-5, 4);
+      ctx.bezierCurveTo(-13, 6, -13, -1 + tailWiggle * 0.4, -8, 1);
+    } else {
+      ctx.moveTo(-5, 3);
+      ctx.bezierCurveTo(-14, 1 + tailWiggle, -19, -9, -13, -14);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = p.fur;
+    ctx.lineWidth = isBaby ? 1.5 : 1.8;
     ctx.stroke();
 
-    // 2. Brown Fur Body
-    ctx.fillStyle = '#78350f';
+    // 2. Muscular Primate Torso with layered fur shading
+    const torsoTilt = activity === 'walk' ? 0.24 : (activity === 'rest' ? 0.14 : 0.05);
+    const torsoRx = activity === 'rest' ? 7.6 : 6.8;
+    const torsoRy = activity === 'rest' ? 7.4 : 8.8;
+    ctx.fillStyle = p.furDark;
     ctx.beginPath();
-    ctx.ellipse(0, 0, 7, 9, 0, 0, Math.PI * 2);
+    ctx.ellipse(-0.6, 0.8, torsoRx + 0.4, torsoRy + 0.4, torsoTilt + 0.03, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.fur;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, torsoRx, torsoRy, torsoTilt, 0, Math.PI * 2);
+    ctx.fill();
+    // Shoulder coat sheen
+    ctx.fillStyle = p.furLight;
+    ctx.beginPath();
+    ctx.ellipse(-2.5, -3.2, 3.2, 4.0, -0.2, 0, Math.PI * 2);
     ctx.fill();
 
-    // Lighter belly patch
-    ctx.fillStyle = '#fed7aa';
+    // Lighter chest/belly patch
+    ctx.fillStyle = p.belly;
     ctx.beginPath();
-    ctx.ellipse(2, 1, 4, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(2, 1.2, 4, activity === 'rest' ? 5.2 : 6.2, torsoTilt * 0.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // 3. Monkey Head
-    const headY = isScared ? -9 : -8;
-    ctx.fillStyle = '#78350f';
+    // Feet / Legs adapted to current activity
+    if (!isScared && !isCheering && activity === 'walk') {
+      const stride = Math.sin(time * 10 + treeIndex) * 4.2;
+      ctx.strokeStyle = p.furDark;
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.moveTo(-2, 6);
+      ctx.lineTo(-3 - stride, 10.5);
+      ctx.moveTo(2.5, 6);
+      ctx.lineTo(3.5 + stride, 10.5);
+      ctx.stroke();
+      ctx.fillStyle = p.face;
+      ctx.beginPath();
+      ctx.ellipse(-3 - stride, 10.6, 2.4, 1.3, 0, 0, Math.PI * 2);
+      ctx.ellipse(3.5 + stride, 10.6, 2.4, 1.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (!isScared && !isCheering && activity === 'climb') {
+      const climbLeg = Math.sin(time * 11 + treeIndex) * 3.5;
+      ctx.fillStyle = p.furDark;
+      ctx.beginPath();
+      ctx.ellipse(-2.5, 7.5 + climbLeg, 3, 1.8, 0.2, 0, Math.PI * 2);
+      ctx.ellipse(3, 7.5 - climbLeg, 3, 1.8, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (!isScared && !isCheering && activity === 'rest') {
+      // Tucked cozy resting knees & feet
+      ctx.fillStyle = p.furDark;
+      ctx.beginPath();
+      ctx.ellipse(-1, 7.2, 4.2, 2.2, 0.1, 0, Math.PI * 2);
+      ctx.ellipse(4.2, 7.2, 3.6, 2.0, -0.1, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Gripping hind feet perched on branch
+      ctx.fillStyle = p.furDark;
+      ctx.beginPath();
+      ctx.ellipse(-2.5, 8.8, 3.2, 1.8, 0.1, 0, Math.PI * 2);
+      ctx.ellipse(3, 8.8, 3.2, 1.8, -0.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 3. Expressive Primate Head & Ruff (babies have proportionally larger adorable heads & ears)
+    const headScale = isBaby ? 1.15 : 1.0;
+    const headY = isScared ? -9.2 : (activity === 'rest' ? -6.4 : -8.2);
+    const headX = activity === 'walk' ? 1.4 : 0;
+
+    ctx.save();
+    ctx.translate(headX, headY);
+    ctx.scale(headScale, headScale);
+
+    if (morph === 1) {
+      // Golden Lion Tamarin radiant mane ruff
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.arc(0, 0, 8.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = p.furDark;
     ctx.beginPath();
-    ctx.arc(0, headY, 6.5, 0, Math.PI * 2);
+    ctx.arc(0, 0.4, 6.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.fur;
+    ctx.beginPath();
+    ctx.arc(0, 0, 6.3, 0, Math.PI * 2);
     ctx.fill();
 
-    // Round ears
-    ctx.fillStyle = '#78350f';
+    // Crown fur tuft (extra fluffy on babies!)
+    ctx.fillStyle = p.furLight;
     ctx.beginPath();
-    ctx.arc(-5.5, headY - 1, 2.5, 0, Math.PI * 2);
-    ctx.arc(5.5, headY - 1, 2.5, 0, Math.PI * 2);
+    ctx.ellipse(-0.5, -4.8, isBaby ? 4.4 : 4, isBaby ? 2.5 : 2, -0.1, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#fbcfe8';
+    if (isBaby) {
+      ctx.beginPath();
+      ctx.arc(0.5, -6.8, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Round ears with inner shell (slightly larger on babies)
+    const earR = isBaby ? 2.9 : 2.5;
+    ctx.fillStyle = p.fur;
     ctx.beginPath();
-    ctx.arc(-5.5, headY - 1, 1.4, 0, Math.PI * 2);
-    ctx.arc(5.5, headY - 1, 1.4, 0, Math.PI * 2);
+    ctx.arc(-5.8, -0.8, earR, 0, Math.PI * 2);
+    ctx.arc(5.8, -0.8, earR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.earInner;
+    ctx.beginPath();
+    ctx.arc(-5.8, -0.8, earR * 0.58, 0, Math.PI * 2);
+    ctx.arc(5.8, -0.8, earR * 0.58, 0, Math.PI * 2);
     ctx.fill();
 
-    // Tan facial heart mask
-    ctx.fillStyle = '#fed7aa';
+    // Realistic facial mask & brow
+    ctx.fillStyle = p.face;
     ctx.beginPath();
-    ctx.arc(-1.8, headY - 1, 3, 0, Math.PI * 2);
-    ctx.arc(1.8, headY - 1, 3, 0, Math.PI * 2);
-    ctx.arc(0, headY + 1.5, 3.5, 0, Math.PI * 2);
+    ctx.arc(-1.8, -0.8, 3, 0, Math.PI * 2);
+    ctx.arc(1.8, -0.8, 3, 0, Math.PI * 2);
+    ctx.ellipse(0, 1.8, 3.8, 3.1, 0, 0, Math.PI * 2);
     ctx.fill();
+    // Tiny nostrils
+    ctx.fillStyle = p.furDark;
+    ctx.fillRect(-0.9, 0.6, 0.7, 0.7);
+    ctx.fillRect(0.4, 0.6, 0.7, 0.7);
 
     if (isCheering) {
-      // VICTORY CHEERING MONKEY (Only at World 4 when boss is defeated!)
-      // Happy joyful crescent eyes (^ ^)
+      // VICTORY CHEERING MONKEY
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 1.3;
       ctx.beginPath();
-      ctx.arc(-2.2, headY - 1, 1.6, 0.2, Math.PI - 0.2);
-      ctx.arc(2.2, headY - 1, 1.6, 0.2, Math.PI - 0.2);
+      ctx.arc(-2.2, -1, 1.6, 0.2, Math.PI - 0.2);
+      ctx.arc(2.2, -1, 1.6, 0.2, Math.PI - 0.2);
       ctx.stroke();
 
-      // Big happy open smile with cheerful tongue
       ctx.fillStyle = '#b91c1c';
       ctx.beginPath();
-      ctx.arc(0, headY + 1.8, 2.8, 0, Math.PI);
+      ctx.arc(0, 1.8, 2.8, 0, Math.PI);
       ctx.fill();
-      ctx.fillStyle = '#f472b6'; // pink tongue
+      ctx.fillStyle = '#f472b6';
       ctx.beginPath();
-      ctx.arc(0, headY + 3.2, 1.4, 0, Math.PI);
+      ctx.arc(0, 3.2, 1.4, 0, Math.PI);
       ctx.fill();
 
-      // Cute pink blushing cheeks
       ctx.fillStyle = 'rgba(244, 114, 182, 0.65)';
       ctx.beginPath();
-      ctx.arc(-4, headY + 1.2, 1.3, 0, Math.PI * 2);
-      ctx.arc(4, headY + 1.2, 1.3, 0, Math.PI * 2);
+      ctx.arc(-4, 1.2, 1.3, 0, Math.PI * 2);
+      ctx.arc(4, 1.2, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (isScared) {
+      // Scared Monkey (Level 19)
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(-2.5, -1.5, 2.2, 0, Math.PI * 2);
+      ctx.arc(2.5, -1.5, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(-2.5, -1.5, 0.8, 0, Math.PI * 2);
+      ctx.arc(2.5, -1.5, 0.8, 0, Math.PI * 2);
       ctx.fill();
 
-      // Both arms raised high waving in enthusiastic cheer!
+      ctx.fillStyle = '#1c1917';
+      ctx.beginPath();
+      ctx.ellipse(0, 2.2, 1.8, 2.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(7, -6, 1.5, 0, Math.PI * 2);
+      ctx.arc(-8, -5, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (activity === 'rest') {
+      // Peaceful sleeping / resting expression
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(-2.0, -0.8, 1.3, 0.15, Math.PI - 0.15);
+      ctx.arc(2.0, -0.8, 1.3, 0.15, Math.PI - 0.15);
+      ctx.stroke();
+
+      // Gentle serene smile
+      ctx.strokeStyle = p.furDark;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, 1.9, 1.4, 0.25, Math.PI - 0.25);
+      ctx.stroke();
+    } else {
+      // Curious dark glossy eyes (bigger on babies)
+      const eyeR = isBaby ? 1.35 : 1.05;
+      const isBlink = (time + treeIndex * 1.1) % 4.2 < 0.14;
+      if (isBlink) {
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.moveTo(-3.2, -1); ctx.lineTo(-0.8, -1);
+        ctx.moveTo(0.8, -1); ctx.lineTo(3.2, -1);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.arc(-2, -1, eyeR, 0, Math.PI * 2);
+        ctx.arc(2, -1, eyeR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-1.7, -1.6, 0.6, 0.6);
+        ctx.fillRect(2.3, -1.6, 0.6, 0.6);
+      }
+
+      if (activity === 'squeak' && Math.sin(time * 9 + treeIndex) > 0.05) {
+        // Chirping / squeaking open oval mouth!
+        ctx.fillStyle = '#7f1d1d';
+        ctx.beginPath();
+        ctx.ellipse(0, 2.3, 1.4, 1.9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#f472b6';
+        ctx.beginPath();
+        ctx.arc(0, 3.1, 0.8, 0, Math.PI);
+        ctx.fill();
+      } else if (activity === 'eat') {
+        // Chewing banana rhythm
+        const chewOpen = Math.abs(Math.sin(time * 11 + treeIndex)) * 1.1;
+        ctx.fillStyle = '#7f1d1d';
+        ctx.beginPath();
+        ctx.ellipse(0, 2.1, 1.5, 0.7 + chewOpen, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Cute friendly smile
+        ctx.strokeStyle = p.furDark;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(0, 1.5, 1.8, 0.2, Math.PI - 0.2);
+        ctx.stroke();
+      }
+
+      if (isBaby) {
+        // Cute rosy baby cheeks
+        ctx.fillStyle = 'rgba(244, 114, 182, 0.45)';
+        ctx.beginPath();
+        ctx.arc(-3.6, 1.1, 1.1, 0, Math.PI * 2);
+        ctx.arc(3.6, 1.1, 1.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore(); // restore head transform
+
+    // 4. Arms, Props & Floating Expressions
+    if (isCheering) {
       const armWave = Math.sin(time * 12 + treeIndex) * 3;
-      ctx.strokeStyle = '#78350f';
+      ctx.strokeStyle = p.fur;
       ctx.lineWidth = 2.2;
       ctx.beginPath();
       ctx.moveTo(-3, -3);
@@ -315,16 +655,16 @@ export class GameRenderer {
       ctx.lineTo(7 - armWave, -15);
       ctx.stroke();
 
-      // Clenched cheering paws / thumbs up
-      ctx.fillStyle = '#fed7aa';
+      ctx.fillStyle = p.face;
       ctx.beginPath();
       ctx.arc(-7 + armWave, -15, 1.8, 0, Math.PI * 2);
       ctx.arc(7 - armWave, -15, 1.8, 0, Math.PI * 2);
       ctx.fill();
 
-      // Floating Celebration Symbols: Hearts, Stars & Music Notes!
       const symIdx = (treeIndex + Math.floor(time * 2.2)) % 3;
       const symY = headY - 16 - Math.sin(time * 5 + treeIndex) * 5;
+      ctx.save();
+      ctx.scale(facing, 1); // keep symbols upright
       ctx.font = '700 9px "Silkscreen", monospace';
       ctx.textAlign = 'center';
       if (symIdx === 0) {
@@ -337,58 +677,10 @@ export class GameRenderer {
         ctx.fillStyle = '#38bdf8';
         ctx.fillText('♪', 0, symY);
       }
-    } else if (!isScared) {
-      // Normal Monkey: Chill and eating banana
-      // Eyes
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath();
-      ctx.arc(-2, headY - 1, 1, 0, Math.PI * 2);
-      ctx.arc(2, headY - 1, 1, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Cute smile
-      ctx.strokeStyle = '#78350f';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(0, headY + 1.5, 1.8, 0.2, Math.PI - 0.2);
-      ctx.stroke();
-
-      // Arms holding banana
-      ctx.fillStyle = '#78350f';
-      ctx.fillRect(-2, -3, 3, 5);
-      ctx.fillRect(1, -3, 3, 5);
-
-      // Bright yellow banana
-      ctx.strokeStyle = '#fde047';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(2, -1, 4, 0.4, 2.2);
-      ctx.stroke();
-      ctx.fillStyle = '#78350f';
-      ctx.fillRect(3.5, 1.5, 1, 1); // banana tip
-    } else {
-      // Scared Monkey (Level 19): Panicking with foxes chasing!
-      // Wide terrified eyes (white sclera with tiny black dot pupil)
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(-2.5, headY - 1.5, 2.2, 0, Math.PI * 2);
-      ctx.arc(2.5, headY - 1.5, 2.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath();
-      ctx.arc(-2.5, headY - 1.5, 0.8, 0, Math.PI * 2);
-      ctx.arc(2.5, headY - 1.5, 0.8, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Screaming open mouth ("O")
-      ctx.fillStyle = '#1c1917';
-      ctx.beginPath();
-      ctx.ellipse(0, headY + 2.2, 1.8, 2.8, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Arms waving high in panic!
+      ctx.restore();
+    } else if (isScared) {
       const armWave = Math.sin(time * 25 + treeIndex) * 3;
-      ctx.strokeStyle = '#78350f';
+      ctx.strokeStyle = p.fur;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(-4, -4);
@@ -396,13 +688,6 @@ export class GameRenderer {
       ctx.moveTo(4, -4);
       ctx.lineTo(8 - armWave, -14);
       ctx.stroke();
-
-      // Sweat drops flying off head
-      ctx.fillStyle = '#38bdf8';
-      ctx.beginPath();
-      ctx.arc(7, headY - 6, 1.5, 0, Math.PI * 2);
-      ctx.arc(-8, headY - 5, 1.2, 0, Math.PI * 2);
-      ctx.fill();
 
       // Dropped banana tumbling down
       const tumbleY = (time * 60 + treeIndex * 20) % 45;
@@ -415,6 +700,109 @@ export class GameRenderer {
       ctx.arc(0, 0, 4, 0.4, 2.2);
       ctx.stroke();
       ctx.restore();
+    } else if (activity === 'squeak') {
+      // One paw perched, one paw waving playfully while squeaking in the tree!
+      const wave = Math.sin(time * 10 + treeIndex) * 2.5;
+      ctx.strokeStyle = p.fur;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-3, -2);
+      ctx.lineTo(-6, 3);
+      ctx.moveTo(3, -2);
+      ctx.lineTo(7, -8 + wave);
+      ctx.stroke();
+      ctx.fillStyle = p.face;
+      ctx.beginPath();
+      ctx.arc(7, -8 + wave, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Floating playful squeak chirps ("eek!" / "ooh!" / ♪)
+      const squeakPulse = (time * 1.4 + treeIndex * 0.7) % 2.2;
+      if (squeakPulse < 1.35) {
+        const rise = squeakPulse * 8;
+        const alpha = Math.sin((squeakPulse / 1.35) * Math.PI);
+        ctx.save();
+        ctx.scale(facing, 1); // ensure readable text regardless of facing
+        ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+        ctx.font = isBaby ? '700 7px "Silkscreen", monospace' : '700 8px "Silkscreen", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fef08a';
+        const chirpLabel = isBaby ? 'pip!♪' : ((treeIndex % 2 === 0) ? 'eek!♪' : 'ooh!♪');
+        ctx.fillText(chirpLabel, 0, headY - 12 - rise);
+        ctx.restore();
+      }
+    } else if (activity === 'climb') {
+      // Alternating climbing arms gripping trunk
+      const reach = Math.sin(time * 11 + treeIndex) * 4.5;
+      ctx.strokeStyle = p.fur;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-3, -3);
+      ctx.lineTo(-5, -10 + reach);
+      ctx.moveTo(3, -3);
+      ctx.lineTo(5, -10 - reach);
+      ctx.stroke();
+      ctx.fillStyle = p.face;
+      ctx.beginPath();
+      ctx.arc(-5, -10 + reach, 1.5, 0, Math.PI * 2);
+      ctx.arc(5, -10 - reach, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (activity === 'walk') {
+      // Natural swinging arms while walking across the jungle floor
+      const swing = Math.sin(time * 10 + treeIndex) * 3.8;
+      ctx.strokeStyle = p.fur;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-2, -2);
+      ctx.lineTo(-3 + swing, 4.5);
+      ctx.moveTo(3, -2);
+      ctx.lineTo(4 - swing, 4.5);
+      ctx.stroke();
+      ctx.fillStyle = p.face;
+      ctx.beginPath();
+      ctx.arc(-3 + swing, 4.8, 1.5, 0, Math.PI * 2);
+      ctx.arc(4 - swing, 4.8, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (activity === 'rest') {
+      // Arms folded peacefully across lap
+      ctx.strokeStyle = p.fur;
+      ctx.lineWidth = 2.1;
+      ctx.beginPath();
+      ctx.moveTo(-4, -1);
+      ctx.quadraticCurveTo(0, 4, 4, 2);
+      ctx.stroke();
+      // Tiny sleepy floating "z"
+      const zCycle = (time * 0.9 + treeIndex) % 2.4;
+      if (zCycle < 1.6) {
+        ctx.save();
+        ctx.scale(facing, 1);
+        ctx.globalAlpha = Math.sin((zCycle / 1.6) * Math.PI) * 0.85;
+        ctx.fillStyle = '#e0f2fe';
+        ctx.font = '700 7px "Silkscreen", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('z', 4, headY - 9 - zCycle * 6);
+        ctx.restore();
+      }
+    } else {
+      // Eating a bright yellow banana!
+      const lift = Math.sin(time * 6 + treeIndex) * 1.4;
+      ctx.fillStyle = p.fur;
+      ctx.fillRect(-2, -3, 3, 5);
+      ctx.fillRect(1, -3 - lift * 0.5, 3, 5);
+
+      // Peeled bright yellow banana lifted toward mouth
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.arc(2.5, -2 - lift, 4.2, 0.35, 2.25);
+      ctx.stroke();
+      // Creamy banana fruit tip
+      ctx.fillStyle = '#fef9c3';
+      ctx.beginPath();
+      ctx.arc(5.8, -3.5 - lift, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(3.6, 0.8 - lift, 1.1, 1.1);
     }
 
     ctx.restore();
@@ -434,8 +822,8 @@ export class GameRenderer {
       ctx.save();
       ctx.translate(fx, fy);
 
-      // Exact same fox model as the in-game combat fox!
-      this.drawFoxSprite(ctx, 36, 24, false, time * 1.5 + f * 0.5, 1.0);
+      // Exact same fox model as the in-game combat fox with natural coat morphs!
+      this.drawFoxSprite(ctx, 36, 24, false, time * 1.5 + f * 0.5, 1.0, f % 4);
 
       // Dust puff behind sprinting fox
       ctx.fillStyle = 'rgba(217, 119, 6, 0.45)';
@@ -642,139 +1030,113 @@ export class GameRenderer {
     }
   }
 
-  // World 5: Snowshoe Hares jumping peacefully or cheering in the snow
+  // World 5: Autonomous Snowshoe Hares & Baby Leverets (hopping/walking, digging snow for hidden grass, eating, and resting)
   private renderSnowshoeHares(w: number, h: number, camera: Camera, time: number, isCheering: boolean = false) {
     const ctx = this.ctx;
+    const span = w + 240;
+
     for (let i = 0; i < 4; i++) {
-      const hx = (((i * 260 + 90) - (camera.x * 0.45)) % (w + 240)) - 60;
-      if (hx < -60 || hx > w + 60) continue;
+      const period = 22.0;
+      const phase = (time + i * 5.6) % period;
+      const roamDir: 1 | -1 = (i % 2 === 0) ? 1 : -1;
+      const roamDist = 68;
+
+      let activity: 'hop' | 'dig' | 'eat' | 'rest' = 'hop';
+      let offsetX = 0;
+      let facing: 1 | -1 = roamDir;
+
+      if (isCheering) {
+        activity = 'hop';
+        offsetX = 0;
+      } else if (phase < 5.0) {
+        // Walking / bounding across the snowdrift
+        const t = phase / 5.0;
+        offsetX = roamDir * roamDist * t;
+        activity = 'hop';
+        facing = roamDir;
+      } else if (phase < 9.2) {
+        // Digging in the snow to reveal hidden grass
+        offsetX = roamDir * roamDist;
+        activity = 'dig';
+        facing = roamDir;
+      } else if (phase < 14.2) {
+        // Eating the freshly uncovered green alpine grass
+        offsetX = roamDir * roamDist;
+        activity = 'eat';
+        facing = roamDir;
+      } else if (phase < 18.2) {
+        // Resting cozy in the snow
+        offsetX = roamDir * roamDist;
+        activity = 'rest';
+        facing = roamDir;
+      } else {
+        // Hopping back across the snowbank
+        const t = (phase - 18.2) / 3.8;
+        offsetX = roamDir * roamDist * (1 - t);
+        activity = 'hop';
+        facing = (roamDir * -1) as 1 | -1;
+      }
+
+      const rawX = i * 260 + 90 + offsetX - camera.x * 0.45;
+      const hx = (((rawX % span) + span) % span) - 60;
+      if (hx < -70 || hx > w + 70) continue;
+
       const worldX = hx + camera.x * 0.45;
       const groundY = h - 85 + Math.sin(worldX * 0.0055 + 2.5) * 22;
-      const hopSpeed = isCheering ? 6.2 : 4.5;
-      const hopHeight = isCheering ? 30 : 22;
-      const hopCycle = Math.abs(Math.sin(time * hopSpeed + i * 1.7));
+      const hopSpeed = isCheering ? 6.2 : 5.0;
+      const hopHeight = isCheering ? 24 : 11;
+      const hopCycle = (activity === 'hop' || isCheering) ? Math.abs(Math.sin(time * hopSpeed + i * 1.7)) : 0;
       const hy = groundY - hopCycle * hopHeight;
 
       ctx.save();
       ctx.translate(hx, hy);
+      ctx.scale(facing, 1);
+      this.drawSnowshoeHareSprite(ctx, time + i * 0.7, 1.0, isCheering, i % 3, false, activity);
 
-      // Fluffy white snowshoe hare body
-      ctx.fillStyle = '#cbd5e1';
-      ctx.beginPath();
-      ctx.ellipse(0, 1, 10, 8, -0.15, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 9.5, 7.5, -0.15, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Big fluffy hind feet (snowshoes!)
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.ellipse(-4, 6, 5, 2.5, 0, 0, Math.PI * 2);
-      ctx.ellipse(3, 6, 4, 2.2, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Front paws (clapping happily if cheering!)
-      if (isCheering) {
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.ellipse(5, 0, 4, 2.5, 0.4, 0, Math.PI * 2);
-        ctx.fill();
+      // Snow landing dust when hopping
+      if ((activity === 'hop' || isCheering) && hopCycle < 0.16) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+        ctx.fillRect(-6, 7, 14, 2);
       }
 
-      // Round cotton ball tail
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(-10, -2, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Hare Head
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(6, -4, 5.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Long White Ears with Iconic Black Tips!
-      const earWiggle = Math.sin(time * (isCheering ? 14 : 9) + i) * (isCheering ? 0.25 : 0.15);
-      ctx.save();
-      ctx.translate(4, -8);
-      ctx.rotate(-0.2 + earWiggle);
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.ellipse(-2, -6, 2.2, 7, -0.1, 0, Math.PI * 2);
-      ctx.ellipse(2, -6, 2.2, 7, 0.1, 0, Math.PI * 2);
-      ctx.fill();
-      // Pink ear inner
-      ctx.fillStyle = '#fbcfe8';
-      ctx.beginPath();
-      ctx.ellipse(-2, -5, 1.2, 4.5, -0.1, 0, Math.PI * 2);
-      ctx.ellipse(2, -5, 1.2, 4.5, 0.1, 0, Math.PI * 2);
-      ctx.fill();
-      // Black ear tips
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(-3, -13, 2.5, 3);
-      ctx.fillRect(1, -13, 2.5, 3);
-      ctx.restore();
-
       if (isCheering) {
-        // VICTORY CHEERING HARE (Snowshoe hares cheer only at World 5!)
-        // Happy joyful eyes (^ ^)
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.arc(7.5, -5, 1.5, 0.2, Math.PI - 0.2);
-        ctx.stroke();
-
-        // Cute smiling pink mouth & nose
-        ctx.fillStyle = '#f472b6';
-        ctx.fillRect(10.5, -3.5, 1.5, 1.2); // nose
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(9.5, -2, 1.6, 0.2, Math.PI - 0.2);
-        ctx.stroke();
-
-        // Pink blushing cheeks
-        ctx.fillStyle = 'rgba(244, 114, 182, 0.6)';
-        ctx.beginPath();
-        ctx.arc(6, -2.5, 1.3, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Floating Celebration Symbols: Hearts, Stars & Music Notes!
+        ctx.save();
+        ctx.scale(facing, 1);
         const symIdx = (i + Math.floor(time * 2.2)) % 3;
         const symY = -22 - Math.sin(time * 5 + i) * 6;
         ctx.font = '700 9px "Silkscreen", monospace';
         ctx.textAlign = 'center';
         if (symIdx === 0) {
           ctx.fillStyle = '#f43f5e';
-          ctx.fillText('♥', 6, symY);
+          ctx.fillText('♥', 0, symY);
         } else if (symIdx === 1) {
           ctx.fillStyle = '#facc15';
-          ctx.fillText('★', 6, symY);
+          ctx.fillText('★', 0, symY);
         } else {
           ctx.fillStyle = '#38bdf8';
-          ctx.fillText('♪', 6, symY);
+          ctx.fillText('♪', 0, symY);
         }
-      } else {
-        // Normal Hare Eye & Pink Nose
-        ctx.fillStyle = '#0f172a';
-        ctx.beginPath();
-        ctx.arc(8, -5, 1.2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(8.2, -5.6, 0.6, 0.6);
-        ctx.fillStyle = '#f472b6';
-        ctx.fillRect(10.5, -3.5, 1.5, 1.2); // nose
+        ctx.restore();
       }
-
-      // Snow landing dust
-      if (hopCycle < 0.15) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-        ctx.fillRect(-6, 7, 14, 2);
-      }
-
       ctx.restore();
+
+      // Baby Snowshoe Leveret accompanying Hares #0 and #2!
+      if (i === 0 || i === 2) {
+        const babyGap = activity === 'eat' ? 18 : -facing * 20;
+        const bx = hx + babyGap;
+        const bWorldX = bx + camera.x * 0.45;
+        const bGroundY = h - 85 + Math.sin(bWorldX * 0.0055 + 2.5) * 22 + 3;
+        const babyActivity: 'hop' | 'dig' | 'eat' | 'rest' = isCheering ? 'hop' : activity;
+        const bHop = (babyActivity === 'hop' || isCheering) ? Math.abs(Math.sin(time * (hopSpeed + 1.2) + i * 2.3)) : 0;
+        const by = bGroundY - bHop * (isCheering ? 16 : 8);
+        const babyFacing: 1 | -1 = activity === 'eat' ? (facing * -1 as 1 | -1) : facing;
+
+        ctx.save();
+        ctx.translate(bx, by);
+        ctx.scale(babyFacing, 1);
+        this.drawSnowshoeHareSprite(ctx, time + i * 1.1 + 0.5, 0.95, isCheering, i % 3, true, babyActivity);
+        ctx.restore();
+      }
     }
   }
 
@@ -850,8 +1212,8 @@ export class GameRenderer {
       ctx.save();
       ctx.translate(bx, by);
 
-      // Exact same bear model as the in-game combat bear!
-      this.drawBearSprite(ctx, 48, 32, false, time * 1.5 + b, 1.05);
+      // Exact same bear model as the in-game combat bear with natural coat morphs!
+      this.drawBearSprite(ctx, 48, 32, false, time * 1.5 + b, 1.05, b % 4);
 
       // Steaming frosty breath in the freezing air
       ctx.fillStyle = 'rgba(224, 242, 254, 0.65)';
@@ -936,150 +1298,385 @@ export class GameRenderer {
     const h = this.canvas.height;
 
     if (!isBossDefeated) {
-      // 1. Apocalyptic Red Sky with Fiery Crimson-Orange Sunset Glow
+      // =========================================================================
+      // STAGE 30: TERRIFYING BLOOD-RED NIGHTMARE REALM (BEFORE BOSS DEFEAT)
+      // =========================================================================
+
+      // 1. Abyssal Blood-Crimson Nightmare Sky
       const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
-      skyGrad.addColorStop(0, '#3f0708');    // Deep midnight crimson
-      skyGrad.addColorStop(0.22, '#7f1d1d'); // Rich blood red
-      skyGrad.addColorStop(0.48, '#b91c1c'); // Blazing crimson
-      skyGrad.addColorStop(0.70, '#ea580c'); // Burning orange
-      skyGrad.addColorStop(0.88, '#f97316'); // Fiery amber glow
-      skyGrad.addColorStop(1, '#fde047');    // Blazing horizon yellow
+      skyGrad.addColorStop(0, '#070102');     // Void pitch-crimson zenith
+      skyGrad.addColorStop(0.22, '#2a0307');  // Deep arterial blood
+      skyGrad.addColorStop(0.50, '#5c070e');  // Sinister dark scarlet
+      skyGrad.addColorStop(0.76, '#991b1b');  // Blazing blood red
+      skyGrad.addColorStop(1, '#dc2626');     // Burning crimson horizon
       ctx.fillStyle = skyGrad;
       ctx.fillRect(0, 0, w, h);
 
-      // Atmospheric embers rising in the sky
-      ctx.fillStyle = '#f97316';
-      for (let e = 0; e < 18; e++) {
-        const emberX = (((e * 71) + time * 18) % (w + 60)) - 30;
-        const emberY = (h - (((e * 43) + time * 35) % (h * 0.75)));
-        const eSize = 1.5 + (e % 3);
-        ctx.fillRect(emberX, emberY, eSize, eSize);
+      // Periodic Eerie Crimson Lightning Flash tearing across the nightmare sky
+      const stormCycle = (time * 0.65) % 4.6;
+      const lightningAlpha =
+        (stormCycle > 3.9 && stormCycle < 4.02) || (stormCycle > 4.12 && stormCycle < 4.22)
+          ? 0.24
+          : 0;
+      if (lightningAlpha > 0) {
+        ctx.fillStyle = `rgba(254, 100, 100, ${lightningAlpha})`;
+        ctx.fillRect(0, 0, w, h);
+
+        // Jagged forked crimson-white sky lightning bolt
+        const boltX = w * 0.28 + Math.sin(Math.floor(time) * 7) * 90;
+        ctx.strokeStyle = 'rgba(254, 202, 202, 0.92)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(boltX, 0);
+        ctx.lineTo(boltX - 18, 52);
+        ctx.lineTo(boltX + 12, 95);
+        ctx.lineTo(boltX - 24, 152);
+        ctx.lineTo(boltX + 4, 210);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+        ctx.lineWidth = 5;
+        ctx.stroke();
       }
 
-      // 2. Colossal Blazing Blood Sun - Brighter Red with Vibrant Orange and Incandescent Yellow
-      const sunX = w * 0.76;
-      const sunY = 88;
+      // 2. Ominous Pulsing Blood-Red Eclipse
+      const sunX = w * 0.75;
+      const sunY = 92;
+      const pulse = Math.sin(time * 2.8) * 10;
 
-      // Pulsing outer radiant red coronal corona
-      const outerRadius = 110 + Math.sin(time * 3) * 12;
-      const coronaGrad = ctx.createRadialGradient(sunX, sunY, 20, sunX, sunY, outerRadius);
-      coronaGrad.addColorStop(0, 'rgba(254, 240, 138, 0.95)'); // Incandescent core
-      coronaGrad.addColorStop(0.25, 'rgba(249, 115, 22, 0.85)'); // Vivid orange
-      coronaGrad.addColorStop(0.55, 'rgba(220, 38, 38, 0.65)');  // Blazing red
-      coronaGrad.addColorStop(0.85, 'rgba(185, 28, 28, 0.3)');   // Deep crimson rim
-      coronaGrad.addColorStop(1, 'rgba(127, 29, 29, 0)');
+      // Sinister rotating blood rays radiating from the eclipse
+      ctx.save();
+      ctx.translate(sunX, sunY);
+      ctx.rotate(-time * 0.08);
+      for (let i = 0; i < 14; i++) {
+        const angle = (i / 14) * Math.PI * 2;
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(220, 38, 38, 0.20)' : 'rgba(127, 29, 29, 0.16)';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(angle - 0.07) * (w + h), Math.sin(angle - 0.07) * (w + h));
+        ctx.lineTo(Math.cos(angle + 0.07) * (w + h), Math.sin(angle + 0.07) * (w + h));
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // Outer crimson blood aura
+      const coronaGrad = ctx.createRadialGradient(sunX, sunY, 32, sunX, sunY, 130 + pulse);
+      coronaGrad.addColorStop(0, 'rgba(239, 68, 68, 0.95)');
+      coronaGrad.addColorStop(0.32, 'rgba(185, 28, 28, 0.72)');
+      coronaGrad.addColorStop(0.68, 'rgba(127, 29, 29, 0.34)');
+      coronaGrad.addColorStop(1, 'rgba(30, 4, 6, 0)');
       ctx.fillStyle = coronaGrad;
       ctx.beginPath();
-      ctx.arc(sunX, sunY, outerRadius, 0, Math.PI * 2);
+      ctx.arc(sunX, sunY, 130 + pulse, 0, Math.PI * 2);
       ctx.fill();
 
-      // Secondary fiery orange solar flare ring
-      ctx.fillStyle = 'rgba(249, 115, 22, 0.75)';
-      ctx.beginPath();
-      ctx.arc(sunX, sunY, 52 + Math.sin(time * 4) * 4, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Blazing red main solar body
-      ctx.fillStyle = '#dc2626';
+      // Blazing red eclipse ring
+      ctx.fillStyle = '#ef4444';
       ctx.beginPath();
       ctx.arc(sunX, sunY, 44, 0, Math.PI * 2);
       ctx.fill();
-
-      // Vibrant orange sun disk
-      ctx.fillStyle = '#f97316';
+      ctx.fillStyle = '#fca5a5';
       ctx.beginPath();
-      ctx.arc(sunX, sunY, 36, 0, Math.PI * 2);
+      ctx.arc(sunX, sunY, 40, 0, Math.PI * 2);
       ctx.fill();
 
-      // Brighter incandescent golden-yellow center
-      ctx.fillStyle = '#facc15';
+      // Pitch-black void core eclipsing the blood moon
+      ctx.fillStyle = '#090103';
       ctx.beginPath();
-      ctx.arc(sunX, sunY, 26, 0, Math.PI * 2);
+      ctx.arc(sunX - 2, sunY + 1, 35, 0, Math.PI * 2);
       ctx.fill();
 
-      // Blinding white-hot solar core
-      ctx.fillStyle = '#ffffff';
+      // Sinister glowing red slit eye pulsing faintly inside the dark eclipse!
+      const eyeGlow = 0.35 + Math.sin(time * 3.5) * 0.25;
+      ctx.fillStyle = `rgba(239, 68, 68, ${eyeGlow})`;
       ctx.beginPath();
-      ctx.arc(sunX, sunY, 15, 0, Math.PI * 2);
+      ctx.ellipse(sunX - 2, sunY + 1, 14, 3.5, 0, 0, Math.PI * 2);
       ctx.fill();
+      ctx.fillStyle = '#090103';
+      ctx.fillRect(sunX - 3.5, sunY - 3, 3, 8);
 
-      // Radiant Solar Flare Beams (Rotating Red, Orange, and Golden Yellow Rays)
-      ctx.save();
-      ctx.translate(sunX, sunY);
-      ctx.rotate(time * 0.12);
-      for (let i = 0; i < 12; i++) {
-        const angle = (i / 12) * Math.PI * 2;
-        const rayColor = i % 3 === 0 ? 'rgba(254, 240, 138, 0.22)' : (i % 3 === 1 ? 'rgba(249, 115, 22, 0.25)' : 'rgba(220, 38, 38, 0.28)');
-        ctx.fillStyle = rayColor;
+      // 3. Dark Charred-Crimson Nightmare Clouds
+      for (let i = 0; i < 7; i++) {
+        const cx = (((i * 250) + time * 12 - (camera.x * 0.04)) % (w + 260)) - 100;
+        const cy = 18 + (i % 3) * 32;
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(30, 4, 8, 0.85)' : 'rgba(69, 10, 14, 0.78)';
         ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(Math.cos(angle - 0.1) * (w + h), Math.sin(angle - 0.1) * (w + h));
-        ctx.lineTo(Math.cos(angle + 0.1) * (w + h), Math.sin(angle + 0.1) * (w + h));
+        ctx.ellipse(cx + 45, cy + 12, 56 + (i % 2) * 18, 16, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx + 22, cy + 5, 34, 14, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx + 72, cy + 7, 36, 13, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Red underlit rim on clouds
+        ctx.fillStyle = 'rgba(220, 38, 38, 0.35)';
+        ctx.fillRect(cx + 8, cy + 20, 74, 3);
+      }
+
+      // 4. Jagged Obsidian Nightmare Peaks & Volcanic Spires (with glowing molten fissures)
+      ctx.fillStyle = '#140205';
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let x = 0; x <= w; x += 14) {
+        const worldX = x + camera.x * 0.08;
+        const peakY = h - 295
+          + Math.sin(worldX * 0.0026) * 80
+          + Math.cos(worldX * 0.0064) * 44
+          + Math.abs(Math.sin(worldX * 0.015)) * -22;
+        ctx.lineTo(x, peakY);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      ctx.fill();
+
+      // Secondary Crimson-Lit Crag Ridge
+      ctx.fillStyle = '#240509';
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let x = 0; x <= w; x += 16) {
+        const worldX = x + camera.x * 0.12;
+        const ridgeY = h - 245 + Math.sin(worldX * 0.0034 + 1.2) * 65 + Math.cos(worldX * 0.008) * 30;
+        ctx.lineTo(x, ridgeY);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      ctx.fill();
+
+      // Razor-Sharp Obsidian Spires with Pulsing Red Magma Cracks
+      for (let pIdx = 0; pIdx < 7; pIdx++) {
+        const peakBaseWorldX = pIdx * 420 + 110;
+        const peakScreenX = (((peakBaseWorldX - camera.x * 0.09) % (w + 380)) + (w + 380)) % (w + 380) - 90;
+        const peakScreenY = h - 335 - (pIdx % 3) * 32;
+
+        ctx.fillStyle = '#0c0204';
+        ctx.beginPath();
+        ctx.moveTo(peakScreenX, peakScreenY);
+        ctx.lineTo(peakScreenX + 74, peakScreenY + 135);
+        ctx.lineTo(peakScreenX - 74, peakScreenY + 135);
         ctx.closePath();
         ctx.fill();
-      }
-      ctx.restore();
 
-      // 3. Fiery Sunset Clouds Drifting across the Red Sky
-      for (let i = 0; i < 6; i++) {
-        const cx = (((i * 280) + time * 8 - (camera.x * 0.04)) % (w + 240)) - 80;
-        const cy = 20 + (i % 3) * 28;
-        ctx.fillStyle = (i % 2 === 0) ? 'rgba(239, 68, 68, 0.65)' : 'rgba(249, 115, 22, 0.55)';
-        this.drawFluffyCloud(cx, cy, 80 + (i % 2) * 30);
+        // Blood-red backlit eastern spire face
+        ctx.fillStyle = '#3b070c';
+        ctx.beginPath();
+        ctx.moveTo(peakScreenX, peakScreenY);
+        ctx.lineTo(peakScreenX + 74, peakScreenY + 135);
+        ctx.lineTo(peakScreenX + 4, peakScreenY + 135);
+        ctx.closePath();
+        ctx.fill();
+
+        // Glowing crimson lava vein splitting down the spire
+        ctx.strokeStyle = `rgba(239, 68, 68, ${0.65 + Math.sin(time * 4 + pIdx) * 0.25})`;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(peakScreenX, peakScreenY + 18);
+        ctx.lineTo(peakScreenX - 10, peakScreenY + 56);
+        ctx.lineTo(peakScreenX + 8, peakScreenY + 94);
+        ctx.lineTo(peakScreenX - 6, peakScreenY + 128);
+        ctx.stroke();
       }
-    } else {
-      // 1. SKY TURNS BACK TO NORMAL AFTER BOSS DEFEAT!
-      // Serene radiant daylight paradise sky gradient
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
-      skyGrad.addColorStop(0, '#0284c7');    // Sky blue
-      skyGrad.addColorStop(0.32, '#38bdf8'); // Clear azure
-      skyGrad.addColorStop(0.65, '#7dd3fc'); // Soft cyan
-      skyGrad.addColorStop(0.85, '#bae6fd'); // Sunlit atmospheric glow
-      skyGrad.addColorStop(1, '#e0f2fe');    // Warm horizon
-      ctx.fillStyle = skyGrad;
+
+      // 5. Molten Blood-Lava Waterfalls plunging down Obsidian Cliffs
+      const lavaFalls = [
+        { baseX: 440, parallax: 0.12, originY: h - 320, basinY: h - 165, width: 24 },
+        { baseX: 1040, parallax: 0.12, originY: h - 300, basinY: h - 170, width: 18 },
+      ];
+      lavaFalls.forEach((lf, idx) => {
+        const fx = (((lf.baseX - camera.x * lf.parallax) % (w + 420)) + (w + 420)) % (w + 420) - 60;
+        if (fx < -80 || fx > w + 80) return;
+        const fallH = lf.basinY - lf.originY;
+
+        // Charred rock chute
+        ctx.fillStyle = '#090103';
+        ctx.fillRect(fx - lf.width / 2 - 7, lf.originY, lf.width + 14, fallH);
+        // Molten scarlet cascade
+        ctx.fillStyle = '#b91c1c';
+        ctx.fillRect(fx - lf.width / 2, lf.originY, lf.width, fallH);
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(fx - lf.width / 4, lf.originY, lf.width / 2, fallH);
+        // Churning incandescent magma streaks
+        ctx.fillStyle = '#fca5a5';
+        for (let fy = lf.originY + 8; fy < lf.basinY; fy += 14) {
+          const offset = (time * 135 + fy * 3 + idx * 17) % 14;
+          ctx.fillRect(fx - lf.width / 3, fy + offset * 0.3, lf.width * 0.66, 3);
+        }
+        // Boiling crimson mist at base
+        ctx.fillStyle = 'rgba(220, 38, 38, 0.55)';
+        ctx.beginPath();
+        ctx.ellipse(fx, lf.basinY, lf.width * 1.4, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 6. Scorched Ash Foothills & Boiling Blood-Lava River
+      ctx.fillStyle = '#1b0306';
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let x = 0; x <= w; x += 18) {
+        const worldX = x + camera.x * 0.26;
+        const hillY = h - 140 + Math.sin(worldX * 0.004 + 1.1) * 30;
+        ctx.lineTo(x, hillY);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      ctx.fill();
+
+      // Boiling Crimson Magma River snaking across the midground
+      ctx.fillStyle = '#991b1b';
+      ctx.beginPath();
+      ctx.moveTo(0, h - 88);
+      for (let x = 0; x <= w; x += 20) {
+        const worldX = x + camera.x * 0.26;
+        const riverY = h - 92 + Math.sin(worldX * 0.0045 + time * 1.6) * 7;
+        ctx.lineTo(x, riverY);
+      }
+      ctx.lineTo(w, h - 66);
+      for (let x = w; x >= 0; x -= 20) {
+        const worldX = x + camera.x * 0.26;
+        const riverY = h - 73 + Math.sin(worldX * 0.0045 + time * 1.6) * 7;
+        ctx.lineTo(x, riverY);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Glowing molten lava ripples & bursting magma bubbles
+      for (let rx = 10; rx < w; rx += 38) {
+        const rippleX = (time * 48 + rx * 2) % w;
+        const ry = h - 84 + Math.sin(rx * 0.06 + time * 3) * 4;
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(rippleX, ry, 18, 2.5);
+        ctx.fillStyle = '#fca5a5';
+        ctx.fillRect(rippleX + 4, ry, 6, 1.5);
+      }
+
+      // Haunted Twisted Dead Trees & Sharp Obsidian Thorns along the ridge
+      for (let t = 0; t < 6; t++) {
+        const tx = (((t * 250 + 70 - camera.x * 0.34) % (w + 220)) + (w + 220)) % (w + 220) - 60;
+        const wx = tx + camera.x * 0.34;
+        const ty = h - 134 + Math.sin(wx * 0.004 + 1.1) * 26;
+        ctx.strokeStyle = '#090102';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(tx, ty + 14);
+        ctx.lineTo(tx - 4, ty - 22);
+        ctx.lineTo(tx - 18, ty - 42);
+        ctx.moveTo(tx - 4, ty - 18);
+        ctx.lineTo(tx + 14, ty - 38);
+        ctx.moveTo(tx + 6, ty - 29);
+        ctx.lineTo(tx + 20, ty - 31);
+        ctx.stroke();
+
+        // Eerie pair of glowing red watching eyes blinking in dark hollows!
+        const blinkCycle = (time + t * 1.9) % 5.2;
+        if (blinkCycle > 0.35 && blinkCycle < 4.5) {
+          ctx.fillStyle = '#ff2222';
+          ctx.fillRect(tx - 6, ty + 2, 2.5, 2);
+          ctx.fillRect(tx + 1, ty + 2, 2.5, 2);
+        }
+      }
+
+      // 7. Foreground Charred Abyssal Terrain with Jagged Crimson Thorns & Skulls
+      ctx.fillStyle = '#110204';
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let x = 0; x <= w; x += 14) {
+        const worldX = x + camera.x * 0.45;
+        const fgY = h - 74 + Math.sin(worldX * 0.006 + 2.2) * 18;
+        ctx.lineTo(x, fgY);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      ctx.fill();
+
+      // Jagged blackened thorns & bone shards lining the cursed foreground
+      for (let x = 0; x < w + 40; x += 28) {
+        const worldX = x + camera.x * 0.45;
+        const hillY = h - 74 + Math.sin(worldX * 0.006 + 2.2) * 18;
+        ctx.fillStyle = '#1f0407';
+        ctx.beginPath();
+        ctx.moveTo(x - 4, hillY + 4);
+        ctx.lineTo(x + 2, hillY - 12);
+        ctx.lineTo(x + 7, hillY + 4);
+        ctx.closePath();
+        ctx.fill();
+
+        // Occasional eerie pale skull embedded in the dark ash
+        if ((x / 28) % 5 === 0) {
+          ctx.fillStyle = '#b8a5a5';
+          ctx.fillRect(x + 8, hillY - 4, 7, 5);
+          ctx.fillStyle = '#090103';
+          ctx.fillRect(x + 9, hillY - 2.5, 1.8, 1.8);
+          ctx.fillRect(x + 12.2, hillY - 2.5, 1.8, 1.8);
+        }
+      }
+
+      // 8. Rising Crimson Embers & Falling Charred Ash Flakes
+      for (let e = 0; e < 34; e++) {
+        const emberX = (((e * 59 + Math.sin(time * 1.6 + e) * 24 + time * 16) % (w + 60)) + (w + 60)) % (w + 60) - 30;
+        const emberY = h - (((e * 41 + time * (38 + (e % 3) * 14)) % (h * 0.92)));
+        const eSize = 1.6 + (e % 3) * 0.9;
+        ctx.fillStyle = e % 3 === 0 ? '#ef4444' : (e % 3 === 1 ? '#f97316' : '#fca5a5');
+        ctx.fillRect(emberX, emberY, eSize, eSize);
+      }
+
+      // 9. Oppressive Blood-Red Atmospheric Edge Vignette
+      const vig = ctx.createRadialGradient(w / 2, h / 2, h * 0.28, w / 2, h / 2, w * 0.72);
+      vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      vig.addColorStop(0.72, 'rgba(80, 4, 10, 0.24)');
+      vig.addColorStop(1, 'rgba(20, 1, 4, 0.62)');
+      ctx.fillStyle = vig;
       ctx.fillRect(0, 0, w, h);
 
-      // Warm Radiant Golden Sun
-      const sunX = w * 0.78;
-      const sunY = 80;
-      ctx.fillStyle = 'rgba(254, 240, 138, 0.35)';
+      return;
+    }
+
+    // 1. SKY & PARADISE SANCTUARY RESTORED AFTER BOSS DEFEAT!
+    // Serene radiant daylight paradise sky gradient
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
+    skyGrad.addColorStop(0, '#0284c7');    // Sky blue
+    skyGrad.addColorStop(0.32, '#38bdf8'); // Clear azure
+    skyGrad.addColorStop(0.65, '#7dd3fc'); // Soft cyan
+    skyGrad.addColorStop(0.85, '#bae6fd'); // Sunlit atmospheric glow
+    skyGrad.addColorStop(1, '#e0f2fe');    // Warm horizon
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Warm Radiant Golden Sun
+    const sunX = w * 0.78;
+    const sunY = 80;
+    ctx.fillStyle = 'rgba(254, 240, 138, 0.35)';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 80 + Math.sin(time * 2) * 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 36, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 20, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Gentle Golden Rays
+    ctx.save();
+    ctx.translate(sunX, sunY);
+    ctx.rotate(time * 0.08);
+    ctx.fillStyle = 'rgba(254, 240, 138, 0.12)';
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
       ctx.beginPath();
-      ctx.arc(sunX, sunY, 80 + Math.sin(time * 2) * 6, 0, Math.PI * 2);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(angle - 0.1) * (w + h), Math.sin(angle - 0.1) * (w + h));
+      ctx.lineTo(Math.cos(angle + 0.1) * (w + h), Math.sin(angle + 0.1) * (w + h));
+      ctx.closePath();
       ctx.fill();
+    }
+    ctx.restore();
 
-      ctx.fillStyle = '#fde047';
-      ctx.beginPath();
-      ctx.arc(sunX, sunY, 36, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(sunX, sunY, 20, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Gentle Golden Rays
-      ctx.save();
-      ctx.translate(sunX, sunY);
-      ctx.rotate(time * 0.08);
-      ctx.fillStyle = 'rgba(254, 240, 138, 0.12)';
-      for (let i = 0; i < 8; i++) {
-        const angle = (i / 8) * Math.PI * 2;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(Math.cos(angle - 0.1) * (w + h), Math.sin(angle - 0.1) * (w + h));
-        ctx.lineTo(Math.cos(angle + 0.1) * (w + h), Math.sin(angle + 0.1) * (w + h));
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.restore();
-
-      // Soft Pure White Fluffy Clouds
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
-      for (let i = 0; i < 6; i++) {
-        const cx = (((i * 280) + time * 12 - (camera.x * 0.04)) % (w + 240)) - 80;
-        const cy = 20 + (i % 3) * 28;
-        this.drawFluffyCloud(cx, cy, 75 + (i % 2) * 25);
-      }
+    // Soft Pure White Fluffy Clouds
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
+    for (let i = 0; i < 6; i++) {
+      const cx = (((i * 280) + time * 12 - (camera.x * 0.04)) % (w + 240)) - 80;
+      const cy = 20 + (i % 3) * 28;
+      this.drawFluffyCloud(cx, cy, 75 + (i % 2) * 25);
     }
 
     // 4. Towering Alpine Mountain Range: Majestic Peaks with Rocky Crags & Snow Caps
@@ -1497,133 +2094,47 @@ export class GameRenderer {
 
     // 8. BUTTERFLIES AND INSECTS! (Only appear when the boss is defeated and sanctuary peace is restored)
     if (isBossDefeated) {
-      // A. 10 Animated Fluttering Butterflies of Vibrant Colors
-      const butterflyColors = [
-        { wing: '#ea580c', border: '#1c1917', dot: '#ffffff' }, // Monarch Orange
-        { wing: '#38bdf8', border: '#0369a1', dot: '#ffffff' }, // Azure Morpho
-        { wing: '#22c55e', border: '#14532d', dot: '#fef08a' }, // Emerald Swallowtail
-        { wing: '#c084fc', border: '#6b21a8', dot: '#fdf4ff' }, // Lavender Princess
-        { wing: '#facc15', border: '#ca8a04', dot: '#ffffff' }, // Golden Sulphur
-        { wing: '#f43f5e', border: '#9f1239', dot: '#fecdd3' }, // Ruby Rose
-        { wing: '#38bdf8', border: '#0284c7', dot: '#ffffff' }, // Sky Blue
-        { wing: '#fb923c', border: '#9a3412', dot: '#ffffff' }, // Tiger Orange
-      ];
-
-      for (let b = 0; b < butterflyColors.length; b++) {
-        const bColor = butterflyColors[b];
-        const flap = Math.abs(Math.sin(time * 18 + b * 2.3));
+      // A. 8 Animated Fluttering Butterflies across 4 real species morphs
+      for (let b = 0; b < 8; b++) {
         const bx = (((b * 140 + time * 32) - camera.x * 0.3) % (w + 120)) - 40;
-        const by = h - 115 + Math.sin(time * 3 + b * 1.7) * 28;
-
+        const by = h - 115 + Math.sin(time * 3 + b * 1.7) * 26;
         ctx.save();
         ctx.translate(bx, by);
-
-        // Flapping wings
-        const wingW = Math.max(1.5, 7 * flap);
-        const wingH = 6;
-
-        // Left wing
-        ctx.fillStyle = bColor.wing;
-        ctx.beginPath();
-        ctx.ellipse(-wingW / 2, -2, wingW / 2, wingH, -0.2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = bColor.border;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // Right wing
-        ctx.beginPath();
-        ctx.ellipse(wingW / 2, -2, wingW / 2, wingH, 0.2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        // Wing decorative dots
-        ctx.fillStyle = bColor.dot;
-        ctx.fillRect(-wingW / 2, -3, 1.5, 1.5);
-        ctx.fillRect(wingW / 2 - 1.5, -3, 1.5, 1.5);
-
-        // Slim black butterfly body
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(-1, -5, 2, 8);
-        // Antennae
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(-1, -5);
-        ctx.lineTo(-3, -8);
-        ctx.moveTo(1, -5);
-        ctx.lineTo(3, -8);
-        ctx.stroke();
-
+        this.drawButterflySprite(ctx, time + b * 0.65, 0.92, b % 4);
         ctx.restore();
       }
 
-      // B. Iridescent Azure Dragonflies Hovering Above Waters
+      // B. Iridescent Dragonflies across 3 species morphs hovering above waters
       for (let d = 0; d < 3; d++) {
         const dx = (((d * 320 + 150 + Math.sin(time * 4 + d) * 40) - camera.x * 0.35) % (w + 100)) - 30;
         const dy = h - 68 + Math.cos(time * 3.5 + d * 2) * 12;
-
         ctx.save();
         ctx.translate(dx, dy);
-
-        // Slender luminous cyan body
-        ctx.fillStyle = '#06b6d4';
-        ctx.fillRect(-1, -2, 2, 10);
-        ctx.fillStyle = '#38bdf8';
-        ctx.fillRect(-1.5, -4, 3, 3); // head
-
-        // Translucent double wings
-        ctx.fillStyle = 'rgba(224, 242, 254, 0.85)';
-        const dFlap = Math.sin(time * 40 + d) * 0.4;
-        ctx.fillRect(-7, -3 + dFlap, 14, 2);
-        ctx.fillRect(-6, 0 - dFlap, 12, 1.5);
-
+        this.drawDragonflySprite(ctx, time + d * 0.9, 0.92, d % 3);
         ctx.restore();
       }
 
-      // C. Fuzzy Striped Honeybees Orbiting Sunflowers
+      // C. Fuzzy Honeybees & Bumblebees across 3 morphs orbiting sunflowers
       for (let bee = 0; bee < 4; bee++) {
         const beex = (((bee * 240 + 80 + Math.sin(time * 6 + bee) * 18) - camera.x * 0.4) % (w + 100)) - 30;
         const beey = h - 90 + Math.cos(time * 5 + bee * 2) * 14;
-
         ctx.save();
         ctx.translate(beex, beey);
-
-        // Striped golden bee body
-        ctx.fillStyle = '#facc15';
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 4, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // Black stripes
-        ctx.fillStyle = '#1c1917';
-        ctx.fillRect(-1, -3, 1.5, 6);
-        ctx.fillRect(1.5, -2.5, 1.5, 5);
-
-        // Fast vibrating white wings
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-        ctx.fillRect(-2, -5 + Math.sin(time * 50) * 1, 4, 3);
-
+        this.drawHoneybeeSprite(ctx, time + bee * 0.7, 0.85, bee % 3);
         ctx.restore();
       }
 
-      // D. Tiny Spotted Red Ladybugs on Grass Blades
+      // D. Glossy Ladybugs across 3 natural beetle morphs on grass blades
       for (let lb = 0; lb < 4; lb++) {
         const lx = ((lb * 220 + 60 - camera.x * 0.45) % (w + 100)) - 20;
         const ly = h - 70 + ((lb * 11) % 15);
-
-        ctx.fillStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.arc(lx, ly, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(lx + 1, ly - 2, 1.5, 4); // black head
-        ctx.fillRect(lx - 1.5, ly - 1, 1, 1); // spots
-        ctx.fillRect(lx - 1.5, ly + 1, 1, 1);
+        ctx.save();
+        ctx.translate(lx, ly);
+        this.drawLadybugSprite(ctx, time + lb * 0.5, 0.78, lb % 3);
+        ctx.restore();
       }
     }
   }
-
-
 
   // World 1, 2, 3: Sunny Meadows, Barn, and Grassy Trail
   private renderMeadowBackground(theme: LevelConfig['theme'], camera: Camera, time: number, levelId: number = 1, isBossDefeated: boolean = false) {
@@ -1735,43 +2246,128 @@ export class GameRenderer {
       // Level 10: Panicked sheep fleeing from ravenous wolves in the background!
       this.renderLevel10SheepWolfChase(w, h, camera, time);
     } else {
-      // Midground Pasture Sheep (World 1 & 2: Levels 1 to 9, Level 10 peaceful after defeat)
-      // Sheep 1: Grazing contentedly or cheering on the open pasture meadow
-      const s1ScreenX = (((380) - (camera.x * 0.3)) % (w + 260)) - 60;
-      if (s1ScreenX > -70 && s1ScreenX < w + 70) {
+      // Autonomous wandering pasture sheep & baby lambs (naturally walking, grazing clover, and resting!)
+      const computeSheepState = (
+        t: number,
+        seed: number,
+        roamRange: number
+      ): { dx: number; facing: 'left' | 'right'; activity: 'walk' | 'graze' | 'rest' } => {
+        if (isBossDefeated) {
+          return { dx: 0, facing: seed % 2 === 0 ? 'right' : 'left', activity: 'graze' };
+        }
+        const period = 20.0;
+        const phase = (t + seed * 4.9) % period;
+        if (phase < 5.0) {
+          // Naturally strolling right across the hillside
+          const u = phase / 5.0;
+          return { dx: -roamRange * 0.5 + roamRange * u, facing: 'right', activity: 'walk' };
+        } else if (phase < 10.2) {
+          // Grazing sweet meadow clover
+          return { dx: roamRange * 0.5, facing: 'right', activity: 'graze' };
+        } else if (phase < 13.5) {
+          // Curled down resting in the grass
+          return { dx: roamRange * 0.5, facing: 'right', activity: 'rest' };
+        } else if (phase < 17.5) {
+          // Strolling back left across the pasture
+          const u = (phase - 13.5) / 4.0;
+          return { dx: roamRange * 0.5 - roamRange * u, facing: 'left', activity: 'walk' };
+        } else {
+          // Grazing at the far end of the pasture
+          return { dx: -roamRange * 0.5, facing: 'left', activity: 'graze' };
+        }
+      };
+
+      const wrapX = (raw: number, span: number) => (((raw % span) + span) % span) - 70;
+
+      // Midground Sheep 1: Suffolk Blackface + playful Midground Baby Lamb
+      const s1State = computeSheepState(time, 0, 74);
+      const s1ScreenX = wrapX(380 + s1State.dx - camera.x * 0.3, w + 260);
+      if (s1ScreenX > -80 && s1ScreenX < w + 80) {
         const s1WorldX = s1ScreenX + camera.x * 0.3;
         const s1Y = h - 125 + Math.sin(s1WorldX * 0.0042 + 1.2) * 30 - 2;
-        this.renderGrazingSheep(s1ScreenX, s1Y, time, { facing: 'left', animOffset: 0.6, isCheering: isBossDefeated });
+        this.renderGrazingSheep(s1ScreenX, s1Y, time, {
+          facing: s1State.facing,
+          animOffset: 0.6,
+          isCheering: isBossDefeated,
+          variantIndex: 0,
+          activity: s1State.activity,
+        });
+
+        // Midground Baby Lamb trotting behind Suffolk ewe
+        const midLambX = s1ScreenX + (s1State.facing === 'right' ? -28 : 28);
+        const midLambWorldX = midLambX + camera.x * 0.3;
+        const midLambY = h - 125 + Math.sin(midLambWorldX * 0.0042 + 1.2) * 30 + 1;
+        this.renderGrazingSheep(midLambX, midLambY, time + 0.3, {
+          facing: s1State.facing,
+          isLamb: true,
+          animOffset: 2.1,
+          isCheering: isBossDefeated,
+          variantIndex: 0,
+          activity: s1State.activity,
+        });
       }
 
-      // Sheep 2: Fluffy sheep feeding on lush green grass or cheering down the ridge
-      const s2ScreenX = (((860) - (camera.x * 0.3)) % (w + 280)) - 60;
-      if (s2ScreenX > -70 && s2ScreenX < w + 70) {
+      // Midground Sheep 2: Merino Cream strolling & grazing along the ridge
+      const s2State = computeSheepState(time, 1, 68);
+      const s2ScreenX = wrapX(860 + s2State.dx - camera.x * 0.3, w + 280);
+      if (s2ScreenX > -80 && s2ScreenX < w + 80) {
         const s2WorldX = s2ScreenX + camera.x * 0.3;
         const s2Y = h - 125 + Math.sin(s2WorldX * 0.0042 + 1.2) * 30 - 2;
-        this.renderGrazingSheep(s2ScreenX, s2Y, time, { facing: 'right', animOffset: 2.3, isCheering: isBossDefeated });
+        this.renderGrazingSheep(s2ScreenX, s2Y, time, {
+          facing: s2State.facing,
+          animOffset: 2.3,
+          isCheering: isBossDefeated,
+          variantIndex: 1,
+          activity: s2State.activity,
+        });
       }
 
-      // --- Foreground Pasture Sheep & Lamb Feeding or Cheering (World 1, 2) ---
-      // Sheep 3: Mother Ewe (cheering with baby lamb upon defeat, eating animation removed!)
-      const s3ScreenX = (((220) - (camera.x * 0.45)) % (w + 320)) - 70;
-      if (s3ScreenX > -80 && s3ScreenX < w + 80) {
+      // Foreground Sheep 3: Mother Ewe (Jacob Spotted) + Baby Lamb following closely
+      const s3State = computeSheepState(time, 2, 86);
+      const s3ScreenX = wrapX(220 + s3State.dx - camera.x * 0.45, w + 320);
+      if (s3ScreenX > -90 && s3ScreenX < w + 90) {
         const s3WorldX = s3ScreenX + camera.x * 0.45;
         const s3Y = h - 85 + Math.sin(s3WorldX * 0.0055 + 2.4) * 24 - 4;
-        this.renderGrazingSheep(s3ScreenX, s3Y, time, { facing: 'right', scale: 1.05, animOffset: 1.1, isCheering: isBossDefeated });
+        this.renderGrazingSheep(s3ScreenX, s3Y, time, {
+          facing: s3State.facing,
+          scale: 1.05,
+          animOffset: 1.1,
+          isCheering: isBossDefeated,
+          variantIndex: 2,
+          activity: s3State.activity,
+        });
 
-        // Cute Little Baby Lamb right next to its mother!
-        const lambScreenX = s3ScreenX + 38;
-        const lambY = s3Y + 4;
-        this.renderGrazingSheep(lambScreenX, lambY, time, { facing: 'left', isLamb: true, animOffset: 3.5, isCheering: isBossDefeated });
+        // Cute Little Baby Lamb following its mother across the meadow!
+        const lambGap = s3State.activity === 'walk'
+          ? (s3State.facing === 'right' ? -34 : 34)
+          : (s3State.facing === 'right' ? 36 : -36);
+        const lambScreenX = s3ScreenX + lambGap;
+        const lambWorldX = lambScreenX + camera.x * 0.45;
+        const lambY = h - 85 + Math.sin(lambWorldX * 0.0055 + 2.4) * 24 + 1;
+        this.renderGrazingSheep(lambScreenX, lambY, time, {
+          facing: s3State.activity === 'walk' ? s3State.facing : (s3State.facing === 'right' ? 'left' : 'right'),
+          isLamb: true,
+          animOffset: 3.5,
+          isCheering: isBossDefeated,
+          variantIndex: 1,
+          activity: s3State.activity,
+        });
       }
 
-      // Sheep 4: Another fluffy sheep happily grazing or cheering across the field
-      const s4ScreenX = (((680) - (camera.x * 0.45)) % (w + 300)) - 70;
-      if (s4ScreenX > -80 && s4ScreenX < w + 80) {
+      // Foreground Sheep 4: Herdwick Silver-Grey wandering across the field
+      const s4State = computeSheepState(time, 3, 76);
+      const s4ScreenX = wrapX(680 + s4State.dx - camera.x * 0.45, w + 300);
+      if (s4ScreenX > -90 && s4ScreenX < w + 90) {
         const s4WorldX = s4ScreenX + camera.x * 0.45;
         const s4Y = h - 85 + Math.sin(s4WorldX * 0.0055 + 2.4) * 24 - 4;
-        this.renderGrazingSheep(s4ScreenX, s4Y, time, { facing: 'left', scale: 1.0, animOffset: 4.2, isCheering: isBossDefeated });
+        this.renderGrazingSheep(s4ScreenX, s4Y, time, {
+          facing: s4State.facing,
+          scale: 1.0,
+          animOffset: 4.2,
+          isCheering: isBossDefeated,
+          variantIndex: 3,
+          activity: s4State.activity,
+        });
       }
     }
 
@@ -1931,8 +2527,8 @@ export class GameRenderer {
       ctx.save();
       ctx.translate(wx, wy);
 
-      // Exact same wolf model as the in-game combat wolf!
-      this.drawWolfSprite(ctx, 36, 24, false, time * 2 + wIdx, 1.05);
+      // Exact same wolf model as the in-game combat wolf with natural coat morphs!
+      this.drawWolfSprite(ctx, 36, 24, false, time * 2 + wIdx, 1.05, wIdx % 4);
 
       // Drool droplets
       ctx.fillStyle = 'rgba(56, 189, 248, 0.7)';
@@ -2044,6 +2640,8 @@ export class GameRenderer {
       isLamb?: boolean;
       animOffset?: number;
       isCheering?: boolean;
+      variantIndex?: number;
+      activity?: 'graze' | 'walk' | 'rest';
     }
   ) {
     const ctx = this.ctx;
@@ -2052,16 +2650,32 @@ export class GameRenderer {
     const offset = options?.animOffset || 0;
     const isLamb = !!options?.isLamb;
     const isCheering = !!options?.isCheering;
+    const activity = isCheering ? 'graze' : (options?.activity || 'graze');
+    const isWalking = activity === 'walk';
+    const isResting = activity === 'rest';
+    const morph = ((options?.variantIndex ?? 0) % 4 + 4) % 4;
 
-    // Grazing state cycle (5.5s cycle) - completely disabled if isCheering!
+    // 4 Real-World Sheep Breeds
+    const breeds = [
+      // 0: Suffolk Blackface (snowy wool, sleek dark charcoal face & legs)
+      { wool: '#f8fafc', woolShadow: '#cbd5e1', woolStroke: '#e2e8f0', woolHi: '#ffffff', face: '#334155', muzzle: '#1e293b', leg: '#334155', legFar: '#1e293b', spot: null as string | null },
+      // 1: Merino Cream (warm ivory fleece, soft biscuit-tan face)
+      { wool: '#fefce8', woolShadow: '#e7dcc5', woolStroke: '#ece3ce', woolHi: '#fffef5', face: '#d6bfa9', muzzle: '#b89f87', leg: '#c7ae95', legFar: '#a88f77', spot: null as string | null },
+      // 2: Jacob Spotted (ivory fleece with authentic espresso wool patches)
+      { wool: '#fafaf9', woolShadow: '#d6d3d1', woolStroke: '#e7e5e4', woolHi: '#ffffff', face: '#44403c', muzzle: '#292524', leg: '#57534e', legFar: '#292524', spot: '#5c3a21' },
+      // 3: Herdwick Silver-Grey (alpine silver fleece, pale forehead & slate face)
+      { wool: '#d1d5db', woolShadow: '#9ca3af', woolStroke: '#b5bcc6', woolHi: '#f3f4f6', face: '#475569', muzzle: '#334155', leg: '#475569', legFar: '#334155', spot: null as string | null },
+    ];
+    const b = breeds[morph];
+
+    // Grazing state cycle (5.5s cycle) - only active when activity === 'graze' and not cheering
     const cycle = (time + offset) % 5.5;
-    const isFeedingDown = !isCheering && cycle < 3.4; // never feeds down if cheering!
+    const isFeedingDown = !isCheering && activity === 'graze' && cycle < 3.4;
     const chewSpeed = 14;
-    const chew = isCheering ? 0 : Math.sin(time * chewSpeed) * 1.5;
+    const chew = isFeedingDown ? Math.sin(time * chewSpeed) * 1.5 : 0;
 
-    // Transition factor for head up / down: 0 is head up, 1 is head down in grass
     let headDownProgress = 0;
-    if (!isCheering) {
+    if (!isCheering && activity === 'graze') {
       if (cycle < 0.4) {
         headDownProgress = cycle / 0.4;
       } else if (cycle < 3.4) {
@@ -2073,12 +2687,15 @@ export class GameRenderer {
       }
     }
 
-    // Happy celebration hop when cheering!
     const cheerHop = isCheering ? Math.abs(Math.sin(time * 7.5 + offset * 2.2)) * 8 : 0;
+    const walkBob = isWalking ? Math.abs(Math.sin(time * (isLamb ? 9.5 : 7.0) + offset)) * (isLamb ? 2.4 : 1.5) : 0;
+    const restDrop = isResting ? (isLamb ? 4.5 : 6.0) : 0;
+    const restBreath = isResting ? Math.sin(time * 2.2 + offset) * 0.6 : 0;
 
     ctx.save();
-    ctx.translate(x, y - cheerHop);
-    if (facing === 'right') {
+    ctx.translate(x, y - cheerHop - walkBob + restDrop + restBreath);
+    // Note: in local sprite space, the sheep's head faces +X (right), so flip when facing left!
+    if (facing === 'left') {
       ctx.scale(-1, 1);
     }
     ctx.scale(scale, scale);
@@ -2086,66 +2703,74 @@ export class GameRenderer {
     // 1. Soft Ground Shadow
     ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
     ctx.beginPath();
-    ctx.ellipse(0, 8 + (cheerHop * 0.4), isLamb ? 16 : 24, isLamb ? 4.5 : 6.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, (isResting ? 5 : 8) + (cheerHop * 0.4), isLamb ? 16 : 24, isLamb ? 4.5 : 6.5, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // 2. Slender Dark Charcoal Legs with Cloven Hooves
-    const legW = isLamb ? 2.8 : 3.6;
-    const legH = isLamb ? 10 : 14;
-    const footY = 8;
-    const legColor = '#334155';
-    const hoofColor = '#0f172a';
+    // 2. Slender Legs with Cloven Hooves (animated stride when walking, tucked under fleece when resting!)
+    if (isResting) {
+      // Tucked hooves peeking gently out under the warm wool
+      ctx.fillStyle = b.legFar;
+      ctx.beginPath();
+      ctx.ellipse(-9, 6, 4.2, 2.2, 0.1, 0, Math.PI * 2);
+      ctx.ellipse(10, 6, 4.5, 2.2, -0.1, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      const legW = isLamb ? 2.8 : 3.6;
+      const legH = isLamb ? 10 : 14;
+      const footY = 8;
+      const hoofColor = '#0f172a';
+      const stride = isWalking ? Math.sin(time * (isLamb ? 9.5 : 7.0) + offset) * (isLamb ? 3.8 : 4.2) : 0;
 
-    // Back legs (far and near)
-    ctx.fillStyle = '#1e293b'; // Far back leg in shadow
-    ctx.fillRect(-14, footY - legH, legW, legH);
-    ctx.fillStyle = hoofColor;
-    ctx.fillRect(-14.5, footY - 2.5, legW + 1, 2.5);
+      // Far back leg
+      ctx.fillStyle = b.legFar;
+      ctx.fillRect(-14 - stride, footY - legH, legW, legH);
+      ctx.fillStyle = hoofColor;
+      ctx.fillRect(-14.5 - stride, footY - 2.5, legW + 1, 2.5);
 
-    ctx.fillStyle = legColor; // Near back leg
-    ctx.fillRect(-9, footY - legH + 1, legW, legH - 1);
-    ctx.fillStyle = hoofColor;
-    ctx.fillRect(-9.5, footY - 2.5, legW + 1, 2.5);
+      // Near back leg
+      ctx.fillStyle = b.leg;
+      ctx.fillRect(-9 + stride, footY - legH + 1, legW, legH - 1);
+      ctx.fillStyle = hoofColor;
+      ctx.fillRect(-9.5 + stride, footY - 2.5, legW + 1, 2.5);
 
-    // Front legs (far and near)
-    ctx.fillStyle = '#1e293b'; // Far front leg
-    ctx.fillRect(8, footY - legH, legW, legH);
-    ctx.fillStyle = hoofColor;
-    ctx.fillRect(7.5, footY - 2.5, legW + 1, 2.5);
+      // Far front leg
+      ctx.fillStyle = b.legFar;
+      ctx.fillRect(8 + stride, footY - legH, legW, legH);
+      ctx.fillStyle = hoofColor;
+      ctx.fillRect(7.5 + stride, footY - 2.5, legW + 1, 2.5);
 
-    ctx.fillStyle = legColor; // Near front leg
-    ctx.fillRect(13, footY - legH + 1, legW, legH - 1);
-    ctx.fillStyle = hoofColor;
-    ctx.fillRect(12.5, footY - 2.5, legW + 1, 2.5);
+      // Near front leg
+      ctx.fillStyle = b.leg;
+      ctx.fillRect(13 - stride, footY - legH + 1, legW, legH - 1);
+      ctx.fillStyle = hoofColor;
+      ctx.fillRect(12.5 - stride, footY - 2.5, legW + 1, 2.5);
+    }
 
     // 3. Wiggling Woolly Bob Tail
-    const tailWag = Math.sin(time * (isCheering ? 14 : 7) + offset * 3) * (isCheering ? 0.45 : 0.25);
+    const tailWag = Math.sin(time * (isCheering ? 14 : (isWalking ? 10 : (isResting ? 2 : 7))) + offset * 3) * (isCheering ? 0.45 : (isResting ? 0.08 : 0.25));
     ctx.save();
     ctx.translate(-19, -4);
     ctx.rotate(-0.35 + tailWag);
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = b.wool;
     ctx.beginPath();
     ctx.ellipse(0, 0, isLamb ? 3.5 : 5, isLamb ? 5 : 7, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#e2e8f0';
+    ctx.strokeStyle = b.woolStroke;
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.restore();
 
     // 4. Cloud-like Fluffy Fleece Body (Overlapping Wool Puffs)
-    // Shadow layer
-    ctx.fillStyle = '#cbd5e1';
+    ctx.fillStyle = b.woolShadow;
     ctx.beginPath();
     ctx.ellipse(0, 1, isLamb ? 17 : 24, isLamb ? 12 : 16.5, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Main creamy wool body
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = b.wool;
     ctx.beginPath();
     ctx.ellipse(0, -1, isLamb ? 16 : 23, isLamb ? 11.5 : 15.5, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Multiple fluffy cloud lobes around perimeter
     const puffs = isLamb
       ? [
           { px: -11, py: -7, r: 6.5 },
@@ -2168,56 +2793,55 @@ export class GameRenderer {
           { px: 5, py: 5, r: 8.5 },
         ];
 
-    puffs.forEach(p => {
-      ctx.fillStyle = '#f8fafc';
+    puffs.forEach((p, idx) => {
+      const isSpottedPuff = b.spot && (idx === 1 || idx === 4 || idx === 6);
+      ctx.fillStyle = isSpottedPuff ? b.spot! : b.wool;
       ctx.beginPath();
       ctx.arc(p.px, p.py, p.r, 0, Math.PI * 2);
       ctx.fill();
 
-      // Subtle shadow contour on lower puff edge
-      ctx.strokeStyle = '#e2e8f0';
+      ctx.strokeStyle = isSpottedPuff ? '#3e2716' : b.woolStroke;
       ctx.lineWidth = 1;
       ctx.stroke();
     });
 
     // Soft warm wool texture highlights
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = b.woolHi;
     ctx.beginPath();
     ctx.ellipse(-2, -5, isLamb ? 9 : 13, isLamb ? 5 : 7, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // 5. Sheep Neck & Head (Animated Feeding / Grazing or Joyful Cheering)
-    // Interpolate head position between UP (looking around/cheering) and DOWN (eating grass)
+    // 5. Sheep Neck & Head (Walking, Resting, Grazing, or Joyful Cheering)
     const headUpX = isLamb ? 15 : 21;
-    const headUpY = isLamb ? -8 : -11;
+    const headUpY = isLamb ? (isResting ? -5 : -8) : (isResting ? -7 : -11);
     const headDownX = isLamb ? 18 : 25;
     const headDownY = isLamb ? 2 : 4;
 
+    const walkNod = isWalking ? Math.sin(time * (isLamb ? 9.5 : 7.0) + offset) * 1.1 : 0;
     const headX = headUpX + (headDownX - headUpX) * headDownProgress;
-    const headY = headUpY + (headDownY - headUpY) * headDownProgress + (isFeedingDown ? chew : 0);
+    const headY = headUpY + (headDownY - headUpY) * headDownProgress + (isFeedingDown ? chew : walkNod);
 
     ctx.save();
     ctx.translate(headX, headY);
 
-    // Head angle tilts down only when eating (never when cheering)
-    const headAngle = headDownProgress * 0.45;
+    const headAngle = isResting ? 0.14 : (headDownProgress * 0.45);
     ctx.rotate(headAngle);
 
     // Woolly cap / crown on top of head
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = b.woolHi;
     ctx.beginPath();
     ctx.arc(0, -6, isLamb ? 4.5 : 6, 0, Math.PI * 2);
     ctx.arc(-3, -4, isLamb ? 3.5 : 5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Dark sleek face/head
-    ctx.fillStyle = '#334155';
+    // Breed-accurate sleek face/head
+    ctx.fillStyle = b.face;
     ctx.beginPath();
     ctx.ellipse(3, 0, isLamb ? 5.5 : 8, isLamb ? 4.5 : 6.5, 0.2, 0, Math.PI * 2);
     ctx.fill();
 
     // Snout / muzzle
-    ctx.fillStyle = '#1e293b';
+    ctx.fillStyle = b.muzzle;
     ctx.beginPath();
     ctx.ellipse(7, 2, isLamb ? 3.2 : 4.5, isLamb ? 2.5 : 3.5, 0.1, 0, Math.PI * 2);
     ctx.fill();
@@ -2227,15 +2851,15 @@ export class GameRenderer {
     ctx.fillRect(9, 1, 1.8, 1.5);
 
     // Floppy cute ear
-    const earWiggle = Math.sin(time * (isCheering ? 14 : 8) + offset) * (isCheering ? 0.3 : 0.15);
+    const earWiggle = Math.sin(time * (isCheering ? 14 : (isResting ? 3 : 8)) + offset) * (isCheering ? 0.3 : (isResting ? 0.06 : 0.15));
     ctx.save();
     ctx.translate(-2, -2);
     ctx.rotate(0.35 + earWiggle);
-    ctx.fillStyle = '#334155';
+    ctx.fillStyle = b.face;
     ctx.beginPath();
     ctx.ellipse(0, 0, isLamb ? 2 : 3, isLamb ? 5 : 7, -0.4, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#fbcfe8'; // soft pink inner ear
+    ctx.fillStyle = '#fbcfe8';
     ctx.beginPath();
     ctx.ellipse(0, 0, isLamb ? 1 : 1.5, isLamb ? 3 : 4.5, -0.4, 0, Math.PI * 2);
     ctx.fill();
@@ -2243,33 +2867,29 @@ export class GameRenderer {
 
     // Eyes and mouth expression
     if (isCheering) {
-      // VICTORY CHEERING SHEEP / LAMB: Happy crescent eyes & smiling mouth
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 1.3;
       ctx.beginPath();
       ctx.arc(2, -1, isLamb ? 1.6 : 2.4, 0.2, Math.PI - 0.2);
       ctx.stroke();
 
-      // Cute joyful open smile with pink tongue
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.arc(6.5, 2, isLamb ? 1.8 : 2.5, 0.2, Math.PI - 0.2);
       ctx.stroke();
-      ctx.fillStyle = '#f472b6'; // pink tongue
+      ctx.fillStyle = '#f472b6';
       ctx.beginPath();
       ctx.arc(6.5, 3.2, isLamb ? 0.9 : 1.3, 0, Math.PI);
       ctx.fill();
 
-      // Blushing pink cheeks
       ctx.fillStyle = 'rgba(244, 114, 182, 0.55)';
       ctx.beginPath();
       ctx.arc(1, 1, 1.4, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      // Normal Grazing Sheep Eyes (Blinking happily or sweet eye catchlight)
       const isBlink = (time + offset) % 3.6 < 0.14;
-      if (isBlink || isFeedingDown) {
+      if (isBlink || isFeedingDown || isResting) {
         // Content closed happy crescent eye
         ctx.strokeStyle = '#0f172a';
         ctx.lineWidth = 1.2;
@@ -2281,14 +2901,13 @@ export class GameRenderer {
         ctx.beginPath();
         ctx.arc(2, -1, isLamb ? 1.8 : 2.4, 0, Math.PI * 2);
         ctx.fill();
-        // White sparkle catchlight
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(2.5, -2, 1, 1);
       }
     }
 
-    // 6. Green Grass Blades in mouth ONLY when feeding (COMPLETELY REMOVED IF CHEERING)
-    if (!isCheering && (isFeedingDown || cycle < 4.2)) {
+    // 6. Green Grass Blades in mouth ONLY when grazing
+    if (!isCheering && activity === 'graze' && (isFeedingDown || cycle < 4.2)) {
       const grassSway = Math.sin(time * chewSpeed) * 3;
       ctx.strokeStyle = '#22c55e';
       ctx.lineWidth = 1.6;
@@ -2299,7 +2918,6 @@ export class GameRenderer {
       ctx.quadraticCurveTo(14 - grassSway, 5, 13, 9);
       ctx.stroke();
 
-      // Fresh clover leaf at tip
       ctx.fillStyle = '#4ade80';
       ctx.beginPath();
       ctx.arc(10 + grassSway, 12, 1.8, 0, Math.PI * 2);
@@ -2309,21 +2927,21 @@ export class GameRenderer {
 
     ctx.restore(); // restore head transform
 
-    // 7. Grass tufts around feet
-    ctx.fillStyle = '#16a34a';
-    ctx.fillRect(8, 4, 3, 5);
-    ctx.fillRect(12, 5, 2.5, 4);
-    ctx.fillStyle = '#4ade80';
-    ctx.fillRect(10, 2, 2, 6);
-    ctx.fillRect(-12, 5, 2, 4);
+    // 7. Grass tufts around feet when grazing or resting
+    if (!isWalking) {
+      ctx.fillStyle = '#16a34a';
+      ctx.fillRect(8, isResting ? 2 : 4, 3, 5);
+      ctx.fillRect(12, isResting ? 3 : 5, 2.5, 4);
+      ctx.fillStyle = '#4ade80';
+      ctx.fillRect(10, isResting ? 0 : 2, 2, 6);
+      ctx.fillRect(-12, isResting ? 3 : 5, 2, 4);
+    }
 
-    // If feeding (and not cheering), little grass crumb particles float up occasionally
     if (!isCheering && isFeedingDown && Math.sin(time * 10 + offset) > 0.6) {
       ctx.fillStyle = '#86efac';
       ctx.fillRect(headX + 4, headY + 6, 1.5, 1.5);
     }
 
-    // Floating Celebration Symbols: Hearts, Stars & Music Notes when cheering!
     if (isCheering) {
       const symIdx = (Math.floor(offset * 2) + Math.floor(time * 2.2)) % 3;
       const symY = headY - 14 - Math.sin(time * 5 + offset) * 5;
@@ -2661,21 +3279,28 @@ export class GameRenderer {
     ctx.ellipse(8, -5, 7, 6.5, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Signature Turquoise / Sky-Blue Earglobe
-    ctx.fillStyle = '#06b6d4';
+    // Signature Turquoise / Sky-Blue Earglobe (layered glossy sheen)
+    ctx.fillStyle = '#0891b2';
     ctx.beginPath();
-    ctx.ellipse(4, -4, 3, 3.8, -0.15, 0, Math.PI * 2);
+    ctx.ellipse(4, -4, 3.3, 4.1, -0.15, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#67e8f9';
-    ctx.fillRect(3.5, -4.5, 1.2, 1.8);
+    ctx.fillStyle = '#22d3ee';
+    ctx.beginPath();
+    ctx.ellipse(3.9, -4.3, 2.3, 3, -0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#cffafe';
+    ctx.fillRect(3.2, -5.4, 1.4, 1.6);
 
-    // Walnut / Mulberry Comb
+    // Textured Walnut / Mulberry Comb
     ctx.fillStyle = '#4a044e';
     ctx.beginPath();
-    ctx.ellipse(9, -11, 3.5, 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(9, -11, 3.7, 2.2, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = '#701a75';
+    ctx.fillRect(7.4, -12, 1.5, 1.2);
+    ctx.fillRect(9.8, -11.6, 1.4, 1.2);
 
-    // Fluffy Pom-Pom Crest (8 cloud puffs that bob with voice)
+    // Fluffy Pom-Pom Crest (6 cloud puffs + fine hair-like silk filaments)
     const crestBob = isSpeaking ? Math.sin(time * 16) * 1.2 : 0;
     const crestPuffs = [
       [5, -15 + crestBob, 6], [10, -14 + crestBob, 5.5], [1, -13 + crestBob, 5.5],
@@ -2691,6 +3316,14 @@ export class GameRenderer {
       ctx.arc(cpx, cpy, cpr, 0, Math.PI * 2);
       ctx.fill();
     });
+    // Fine hair-like Silkie crest wisps
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.lineWidth = 0.85;
+    ctx.beginPath();
+    ctx.moveTo(4, -22 + crestBob); ctx.lineTo(2, -25.5 + crestBob);
+    ctx.moveTo(8, -23 + crestBob); ctx.lineTo(9.5, -26 + crestBob);
+    ctx.moveTo(12, -19 + crestBob); ctx.lineTo(15, -21 + crestBob);
+    ctx.stroke();
 
     // Sparkling anime eye with dual catchlights
     const isBlinking = Math.sin(time * 8) > 0.9;
@@ -2749,13 +3382,24 @@ export class GameRenderer {
     ctx.fillStyle = '#facc15';
     ctx.fillRect(5, 0, 2.5, 2.5);
 
-    // Feathered boots & dark slate claws
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(-2, 12, 5, 6);
-    ctx.fillRect(4, 12, 5, 6);
+    // Authentic feathered Silkie ankles/shanks & 5-toed melanistic slate claws
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.ellipse(0.5, 15, 3.4, 3.6, 0.1, 0, Math.PI * 2);
+    ctx.ellipse(6.5, 15, 3.4, 3.6, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(0.5, 14.5, 2.5, 2.8, 0.1, 0, Math.PI * 2);
+    ctx.ellipse(6.5, 14.5, 2.5, 2.8, -0.1, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = '#1e293b';
-    ctx.fillRect(-1.5, 17, 4, 3);
-    ctx.fillRect(4.5, 17, 4, 3);
+    ctx.fillRect(-1.5, 17.5, 4.5, 2.4);
+    ctx.fillRect(4.5, 17.5, 4.5, 2.4);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(-2.5, 18.8, 1.5, 1.2);
+    ctx.fillRect(2.5, 18.8, 1.5, 1.2);
+    ctx.fillRect(8.5, 18.8, 1.5, 1.2);
 
     ctx.restore(); // restore Sam
 
@@ -2975,13 +3619,55 @@ export class GameRenderer {
     plat: Platform, 
     camera: Camera, 
     enemies?: Enemy[], 
-    levelTheme?: LevelConfig['theme']
+    levelTheme?: LevelConfig['theme'],
+    isBossDefeated: boolean = false
   ) {
     const ctx = this.ctx;
     const sx = plat.x - camera.x;
     const sy = plat.y - camera.y;
 
     if (sx + plat.width < -50 || sx > this.canvas.width + 50) return;
+
+    // Stage 30 Crimson Nightmare Obsidian Ground (transforms back to lush sanctuary grass once Cockatrice is defeated!)
+    if (levelTheme === 'fields' && !isBossDefeated) {
+      // Charred volcanic obsidian rock body
+      ctx.fillStyle = '#140305';
+      ctx.fillRect(sx, sy, plat.width, plat.height);
+      ctx.fillStyle = '#1f0509';
+      ctx.fillRect(sx, sy + 12, plat.width, plat.height - 12);
+
+      // Glowing crimson magma cracks slicing down into the obsidian floor
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 2;
+      for (let cx = sx + 28; cx < sx + plat.width - 20; cx += 72) {
+        ctx.beginPath();
+        ctx.moveTo(cx, sy + 9);
+        ctx.lineTo(cx - 8, sy + 32);
+        ctx.lineTo(cx + 6, sy + 64);
+        ctx.lineTo(cx - 4, sy + Math.min(plat.height - 8, 98));
+        ctx.stroke();
+
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(cx - 5, sy + 28, 4, 4);
+      }
+
+      // Jagged scorched crimson top crust
+      ctx.fillStyle = '#7f1d1d';
+      ctx.fillRect(sx, sy, plat.width, 9);
+      ctx.fillStyle = '#b91c1c';
+      ctx.fillRect(sx, sy, plat.width, 4);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(sx, sy, plat.width, 1.5);
+
+      // Dripping crimson rock teeth along top lip
+      for (let gx = sx + 6; gx < sx + plat.width - 6; gx += 14) {
+        ctx.fillStyle = '#7f1d1d';
+        ctx.fillRect(gx, sy + 8, 5, 5);
+        ctx.fillStyle = '#450a0a';
+        ctx.fillRect(gx + 1, sy + 12, 3, 4);
+      }
+      return;
+    }
 
     // In World 4 (or wherever a fox patrols/spawns), keep the lush floating land (grass with dirt under) permanently!
     // Even when the fox is defeated, do NOT change the platform texture!
@@ -3622,10 +4308,12 @@ export class GameRenderer {
     }
   }
 
-  // --- Local Friend: Silkie Sam (Fluffy White Silkie Chicken who delivers the Royal Shield and Netherite Sword!) ---
+  // --- Local Friend: Silkie Sam (Quietly sneaks in behind the boss to deliver Royal Shield & Netherite Sword!) ---
   public renderSilkieSam(sam: SilkieSamFriend, camera: Camera, time: number) {
+    if (sam.state === 'waiting') return;
+
     if (sam.state === 'gone') {
-      // Even if Sam flew away, if shield or sword is dropped and not yet picked up, render them on the platform!
+      // Even after Sam sneaks away, render dropped shield or sword until picked up!
       if (sam.shieldDropped && !sam.shieldCollected) {
         this.renderDroppedRoyalShield(sam.shieldX, sam.shieldY, camera, time);
       }
@@ -3649,24 +4337,34 @@ export class GameRenderer {
 
     if (sx < -100 || sx > this.canvas.width + 100 || sy < -100 || sy > this.canvas.height + 100) return;
 
+    const isTiptoeing = sam.state === 'flying_in' || sam.state === 'flying_away';
+    const isSneakLeaving = sam.state === 'flying_away';
+    const hoverBob = isTiptoeing ? Math.abs(Math.sin(time * 9)) * -2.2 : Math.sin(time * 3) * 1.1;
+
     ctx.save();
-    ctx.translate(sx, sy);
+    ctx.translate(sx, sy + 6 + hoverBob);
 
-    // Floating bobbing motion
-    const hoverBob = Math.sin(time * 6) * 3;
-    ctx.translate(0, hoverBob);
+    // Subtle tiptoe crouch tilt so Sam looks stealthy & quiet behind the boss!
+    ctx.scale(isSneakLeaving ? -0.92 : 0.92, 0.88);
+    ctx.rotate(isTiptoeing ? 0.14 : 0.06);
 
-    // Facing direction: facing right towards the player or platform center
-    ctx.scale(1, 1);
+    // 2. Silkie Sam Character Model
+    const isSpeaking = sam.state === 'talk_psst' || sam.state === 'talk_1' || sam.state === 'talk_2' || sam.state === 'talk_3';
 
-    // 2. Silkie Sam Character Model (Matching Shop Dialogue Profile in Full Color & Detail)
-    const isSpeaking = sam.state === 'talk_1' || sam.state === 'talk_2' || sam.state === 'talk_3';
-
-    // Shadow under flying Silkie Sam
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+    // Ground shadow directly beneath tiptoeing feet
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.34)';
     ctx.beginPath();
-    ctx.ellipse(0, 32, 18, 5, 0, 0, Math.PI * 2);
+    ctx.ellipse(2, 23, 18, 4.5, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Subtle tiny stealth tiptoe dust specks while sneaking quietly
+    if (isTiptoeing && Math.sin(time * 12) > 0.35) {
+      ctx.fillStyle = 'rgba(226, 232, 240, 0.45)';
+      ctx.beginPath();
+      ctx.arc(-14, 21, 2.2, 0, Math.PI * 2);
+      ctx.arc(-19, 19, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // Silkie Tail: Ultra-fluffy cloud puffs (Cloud plumage)
     ctx.fillStyle = '#e2e8f0';
@@ -3833,13 +4531,31 @@ export class GameRenderer {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(9, -1, 1, 1);
 
-    // Feathered Silkie Boots & Slate Claws
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(-3, 11, 7, 9);
-    ctx.fillRect(6, 11, 7, 9);
-    ctx.fillStyle = '#1e293b'; // dark slate claws
-    ctx.fillRect(-2, 19, 5, 3.5);
-    ctx.fillRect(7, 19, 5, 3.5);
+    // Authentic Feathered Silkie Shanks & Five-Toed Slate Feet
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.ellipse(0.5, 16, 4.5, 6, 0.12, 0, Math.PI * 2);
+    ctx.ellipse(9.5, 16, 4.5, 6, -0.12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(0.5, 15, 3.6, 5, 0.1, 0, Math.PI * 2);
+    ctx.ellipse(9.5, 15, 3.6, 5, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+    // Fine silky ankle filaments
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(-2, 17); ctx.lineTo(-5, 19);
+    ctx.moveTo(12, 17); ctx.lineTo(15, 19);
+    ctx.stroke();
+    // Dark slate-blue melanistic claws
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-2.5, 20, 6, 3);
+    ctx.fillRect(6.5, 20, 6, 3);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(-1.5, 20.5, 4, 1.5);
+    ctx.fillRect(7.5, 20.5, 4, 1.5);
 
     // If carrying the shield before dropping it:
     if (!sam.shieldDropped) {
@@ -3860,10 +4576,12 @@ export class GameRenderer {
 
     ctx.restore(); // restore Sam transform
 
-    // 3. UPGRADED DELUXE PIXELATED DIALOGUE SPEECH BUBBLE
-    if (sam.state === 'talk_1' || sam.state === 'talk_2' || sam.state === 'talk_3' || sam.state === 'dropping_shield' || sam.state === 'dropping_sword') {
+    // 3. UPGRADED DELUXE PIXELATED WHISPER DIALOGUE SPEECH BUBBLE
+    if (sam.state === 'talk_psst' || sam.state === 'talk_1' || sam.state === 'talk_2' || sam.state === 'talk_3' || sam.state === 'dropping_shield' || sam.state === 'dropping_sword') {
       let fullText = "here take this";
-      if (sam.state === 'talk_2' || sam.state === 'dropping_sword') {
+      if (sam.state === 'talk_psst') {
+        fullText = "psst!";
+      } else if (sam.state === 'talk_2' || sam.state === 'dropping_sword') {
         fullText = "oh here is a sword";
       } else if (sam.state === 'talk_3') {
         fullText = "good luck!";
@@ -4750,111 +5468,206 @@ export class GameRenderer {
   // ================= SHARED ENEMY SPRITE MODELS (COMBAT & BACKGROUND) =================
   // Ensures every enemy in the background looks 100% identical to the enemies fought in combat!
 
+  private hashVariant(id: string, count: number): number {
+    let h = 2166136261;
+    for (let i = 0; i < id.length; i++) {
+      h ^= id.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return Math.abs(h) % count;
+  }
+
   public drawWolfSprite(
     ctx: CanvasRenderingContext2D,
     width: number,
     height: number,
     facingLeft: boolean,
     animTimer: number,
-    scale: number = 1
+    scale: number = 1,
+    variantIndex: number = 0
   ) {
     ctx.save();
     ctx.scale(scale * (facingLeft ? -1 : 1), scale);
     const halfW = width / 2;
     const halfH = height / 2;
 
-    const walk = Math.sin(animTimer * 12) * 3.5;
-    const tailSway = Math.sin(animTimer * 8) * 0.2;
+    const morph = ((variantIndex % 4) + 4) % 4;
+    const palettes = [
+      // 0: Timber Grey Wolf (Canis lupus)
+      { coat: '#475569', back: '#27303f', ruff: '#64748b', belly: '#cbd5e1', muzzle: '#94a3b8', legFar: '#1e293b', legNear: '#334155', tailTip: '#0f172a', earInner: '#e2d5c8', eye: '#f59e0b' },
+      // 1: Arctic White Wolf (Canis lupus arctos)
+      { coat: '#e2e8f0', back: '#cbd5e1', ruff: '#f8fafc', belly: '#ffffff', muzzle: '#f1f5f9', legFar: '#94a3b8', legNear: '#cbd5e1', tailTip: '#94a3b8', earInner: '#f1d4d4', eye: '#eab308' },
+      // 2: Cinnamon / Russet Timber Wolf
+      { coat: '#7c4a2d', back: '#4a2916', ruff: '#9a6342', belly: '#e6ccb2', muzzle: '#b08968', legFar: '#3d2212', legNear: '#623a22', tailTip: '#1c120c', earInner: '#e6ccb2', eye: '#fbbf24' },
+      // 3: Melanistic Black Wolf
+      { coat: '#1f242d', back: '#0d1016', ruff: '#333b48', belly: '#4b5563', muzzle: '#374151', legFar: '#090b10', legNear: '#181c24', tailTip: '#030712', earInner: '#6b7280', eye: '#fbbf24' },
+    ];
+    const p = palettes[morph];
 
-    // 1. Bushy Wolf Tail with dark charcoal tip
-    ctx.save();
-    ctx.translate(-halfW + 4, -halfH + 8);
-    ctx.rotate(-0.4 + tailSway);
-    ctx.fillStyle = '#334155';
+    const walk = Math.sin(animTimer * 12) * 3.8;
+    const bodyBob = Math.abs(Math.sin(animTimer * 12)) * 1.1;
+    const tailSway = Math.sin(animTimer * 7.5) * 0.18;
+
+    // 1. Far-Side Digitigrade Legs (Depth Layer)
+    ctx.fillStyle = p.legFar;
+    // Far hind leg with realistic hock bend
     ctx.beginPath();
-    ctx.ellipse(-10, 0, 11, 5, 0, 0, Math.PI * 2);
+    ctx.moveTo(-halfW + 9 - walk * 0.8, halfH - 9);
+    ctx.lineTo(-halfW + 13 - walk, halfH - 4);
+    ctx.lineTo(-halfW + 11 - walk, halfH + 1);
+    ctx.lineTo(-halfW + 7 - walk, halfH + 1);
+    ctx.lineTo(-halfW + 9 - walk, halfH - 4);
+    ctx.lineTo(-halfW + 6 - walk * 0.8, halfH - 9);
+    ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = '#1e293b';
+    // Far front leg
+    ctx.fillRect(halfW - 14 - walk, halfH - 9, 3.6, 10);
+
+    // 2. Bushy Layered Lupine Tail with Dark Tip
+    ctx.save();
+    ctx.translate(-halfW + 4, -halfH + 9 - bodyBob * 0.4);
+    ctx.rotate(-0.32 + tailSway);
+    ctx.fillStyle = p.coat;
     ctx.beginPath();
-    ctx.ellipse(-16, 0, 6, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(-10, 0.5, 11.5, 4.6, -0.05, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.ruff;
+    ctx.beginPath();
+    ctx.ellipse(-7, -1, 7, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.tailTip;
+    ctx.beginPath();
+    ctx.ellipse(-17.5, 0.5, 5.2, 2.8, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // 2. Muscular Wolf Torso & Flanks
-    ctx.fillStyle = '#334155';
-    ctx.fillRect(-halfW + 4, -halfH + 6, width - 10, height - 11);
-    // Silver-charcoal spine contour
-    ctx.fillStyle = '#475569';
-    ctx.fillRect(-halfW + 4, -halfH + 4, width - 12, 4);
-    ctx.fillStyle = '#64748b';
-    ctx.fillRect(-halfW + 8, -halfH + 5, width - 18, 2);
-
-    // 3. Thick Layered Neck Mane / Ruff (Intimidating Scruff)
-    ctx.fillStyle = '#475569';
+    // 3. Athletic Canine Torso (Deep chest, tucked waist, realistic spine curve)
+    ctx.fillStyle = p.coat;
     ctx.beginPath();
-    ctx.moveTo(halfW - 14, -halfH + 2);
-    ctx.lineTo(halfW - 2, -halfH - 2);
-    ctx.lineTo(halfW - 4, -halfH + 14);
-    ctx.lineTo(halfW - 18, -halfH + 12);
+    ctx.ellipse(-2, -halfH + 10.5 - bodyBob, halfW - 3.5, 6.8, -0.06, 0, Math.PI * 2);
+    ctx.fill();
+    // Lighter chest & tucked underbelly
+    ctx.fillStyle = p.belly;
+    ctx.beginPath();
+    ctx.ellipse(2, -halfH + 14.2 - bodyBob, halfW - 8, 3.2, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+    // Dark saddle fur along back/spine
+    ctx.fillStyle = p.back;
+    ctx.beginPath();
+    ctx.ellipse(-3, -halfH + 6.2 - bodyBob, halfW - 6, 3.2, -0.04, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 4. Thick Layered Shoulder & Neck Ruff (Guard Hairs)
+    ctx.fillStyle = p.ruff;
+    ctx.beginPath();
+    ctx.moveTo(halfW - 17, -halfH + 4 - bodyBob);
+    ctx.quadraticCurveTo(halfW - 8, -halfH + 1 - bodyBob, halfW - 2, -halfH + 5 - bodyBob);
+    ctx.lineTo(halfW - 4, -halfH + 15 - bodyBob);
+    ctx.lineTo(halfW - 14, -halfH + 15 - bodyBob);
+    ctx.lineTo(halfW - 19, -halfH + 11 - bodyBob);
+    ctx.closePath();
+    ctx.fill();
+    // Cream throat fur
+    ctx.fillStyle = p.belly;
+    ctx.beginPath();
+    ctx.ellipse(halfW - 7, -halfH + 12.5 - bodyBob, 4.5, 3.4, 0.25, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 5. Realistic Lupine Head, Tapered Snout & Jaw
+    const headY = -halfH - bodyBob;
+    // Skull cranium
+    ctx.fillStyle = p.coat;
+    ctx.beginPath();
+    ctx.ellipse(halfW - 6.5, headY + 4.5, 7.2, 5.6, 0.08, 0, Math.PI * 2);
+    ctx.fill();
+    // Dark forehead / brow mask
+    ctx.fillStyle = p.back;
+    ctx.beginPath();
+    ctx.ellipse(halfW - 7.5, headY + 1.5, 5.5, 2.5, 0.05, 0, Math.PI * 2);
+    ctx.fill();
+    // Tapered upper muzzle
+    ctx.fillStyle = p.muzzle;
+    ctx.beginPath();
+    ctx.moveTo(halfW - 2, headY + 2.2);
+    ctx.lineTo(halfW + 7.5, headY + 4.2);
+    ctx.lineTo(halfW + 6.5, headY + 7.5);
+    ctx.lineTo(halfW - 3, headY + 8);
+    ctx.closePath();
+    ctx.fill();
+    // Pale cheek & lower jaw
+    ctx.fillStyle = p.belly;
+    ctx.beginPath();
+    ctx.moveTo(halfW - 4, headY + 7.2);
+    ctx.lineTo(halfW + 5.5, headY + 7.4);
+    ctx.lineTo(halfW + 4, headY + 9.4);
+    ctx.lineTo(halfW - 5, headY + 9.2);
+    ctx.closePath();
+    ctx.fill();
+    // Wet black rhinarium (nose)
+    ctx.fillStyle = '#090d16';
+    ctx.beginPath();
+    ctx.ellipse(halfW + 7.2, headY + 4.6, 2.1, 1.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Subtle canine fang
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.moveTo(halfW + 1.5, headY + 7.4);
+    ctx.lineTo(halfW + 2.8, headY + 9.6);
+    ctx.lineTo(halfW + 4.1, headY + 7.4);
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = '#64748b';
+    // 6. Alert Triangular Canine Ears (Back & Front)
+    ctx.fillStyle = p.back;
     ctx.beginPath();
-    ctx.moveTo(halfW - 12, -halfH + 4);
-    ctx.lineTo(halfW - 4, -halfH + 1);
-    ctx.lineTo(halfW - 6, -halfH + 10);
+    ctx.moveTo(halfW - 11.5, headY + 0.5);
+    ctx.lineTo(halfW - 9.2, headY - 6.8);
+    ctx.lineTo(halfW - 5.5, headY + 0.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = p.earInner;
+    ctx.beginPath();
+    ctx.moveTo(halfW - 10, headY - 0.3);
+    ctx.lineTo(halfW - 8.9, headY - 4.8);
+    ctx.lineTo(halfW - 7.1, headY - 0.3);
     ctx.closePath();
     ctx.fill();
 
-    // 4. Wolf Head & Snout
-    ctx.fillStyle = '#334155';
-    ctx.fillRect(halfW - 12, -halfH - 1, 14, 11);
-    // Muzzle extending forward
-    ctx.fillStyle = '#475569';
-    ctx.fillRect(halfW - 2, -halfH + 3, 8, 6);
-    // Black leather nose
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(halfW + 4, -halfH + 3, 3, 3);
-    // Sharp white predatory fangs
+    // 7. Focused Amber Lupine Eye with Dark Rim & Catchlight
+    ctx.fillStyle = '#090d16';
+    ctx.beginPath();
+    ctx.ellipse(halfW - 4.2, headY + 3.6, 2.2, 1.8, -0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.eye;
+    ctx.beginPath();
+    ctx.arc(halfW - 4.1, headY + 3.6, 1.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(halfW - 4.4, headY + 3.0, 0.9, 1.3);
     ctx.fillStyle = '#ffffff';
+    ctx.fillRect(halfW - 4.8, headY + 2.9, 0.7, 0.7);
+
+    // 8. Near-Side Muscular Legs, Paws & Claws
+    ctx.fillStyle = p.legNear;
+    // Near hind leg with hock
     ctx.beginPath();
-    ctx.moveTo(halfW + 1, -halfH + 8);
-    ctx.lineTo(halfW + 3, -halfH + 11);
-    ctx.lineTo(halfW + 5, -halfH + 8);
+    ctx.moveTo(-halfW + 6 + walk * 0.8, halfH - 9);
+    ctx.lineTo(-halfW + 10 + walk, halfH - 4);
+    ctx.lineTo(-halfW + 8 + walk, halfH + 1);
+    ctx.lineTo(-halfW + 4 + walk, halfH + 1);
+    ctx.lineTo(-halfW + 5.5 + walk, halfH - 4);
+    ctx.lineTo(-halfW + 3 + walk * 0.8, halfH - 9);
     ctx.closePath();
     ctx.fill();
-
-    // 5. Pointed Alert Wolf Ears
-    ctx.fillStyle = '#1e293b';
-    ctx.beginPath();
-    ctx.moveTo(halfW - 10, -halfH - 1);
-    ctx.lineTo(halfW - 7, -halfH - 8);
-    ctx.lineTo(halfW - 4, -halfH - 1);
-    ctx.closePath();
-    ctx.fill();
-    // Inner pink/tan ear
-    ctx.fillStyle = '#cbd5e1';
-    ctx.fillRect(halfW - 7, -halfH - 5, 2, 4);
-
-    // 6. Glowing Amber/Gold Predatory Eye
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(halfW - 7, -halfH + 2, 3, 3);
-    ctx.fillStyle = '#dc2626'; // menacing red slit pupil
-    ctx.fillRect(halfW - 6, -halfH + 2.5, 1.5, 2);
-
-    // 7. Muscular 4 Legs with Walk Animation & Claws
-    ctx.fillStyle = '#1e293b';
-    // Hind legs
-    ctx.fillRect(-halfW + 4 + walk, halfH - 6, 4, 7);
-    ctx.fillRect(-halfW + 10 - walk, halfH - 6, 4, 7);
-    // Front legs
-    ctx.fillRect(halfW - 14 - walk, halfH - 6, 4, 7);
-    ctx.fillRect(halfW - 8 + walk, halfH - 6, 4, 7);
-    // Claws
+    // Near front leg
+    ctx.fillRect(halfW - 9 + walk, halfH - 9, 3.8, 10);
+    // Paws & claws
+    ctx.fillStyle = p.belly;
+    ctx.fillRect(-halfW + 4.5 + walk, halfH - 0.8, 4.5, 2.2);
+    ctx.fillRect(halfW - 9 + walk, halfH - 0.8, 4.8, 2.2);
     ctx.fillStyle = '#0f172a';
-    ctx.fillRect(-halfW + 6 + walk, halfH, 2, 2);
-    ctx.fillRect(halfW - 6 + walk, halfH, 2, 2);
+    ctx.fillRect(-halfW + 8 + walk, halfH, 1.5, 1.5);
+    ctx.fillRect(halfW - 5 + walk, halfH, 1.5, 1.5);
 
     ctx.restore();
   }
@@ -4865,99 +5678,138 @@ export class GameRenderer {
     height: number,
     facingLeft: boolean,
     animTimer: number,
-    scale: number = 1
+    scale: number = 1,
+    variantIndex: number = 0
   ) {
     ctx.save();
     ctx.scale(scale * (facingLeft ? -1 : 1), scale);
     const halfW = width / 2;
     const halfH = height / 2;
 
-    const runCycle = Math.sin(animTimer * 16) * 4.5;
-    const tailSway = Math.sin(animTimer * 12) * 0.3;
+    const morph = ((variantIndex % 4) + 4) % 4;
+    const palettes = [
+      // 0: Classic Red Fox (Vulpes vulpes)
+      { coat: '#ea580c', back: '#b43509', light: '#fb923c', belly: '#f8fafc', earBack: '#1c1917', earInner: '#fde2d2', leg: '#1c1917', tailTip: '#ffffff', eye: '#f59e0b' },
+      // 1: Silver Fox (Melanistic Vulpes vulpes)
+      { coat: '#27272a', back: '#09090b', light: '#52525b', belly: '#a1a1aa', earBack: '#09090b', earInner: '#d4d4d8', leg: '#09090b', tailTip: '#f8fafc', eye: '#fbbf24' },
+      // 2: Cross Fox (Russet & Dark Dorsal Cross)
+      { coat: '#c2591a', back: '#29201c', light: '#e2843b', belly: '#e7dfd8', earBack: '#1c1917', earInner: '#e7d5c8', leg: '#1c1917', tailTip: '#f8fafc', eye: '#f59e0b' },
+      // 3: Arctic Fox (Vulpes lagopus)
+      { coat: '#f1f5f9', back: '#cbd5e1', light: '#ffffff', belly: '#ffffff', earBack: '#94a3b8', earInner: '#fbcfe8', leg: '#cbd5e1', tailTip: '#ffffff', eye: '#eab308' },
+    ];
+    const p = palettes[morph];
 
-    // 1. Magnificent Fluffy Fox Tail with Snowy White Tip!
+    const runCycle = Math.sin(animTimer * 16) * 4.5;
+    const bounce = Math.abs(Math.sin(animTimer * 16)) * 1.2;
+    const tailSway = Math.sin(animTimer * 10) * 0.24;
+
+    // 1. Far Slender Stocking Legs
+    ctx.fillStyle = p.leg;
+    ctx.fillRect(-halfW + 10 - runCycle, halfH - 7, 2.8, 8);
+    ctx.fillRect(halfW - 12 - runCycle, halfH - 7, 2.8, 8);
+
+    // 2. Plumed Vulpine Brush Tail with Pure White Tip
     ctx.save();
-    ctx.translate(-halfW + 4, -halfH + 6);
-    ctx.rotate(-0.35 + tailSway);
-    // Auburn main tail body
-    ctx.fillStyle = '#ea580c';
+    ctx.translate(-halfW + 4, -halfH + 7 - bounce * 0.4);
+    ctx.rotate(-0.28 + tailSway);
+    ctx.fillStyle = p.coat;
     ctx.beginPath();
-    ctx.ellipse(-12, 0, 13, 6, -0.2, 0, Math.PI * 2);
+    ctx.ellipse(-12.5, 0, 14, 5.8, -0.14, 0, Math.PI * 2);
     ctx.fill();
-    // Fluffy Pure White Tail Tip (Iconic Fox Characteristic!)
-    ctx.fillStyle = '#ffffff';
+    // Tail fur sheen
+    ctx.fillStyle = p.light;
     ctx.beginPath();
-    ctx.ellipse(-20, -2, 7, 5, -0.2, 0, Math.PI * 2);
+    ctx.ellipse(-9, -1.6, 8, 2.4, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+    // Iconic snowy white tail brush tip
+    ctx.fillStyle = p.tailTip;
+    ctx.beginPath();
+    ctx.ellipse(-22, -1.8, 6.2, 4.4, -0.15, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // 2. Sleek Auburn Torso
-    ctx.fillStyle = '#ea580c';
-    ctx.fillRect(-halfW + 2, -halfH + 5, width - 8, height - 11);
-    // Darker rich back shade
-    ctx.fillStyle = '#c2410c';
-    ctx.fillRect(-halfW + 4, -halfH + 4, width - 12, 3);
-
-    // 3. Snow-White Throat Bib & Underbelly
-    ctx.fillStyle = '#f8fafc';
+    // 3. Lithe Agile Vulpine Body
+    ctx.fillStyle = p.coat;
     ctx.beginPath();
-    ctx.ellipse(halfW - 8, -halfH + 9, 7, 4, 0.4, 0, Math.PI * 2);
+    ctx.ellipse(-1, -halfH + 9.5 - bounce, halfW - 3.5, 5.8, -0.05, 0, Math.PI * 2);
+    ctx.fill();
+    // Dorsal stripe / darker back fur
+    ctx.fillStyle = p.back;
+    ctx.beginPath();
+    ctx.ellipse(-2, -halfH + 5.8 - bounce, halfW - 6, 2.5, -0.03, 0, Math.PI * 2);
     ctx.fill();
 
-    // 4. Fox Head & Snout
-    ctx.fillStyle = '#ea580c';
-    ctx.fillRect(halfW - 12, -halfH - 1, 12, 10);
-    // Sharp tapered snout
+    // 4. Fluffy Snow-White Chest Bib & Underbelly
+    ctx.fillStyle = p.belly;
     ctx.beginPath();
-    ctx.moveTo(halfW, -halfH + 2);
-    ctx.lineTo(halfW + 8, -halfH + 6);
-    ctx.lineTo(halfW, -halfH + 8);
+    ctx.ellipse(halfW - 10, -halfH + 11.8 - bounce, 7.5, 3.6, 0.25, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 5. Sharp Vulpine Head, Cheek Ruff & Narrow Snout
+    const headY = -halfH - bounce;
+    ctx.fillStyle = p.coat;
+    ctx.beginPath();
+    ctx.ellipse(halfW - 6, headY + 4, 6.4, 5.2, 0.08, 0, Math.PI * 2);
+    ctx.fill();
+    // Tapered fox snout
+    ctx.beginPath();
+    ctx.moveTo(halfW - 1, headY + 1.5);
+    ctx.lineTo(halfW + 8.5, headY + 5.5);
+    ctx.lineTo(halfW - 1, headY + 7.8);
     ctx.closePath();
     ctx.fill();
-    // White lower muzzle
+    // Crisp white cheek ruff & lower muzzle
+    ctx.fillStyle = p.belly;
+    ctx.beginPath();
+    ctx.moveTo(halfW - 8.5, headY + 6.2);
+    ctx.quadraticCurveTo(halfW - 1, headY + 5.4, halfW + 7.5, headY + 6.2);
+    ctx.lineTo(halfW + 0.5, headY + 8.6);
+    ctx.lineTo(halfW - 7.5, headY + 8.4);
+    ctx.closePath();
+    ctx.fill();
+    // Glossy black nose tip
+    ctx.fillStyle = '#090d16';
+    ctx.beginPath();
+    ctx.arc(halfW + 8.3, headY + 5.6, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 6. Tall Triangular Black-Backed Ears with Cream Tuft
+    ctx.fillStyle = p.earBack;
+    ctx.beginPath();
+    ctx.moveTo(halfW - 11.5, headY + 0.5);
+    ctx.lineTo(halfW - 8.2, headY - 9.2);
+    ctx.lineTo(halfW - 3.6, headY + 0.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = p.earInner;
+    ctx.beginPath();
+    ctx.moveTo(halfW - 9.6, headY - 0.2);
+    ctx.lineTo(halfW - 8.0, headY - 6.4);
+    ctx.lineTo(halfW - 5.4, headY - 0.2);
+    ctx.closePath();
+    ctx.fill();
+
+    // 7. Intelligent Golden-Amber Vulpine Eye
+    ctx.fillStyle = '#090d16';
+    ctx.beginPath();
+    ctx.ellipse(halfW - 4.2, headY + 3.2, 2.3, 1.8, -0.18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.eye;
+    ctx.beginPath();
+    ctx.arc(halfW - 4.1, headY + 3.2, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(halfW - 4.3, headY + 2.4, 0.7, 1.6);
     ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(halfW - 4, -halfH + 6);
-    ctx.lineTo(halfW + 7, -halfH + 6.5);
-    ctx.lineTo(halfW, -halfH + 8.5);
-    ctx.closePath();
-    ctx.fill();
-    // Shiny black nose tip
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(halfW + 7, -halfH + 5, 2.5, 2.5);
+    ctx.fillRect(halfW - 4.8, headY + 2.4, 0.8, 0.8);
 
-    // 5. Pointed Black-Backed Ears with Pink Fluff
-    ctx.fillStyle = '#1c1917';
-    ctx.beginPath();
-    ctx.moveTo(halfW - 11, -halfH);
-    ctx.lineTo(halfW - 7, -halfH - 9);
-    ctx.lineTo(halfW - 3, -halfH);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#fda4af';
-    ctx.beginPath();
-    ctx.moveTo(halfW - 9, -halfH);
-    ctx.lineTo(halfW - 7, -halfH - 6);
-    ctx.lineTo(halfW - 5, -halfH);
-    ctx.closePath();
-    ctx.fill();
-
-    // 6. Sly Dark Intelligent Eye with Specular Catchlight
-    ctx.fillStyle = '#000000';
-    ctx.beginPath();
-    ctx.arc(halfW - 5, -halfH + 3, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fde047';
-    ctx.fillRect(halfW - 6, -halfH + 2, 1.5, 1.5);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(halfW - 5, -halfH + 2.5, 1, 1);
-
-    // 7. Sleek Black Stocking Paws
-    ctx.fillStyle = '#1c1917';
-    ctx.fillRect(-halfW + 4 + runCycle, halfH - 6, 3, 7);
-    ctx.fillRect(-halfW + 10 - runCycle, halfH - 6, 3, 7);
-    ctx.fillRect(halfW - 12 - runCycle, halfH - 6, 3, 7);
-    ctx.fillRect(halfW - 6 + runCycle, halfH - 6, 3, 7);
+    // 8. Near Sleek Dark Stocking Paws
+    ctx.fillStyle = p.leg;
+    ctx.fillRect(-halfW + 4.5 + runCycle, halfH - 7, 3, 8);
+    ctx.fillRect(halfW - 6.5 + runCycle, halfH - 7, 3, 8);
+    // Tiny paw tips
+    ctx.fillRect(-halfW + 5 + runCycle, halfH - 0.5, 4, 1.8);
+    ctx.fillRect(halfW - 6 + runCycle, halfH - 0.5, 4, 1.8);
 
     ctx.restore();
   }
@@ -4968,89 +5820,859 @@ export class GameRenderer {
     height: number,
     facingLeft: boolean,
     animTimer: number,
-    scale: number = 1
+    scale: number = 1,
+    variantIndex: number = 0
   ) {
     ctx.save();
     ctx.scale(scale * (facingLeft ? -1 : 1), scale);
     const halfW = width / 2;
     const halfH = height / 2;
 
+    const morph = ((variantIndex % 4) + 4) % 4;
+    const palettes = [
+      // 0: Grizzly Brown Bear (Ursus arctos horribilis)
+      { coat: '#4a2511', hump: '#633219', highlight: '#854d27', muzzle: '#a67b5b', muzzleDark: '#7c5335', legFar: '#2c1408', legNear: '#3b1c0b', earInner: '#9c6b49', eye: '#fbbf24' },
+      // 1: Kodiak Cinnamon Bear
+      { coat: '#78350f', hump: '#92400e', highlight: '#b45309', muzzle: '#d4a373', muzzleDark: '#a97447', legFar: '#451a03', legNear: '#5e2709', earInner: '#c68b59', eye: '#f59e0b' },
+      // 2: Polar White Bear (Ursus maritimus)
+      { coat: '#e2e8f0', hump: '#f1f5f9', highlight: '#ffffff', muzzle: '#f8fafc', muzzleDark: '#cbd5e1', legFar: '#94a3b8', legNear: '#cbd5e1', earInner: '#cbd5e1', eye: '#38bdf8' },
+      // 3: American Black Bear (Ursus americanus)
+      { coat: '#1e1b18', hump: '#2d2824', highlight: '#44403c', muzzle: '#8a6240', muzzleDark: '#5c4028', legFar: '#0f0e0d', legNear: '#171513', earInner: '#57534e', eye: '#f59e0b' },
+    ];
+    const p = palettes[morph];
+
     const walk = Math.sin(animTimer * 8) * 3.5;
+    const sway = Math.abs(Math.sin(animTimer * 8)) * 0.9;
 
-    // 1. Heavy Shoulder Hump & Massive Torso
-    ctx.fillStyle = '#451a03'; // Deep rich chocolate brown
-    ctx.fillRect(-halfW + 2, -halfH + 8, width - 6, height - 14);
-    // Bulky shoulder hump
-    ctx.fillStyle = '#5c2207';
-    ctx.beginPath();
-    ctx.ellipse(-halfW + 18, -halfH + 7, 16, 11, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Warm caramel fur highlights along flanks
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(-halfW + 6, -halfH + 5, 20, 5);
-    ctx.fillRect(-halfW + 10, -halfH + 14, 18, 4);
+    // 1. Far Heavy Plantigrade Legs
+    ctx.fillStyle = p.legFar;
+    ctx.fillRect(-halfW + 15 - walk, halfH - 11, 8.5, 11.5);
+    ctx.fillRect(halfW - 19 - walk, halfH - 11, 8.5, 11.5);
 
-    // 2. Thick Round Bear Tail Nub
-    ctx.fillStyle = '#3a1503';
+    // 2. Round Bear Tail Nub
+    ctx.fillStyle = p.legNear;
     ctx.beginPath();
-    ctx.arc(-halfW + 2, -halfH + 12, 4.5, 0, Math.PI * 2);
+    ctx.arc(-halfW + 2.5, -halfH + 14 - sway, 4.4, 0, Math.PI * 2);
     ctx.fill();
 
-    // 3. Imposing Heavy Bear Head & Snout
-    ctx.fillStyle = '#451a03';
-    ctx.fillRect(halfW - 18, -halfH + 2, 18, 18);
-    // Heavy snout extending forward
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(halfW - 4, -halfH + 8, 10, 11);
-    ctx.fillStyle = '#92400e';
-    ctx.fillRect(halfW - 2, -halfH + 10, 8, 7);
-    // Wet black leather nose pad
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(halfW + 4, -halfH + 9, 3.5, 3.5);
-    // Dangerous white fangs
-    ctx.fillStyle = '#ffffff';
+    // 3. Massive Ursine Torso & Prominent Grizzly Shoulder Hump
+    ctx.fillStyle = p.coat;
     ctx.beginPath();
-    ctx.moveTo(halfW + 1, -halfH + 16);
-    ctx.lineTo(halfW + 3, -halfH + 19);
-    ctx.lineTo(halfW + 5, -halfH + 16);
+    ctx.ellipse(-2, -halfH + 16.5 - sway, halfW - 3, 12.2, 0.03, 0, Math.PI * 2);
+    ctx.fill();
+    // Signature Grizzly Shoulder Hump
+    ctx.fillStyle = p.hump;
+    ctx.beginPath();
+    ctx.ellipse(halfW - 22, -halfH + 8.5 - sway, 14.5, 10, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+    // Shaggy guard-hair coat highlights
+    ctx.fillStyle = p.highlight;
+    ctx.beginPath();
+    ctx.ellipse(halfW - 23, -halfH + 5.5 - sway, 9.5, 3.8, -0.08, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-7, -halfH + 12.5 - sway, 9, 4, 0.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 4. Broad Imposing Bear Head & Muzzle
+    const headY = -halfH + 1 - sway;
+    // Rounded ears (back & front)
+    ctx.fillStyle = p.legFar;
+    ctx.beginPath();
+    ctx.arc(halfW - 15, headY + 1, 4.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.earInner;
+    ctx.beginPath();
+    ctx.arc(halfW - 15, headY + 1, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Broad skull
+    ctx.fillStyle = p.coat;
+    ctx.beginPath();
+    ctx.ellipse(halfW - 9.5, headY + 9.5, 9.8, 9, 0.05, 0, Math.PI * 2);
+    ctx.fill();
+    // Lighter broad ursine muzzle
+    ctx.fillStyle = p.muzzle;
+    ctx.beginPath();
+    ctx.ellipse(halfW + 1.5, headY + 11.8, 6.2, 5.2, 0.05, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.muzzleDark;
+    ctx.fillRect(halfW - 2, headY + 13.8, 7.5, 2.4);
+    // Large wet black leather nose
+    ctx.fillStyle = '#090d16';
+    ctx.beginPath();
+    ctx.ellipse(halfW + 6.5, headY + 10.2, 2.6, 2.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Nose highlight
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(halfW + 5.5, headY + 9.1, 1.5, 0.9);
+    // Canine fang
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.moveTo(halfW + 1, headY + 15.6);
+    ctx.lineTo(halfW + 2.6, headY + 18.4);
+    ctx.lineTo(halfW + 4.2, headY + 15.6);
     ctx.closePath();
     ctx.fill();
 
-    // 4. Rounded Bear Ears with Tan Rims
-    ctx.fillStyle = '#3a1503';
+    // 5. Realistic Deep-Set Ursine Eye with Brow Ridge
+    ctx.fillStyle = p.legFar;
+    ctx.fillRect(halfW - 10.5, headY + 4.8, 5, 1.8);
+    ctx.fillStyle = '#090d16';
     ctx.beginPath();
-    ctx.arc(halfW - 13, -halfH - 1, 5, 0, Math.PI * 2);
+    ctx.arc(halfW - 7.5, headY + 7.5, 2.1, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#92400e';
-    ctx.beginPath();
-    ctx.arc(halfW - 13, -halfH - 1, 3, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = p.eye;
+    ctx.fillRect(halfW - 8.1, headY + 6.9, 1.3, 1.3);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(halfW - 8.4, headY + 6.6, 0.7, 0.7);
 
-    // 5. Deep Menacing Glowing Eyes
-    ctx.fillStyle = '#dc2626';
-    ctx.fillRect(halfW - 9, -halfH + 6, 3, 3);
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(halfW - 8, -halfH + 6.5, 1.5, 1.5);
-
-    // 6. Colossal Paws with Sharp Curved White Claws
-    ctx.fillStyle = '#290c02';
-    // Hind heavy paws
-    ctx.fillRect(-halfW + 4 + walk, halfH - 8, 9, 9);
-    ctx.fillRect(-halfW + 16 - walk, halfH - 8, 9, 9);
-    // Front paws
-    ctx.fillRect(halfW - 20 - walk, halfH - 8, 9, 9);
-    ctx.fillRect(halfW - 8 + walk, halfH - 8, 9, 9);
-    // Sharp curved white claws
+    // 6. Colossal Near Paws with Long Curved Bone-White Claws
+    ctx.fillStyle = p.legNear;
+    ctx.fillRect(-halfW + 4 + walk, halfH - 10.5, 9.2, 11);
+    ctx.fillRect(halfW - 9 + walk, halfH - 10.5, 9.2, 11);
+    // Curved grizzly claws
     ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(halfW + 1 + walk, halfH - 3, 3, 3);
-    ctx.fillRect(halfW - 11 - walk, halfH - 3, 3, 3);
+    for (let c = 0; c < 3; c++) {
+      ctx.fillRect(halfW - 0.5 + walk + c * 1.1, halfH - 2.6 + c * 0.4, 2.4, 2.2);
+      ctx.fillRect(-halfW + 12.2 + walk + c * 0.9, halfH - 2.6 + c * 0.4, 2.2, 2.2);
+    }
 
     ctx.restore();
   }
 
-  // --- Enemies (Wolf, Fox, Bear): Render in-combat on platforms ---
+  // ================= SHARED BACKGROUND WILDLIFE SPRITE MODELS (BESTIARY & WORLDS) =================
 
-  public renderEnemy(enemy: Enemy, camera: Camera) {
+  public drawSnowshoeHareSprite(
+    ctx: CanvasRenderingContext2D,
+    time: number,
+    scale: number = 1,
+    isCheering: boolean = false,
+    variantIndex: number = 0,
+    isBaby: boolean = false,
+    activity: 'hop' | 'dig' | 'eat' | 'rest' = 'hop'
+  ) {
+    ctx.save();
+    const effActivity = isCheering ? 'hop' : activity;
+    const hopCycle = (effActivity === 'hop' || isCheering) ? Math.abs(Math.sin(time * (isCheering ? 6.0 : 4.2))) : 0;
+    const restBreath = effActivity === 'rest' ? Math.sin(time * 2.4) * 0.45 : 0;
+    const bodyDrop = effActivity === 'rest' ? 2.6 : (effActivity === 'dig' || effActivity === 'eat' ? 1.2 : 0);
+    const babyFactor = isBaby ? 0.7 : 1.0;
+
+    ctx.translate(0, (-hopCycle * (isCheering ? 7 : 4.5) + bodyDrop + restBreath) * scale * babyFactor);
+    ctx.scale(scale * babyFactor, scale * babyFactor);
+
+    const morph = ((variantIndex % 3) + 3) % 3;
+    const coats = [
+      // 0: Pure Winter White (Lepus americanus winter phase)
+      { body: '#ffffff', shadow: '#cbd5e1', patch: null as string | null, earInner: '#fbcfe8', eye: '#0f172a' },
+      // 1: Spring Molt (Tawny-brown back transitioning from winter white)
+      { body: '#f8fafc', shadow: '#cbd5e1', patch: '#a16236', earInner: '#f5b8c6', eye: '#0f172a' },
+      // 2: Arctic Frost Silver
+      { body: '#e2e8f0', shadow: '#94a3b8', patch: '#cbd5e1', earInner: '#fbcfe8', eye: '#0f172a' },
+    ];
+    const c = coats[morph];
+
+    // Uncovered snow hole & hidden green alpine grass when digging or eating!
+    if (effActivity === 'dig' || effActivity === 'eat') {
+      // Dark frozen earth pocket exposed beneath snow
+      ctx.fillStyle = '#451a03';
+      ctx.beginPath();
+      ctx.ellipse(12.5, 7.6, 6.2, 2.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Rim of pushed-up snow
+      ctx.fillStyle = '#e0f2fe';
+      ctx.beginPath();
+      ctx.ellipse(12.5, 8.8, 7.2, 1.5, 0, 0, Math.PI);
+      ctx.fill();
+
+      // Hidden emerald alpine grass blades revealed beneath the snow!
+      const grassGrow = effActivity === 'eat' ? 1.0 : 0.65 + Math.sin(time * 4) * 0.15;
+      ctx.strokeStyle = '#16a34a';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(9.5, 7.2); ctx.lineTo(8.5, 7.2 - 5.5 * grassGrow);
+      ctx.moveTo(12, 7.5); ctx.lineTo(12.8, 7.5 - 6.8 * grassGrow);
+      ctx.moveTo(14.5, 7.3); ctx.lineTo(16.2, 7.3 - 5.2 * grassGrow);
+      ctx.stroke();
+      ctx.strokeStyle = '#4ade80';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(11, 7.4); ctx.lineTo(10.2, 7.4 - 5.8 * grassGrow);
+      ctx.moveTo(13.6, 7.4); ctx.lineTo(14.4, 7.4 - 6.0 * grassGrow);
+      ctx.stroke();
+    }
+
+    // Fluffy snowshoe hare body (rounder & flatter loaf when resting, fluffier on baby)
+    const bodyRx = effActivity === 'rest' ? 11.2 : (isBaby ? 9.4 : 9.6);
+    const bodyRy = effActivity === 'rest' ? 6.4 : (isBaby ? 7.9 : 7.5);
+    const bodyTilt = effActivity === 'dig' ? 0.14 : (effActivity === 'rest' ? 0 : -0.15);
+
+    ctx.fillStyle = c.shadow;
+    ctx.beginPath();
+    ctx.ellipse(0, 1.2, bodyRx + 0.6, bodyRy + 0.5, bodyTilt, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = c.body;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, bodyRx, bodyRy, bodyTilt, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Seasonal molt saddle patch if applicable
+    if (c.patch) {
+      ctx.fillStyle = c.patch;
+      ctx.beginPath();
+      ctx.ellipse(-1.2, -2.2, 6.2, 3.8, bodyTilt, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Oversized furry hind snowshoe feet (tucked neatly under loaf when resting)
+    if (effActivity === 'rest') {
+      ctx.fillStyle = c.shadow;
+      ctx.beginPath();
+      ctx.ellipse(-2, 5.8, 7.5, 1.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = c.shadow;
+      ctx.beginPath();
+      ctx.ellipse(-4.5, 6.5, 5.6, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = c.body;
+      ctx.beginPath();
+      ctx.ellipse(-4, 5.8, 5.4, 2.3, 0, 0, Math.PI * 2);
+      if (effActivity === 'dig') {
+        // Rapidly digging front paws kicking up snow puffs!
+        const digCycle = Math.sin(time * 20);
+        ctx.ellipse(6.5 + digCycle * 2.2, 5.8 - Math.abs(digCycle) * 1.6, 3.4, 1.8, 0.4, 0, Math.PI * 2);
+        ctx.ellipse(4.5 - digCycle * 2.0, 6.4, 3.2, 1.7, 0.2, 0, Math.PI * 2);
+      } else {
+        ctx.ellipse(3.5, 5.8, 4, 2, 0, 0, Math.PI * 2);
+      }
+      ctx.fill();
+
+      // Animated flying snow puffs while digging!
+      if (effActivity === 'dig') {
+        for (let sp = 0; sp < 4; sp++) {
+          const pAge = (time * 3.8 + sp * 0.25) % 1.0;
+          const px = 8 - pAge * 12 + Math.sin(sp * 2.4) * 2;
+          const py = 5.5 - Math.sin(pAge * Math.PI) * 7.5;
+          ctx.fillStyle = `rgba(255, 255, 255, ${(1 - pAge) * 0.9})`;
+          ctx.beginPath();
+          ctx.arc(px, py, 1.8 * (1 - pAge * 0.4), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    if (isCheering) {
+      ctx.fillStyle = c.body;
+      ctx.beginPath();
+      ctx.ellipse(5.5, 0, 3.8, 2.2, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Cotton ball tail
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(effActivity === 'rest' ? -10.8 : -10, effActivity === 'rest' ? 0.5 : -2, isBaby ? 3.2 : 3.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hare Head (dipped down when digging or nibbling hidden grass, cozy tucked when resting)
+    const chewBob = effActivity === 'eat' ? Math.sin(time * 13) * 0.9 : 0;
+    const headX = effActivity === 'eat' ? 8.2 : (effActivity === 'dig' ? 7.6 : (effActivity === 'rest' ? 6.8 : 6));
+    const headY = effActivity === 'eat' ? (0.4 + chewBob) : (effActivity === 'dig' ? -0.6 : (effActivity === 'rest' ? -1.8 : -4));
+    const headR = isBaby ? 6.2 : 5.6;
+
+    ctx.save();
+    ctx.translate(headX, headY);
+    if (effActivity === 'eat') {
+      ctx.rotate(0.42);
+    } else if (effActivity === 'dig') {
+      ctx.rotate(0.28);
+    }
+
+    ctx.fillStyle = c.body;
+    ctx.beginPath();
+    ctx.arc(0, 0, headR, 0, Math.PI * 2);
+    ctx.fill();
+    if (morph === 1) {
+      ctx.fillStyle = '#a16236';
+      ctx.beginPath();
+      ctx.arc(-1.2, -2.4, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Long Snowshoe Ears with Iconic Ink-Black Tips (folded gently back when resting, adorably wide on baby leverets)
+    const earWiggle = Math.sin(time * (isCheering ? 13 : (effActivity === 'rest' ? 2 : 8))) * (isCheering ? 0.22 : (effActivity === 'rest' ? 0.04 : 0.14));
+    const earFold = effActivity === 'rest' ? -1.05 : -0.2;
+    const earLen = isBaby ? 6.0 : 7.2;
+    const earWidth = isBaby ? 2.5 : 2.2;
+    ctx.save();
+    ctx.translate(-2, -4);
+    ctx.rotate(earFold + earWiggle);
+    ctx.fillStyle = c.body;
+    ctx.beginPath();
+    ctx.ellipse(-2, -earLen * 0.85, earWidth, earLen, -0.1, 0, Math.PI * 2);
+    ctx.ellipse(2, -earLen * 0.85, earWidth, earLen, 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = c.earInner;
+    ctx.beginPath();
+    ctx.ellipse(-2, -earLen * 0.72, earWidth * 0.55, earLen * 0.62, -0.1, 0, Math.PI * 2);
+    ctx.ellipse(2, -earLen * 0.72, earWidth * 0.55, earLen * 0.62, 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-3.1, -earLen * 1.82, 2.5, 2.7);
+    ctx.fillRect(1, -earLen * 1.82, 2.5, 2.7);
+    ctx.restore();
+
+    if (isCheering || effActivity === 'rest') {
+      // Joyful or sleepy closed crescent eye
+      ctx.strokeStyle = c.eye;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(1.8, -1, 1.5, 0.2, Math.PI - 0.2);
+      ctx.stroke();
+      if (isCheering) {
+        ctx.fillStyle = 'rgba(244, 114, 182, 0.6)';
+        ctx.beginPath();
+        ctx.arc(0.4, 1.5, 1.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      // Big glossy dark eye (extra expressive on baby leveret)
+      const eyeR = isBaby ? 1.65 : 1.3;
+      ctx.fillStyle = c.eye;
+      ctx.beginPath();
+      ctx.arc(2.0, -1, eyeR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(2.2, -1.7, 0.75, 0.75);
+    }
+
+    // Pink twitching nose & fine whiskers
+    ctx.fillStyle = '#f472b6';
+    ctx.fillRect(4.5, 0.5, 1.6, 1.2);
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.7)';
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(4.5, 1.2); ctx.lineTo(8.5, 0.4);
+    ctx.moveTo(4.5, 1.7); ctx.lineTo(8.2, 2.4);
+    ctx.stroke();
+
+    // Nibbled green grass blade dangling from mouth when eating!
+    if (effActivity === 'eat') {
+      const grassWiggle = Math.sin(time * 14) * 1.4;
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(4.8, 2.2);
+      ctx.quadraticCurveTo(7.5, 4.2 + grassWiggle, 8.8, 6.2 + grassWiggle);
+      ctx.stroke();
+    }
+
+    ctx.restore(); // restore head
+
+    ctx.restore();
+  }
+
+  public drawButterflySprite(
+    ctx: CanvasRenderingContext2D,
+    time: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    ctx.save();
+    const flutterY = Math.sin(time * 4.5) * 4 * scale;
+    ctx.translate(0, flutterY);
+    ctx.scale(scale, scale);
+
+    const morph = ((variantIndex % 4) + 4) % 4;
+    const species = [
+      // 0: Monarch (Danaus plexippus)
+      { upper: '#ea580c', lower: '#f97316', rim: '#1c1917', spots: '#ffffff' },
+      // 1: Blue Morpho (Morpho menelaus)
+      { upper: '#0284c7', lower: '#38bdf8', rim: '#0f172a', spots: '#e0f2fe' },
+      // 2: Emerald Swallowtail (Papilio palinurus)
+      { upper: '#059669', lower: '#34d399', rim: '#064e3b', spots: '#fef08a' },
+      // 3: Clouded Sulphur (Colias philodice)
+      { upper: '#eab308', lower: '#fde047', rim: '#422006', spots: '#ffffff' },
+    ];
+    const sp = species[morph];
+
+    const flap = 0.25 + Math.abs(Math.sin(time * 10)) * 0.75;
+    const wingW = Math.max(2, 8 * flap);
+
+    // Lower hindwings
+    ctx.fillStyle = sp.lower;
+    ctx.strokeStyle = sp.rim;
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.ellipse(-wingW * 0.44 - 0.5, 2.2, wingW * 0.42, 4.2, 0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(wingW * 0.44 + 0.5, 2.2, wingW * 0.42, 4.2, -0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Upper forewings
+    ctx.fillStyle = sp.upper;
+    ctx.beginPath();
+    ctx.ellipse(-wingW * 0.55 - 0.5, -2.5, wingW * 0.56, 5.6, -0.28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(wingW * 0.55 + 0.5, -2.5, wingW * 0.56, 5.6, 0.28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Crisp wing margin spots
+    ctx.fillStyle = sp.spots;
+    ctx.fillRect(-wingW * 0.65 - 0.8, -4.2, 1.6, 1.6);
+    ctx.fillRect(wingW * 0.65 - 0.8, -4.2, 1.6, 1.6);
+    ctx.fillRect(-wingW * 0.45 - 0.6, 1.8, 1.2, 1.2);
+    ctx.fillRect(wingW * 0.45 - 0.6, 1.8, 1.2, 1.2);
+
+    // Slim thorax/abdomen & clubbed antennae
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-1, -5, 2, 9.5);
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 0.85;
+    ctx.beginPath();
+    ctx.moveTo(-0.8, -5); ctx.lineTo(-3.4, -8.5);
+    ctx.moveTo(0.8, -5); ctx.lineTo(3.4, -8.5);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  public drawDragonflySprite(
+    ctx: CanvasRenderingContext2D,
+    time: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    ctx.save();
+    const hoverX = Math.sin(time * 3.2) * 3 * scale;
+    const hoverY = Math.cos(time * 4.2) * 3 * scale;
+    ctx.translate(hoverX, hoverY);
+    ctx.scale(scale, scale);
+
+    const morph = ((variantIndex % 3) + 3) % 3;
+    const species = [
+      // 0: Azure Emperor (Anax imperator)
+      { body: '#0284c7', band: '#38bdf8', thorax: '#0ea5e9', wing: 'rgba(224, 242, 254, 0.85)', vein: 'rgba(56, 189, 248, 0.55)', eye: '#0c4a6e' },
+      // 1: Emerald Darner (Anax junius)
+      { body: '#059669', band: '#34d399', thorax: '#10b981', wing: 'rgba(236, 253, 245, 0.84)', vein: 'rgba(16, 185, 129, 0.52)', eye: '#064e3b' },
+      // 2: Scarlet Skimmer (Crocothemis erythraea)
+      { body: '#dc2626', band: '#f87171', thorax: '#ef4444', wing: 'rgba(254, 242, 242, 0.84)', vein: 'rgba(248, 113, 113, 0.5)', eye: '#7f1d1d' },
+    ];
+    const sp = species[morph];
+
+    // Translucent veined forewings & hindwings
+    const dFlap = Math.sin(time * 36) * 1.05;
+    ctx.fillStyle = sp.wing;
+    ctx.strokeStyle = sp.vein;
+    ctx.lineWidth = 0.6;
+    // Forewings
+    ctx.beginPath();
+    ctx.ellipse(-6.5, -2.8 + dFlap, 6.2, 1.5, -0.08, 0, Math.PI * 2);
+    ctx.ellipse(6.5, -2.8 + dFlap, 6.2, 1.5, 0.08, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Hindwings
+    ctx.beginPath();
+    ctx.ellipse(-5.5, 0.2 - dFlap, 5.2, 1.35, 0.1, 0, Math.PI * 2);
+    ctx.ellipse(5.5, 0.2 - dFlap, 5.2, 1.35, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Segmented slender abdomen
+    ctx.fillStyle = sp.body;
+    ctx.beginPath();
+    ctx.roundRect(-1.1, -2.5, 2.2, 11.8, 1);
+    ctx.fill();
+    ctx.fillStyle = sp.band;
+    for (let seg = 0; seg < 4; seg++) {
+      ctx.fillRect(-0.9, 0 + seg * 2.3, 1.8, 1.0);
+    }
+
+    // Iridescent thorax & broad compound-eye head
+    ctx.fillStyle = sp.thorax;
+    ctx.beginPath();
+    ctx.ellipse(0, -3.5, 2.1, 2.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = sp.eye;
+    ctx.beginPath();
+    ctx.arc(-1.4, -6.2, 1.5, 0, Math.PI * 2);
+    ctx.arc(1.4, -6.2, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Compound eye gloss
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.fillRect(-1.9, -6.9, 0.8, 0.8);
+    ctx.fillRect(0.9, -6.9, 0.8, 0.8);
+
+    ctx.restore();
+  }
+
+  public drawHoneybeeSprite(
+    ctx: CanvasRenderingContext2D,
+    time: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    ctx.save();
+    const buzzY = Math.sin(time * 7.5) * 3.5 * scale;
+    ctx.translate(0, buzzY);
+    ctx.scale(scale, scale);
+
+    const morph = ((variantIndex % 3) + 3) % 3;
+    const species = [
+      // 0: Golden Italian Honeybee (Apis mellifera ligustica)
+      { body: '#facc15', thorax: '#d97706', stripe: '#1c1917', pollen: '#fde047', rx: 5.4, ry: 3.7 },
+      // 1: Dark Carniolan Honeybee (Apis mellifera carnica)
+      { body: '#d97706', thorax: '#57534e', stripe: '#0f172a', pollen: '#fbbf24', rx: 5.3, ry: 3.6 },
+      // 2: Alpine Bumblebee (Bombus alpinus)
+      { body: '#fef08a', thorax: '#1c1917', stripe: '#09090b', pollen: '#f59e0b', rx: 6.1, ry: 4.5 },
+    ];
+    const sp = species[morph];
+
+    // Vibrating veined translucent wings
+    ctx.fillStyle = 'rgba(248, 250, 252, 0.88)';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.6)';
+    ctx.lineWidth = 0.55;
+    const wBuzz = Math.sin(time * 48) * 1.1;
+    ctx.beginPath();
+    ctx.ellipse(-1.4, -4.6 + wBuzz, 3.6, 2.0, -0.32, 0, Math.PI * 2);
+    ctx.ellipse(2.0, -4.6 - wBuzz, 3.4, 1.9, 0.28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Pollen baskets on hind legs
+    ctx.fillStyle = sp.pollen;
+    ctx.beginPath();
+    ctx.arc(-1.8, 3.8, 1.25, 0, Math.PI * 2);
+    ctx.arc(0.8, 3.9, 1.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Fuzzy striped abdomen
+    ctx.fillStyle = sp.body;
+    ctx.beginPath();
+    ctx.ellipse(-0.4, 0.2, sp.rx, sp.ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Velvety thorax collar
+    ctx.fillStyle = sp.thorax;
+    ctx.beginPath();
+    ctx.ellipse(2.4, -0.1, 2.3, 2.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Crisp black bands & stinger
+    ctx.fillStyle = sp.stripe;
+    ctx.fillRect(-3.2, -3.2, 1.5, 6.6);
+    ctx.fillRect(-0.6, -3.5, 1.6, 7.2);
+    ctx.beginPath();
+    ctx.moveTo(-sp.rx - 0.2, 0.2);
+    ctx.lineTo(-sp.rx - 2.3, 0.4);
+    ctx.lineTo(-sp.rx - 0.2, 1.1);
+    ctx.closePath();
+    ctx.fill();
+
+    // Head, compound eye & delicate antennae
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(4.8, -0.3, 2.0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.fillRect(5.2, -1.2, 0.9, 0.9);
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(5.8, -1.7); ctx.lineTo(7.4, -3.4);
+    ctx.moveTo(6.1, -1.1); ctx.lineTo(7.8, -2.0);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  public drawLadybugSprite(
+    ctx: CanvasRenderingContext2D,
+    time: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    ctx.save();
+    const crawl = Math.sin(time * 4) * 1.5 * scale;
+    ctx.translate(crawl, 0);
+    ctx.scale(scale, scale);
+
+    const morph = ((variantIndex % 3) + 3) % 3;
+    const species = [
+      // 0: Seven-Spot Crimson (Coccinella septempunctata)
+      { shell: '#dc2626', rim: '#7f1d1d', spot: '#0f172a' },
+      // 1: Golden 22-Spot (Psyllobora vigintiduopunctata)
+      { shell: '#facc15', rim: '#a16207', spot: '#1c1917' },
+      // 2: Harlequin Orange (Harmonia axyridis)
+      { shell: '#f97316', rim: '#9a3412', spot: '#0f172a' },
+    ];
+    const sp = species[morph];
+
+    // Tiny articulated legs
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-4, 3.6, 1.3, 2.1);
+    ctx.fillRect(-0.6, 3.9, 1.3, 2.1);
+    ctx.fillRect(2.8, 3.6, 1.3, 2.1);
+
+    // Glossy domed elytra shell
+    ctx.fillStyle = sp.shell;
+    ctx.strokeStyle = sp.rim;
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.ellipse(-0.3, 0, 5.4, 4.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Pronotum & head with authentic white cheek spots
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.ellipse(4.2, 0, 2.3, 3.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(3.4, -2.0, 1.2, 1.1);
+    ctx.fillRect(3.4, 0.9, 1.2, 1.1);
+
+    // Antennae
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(6.1, -1.2); ctx.lineTo(7.6, -2.6);
+    ctx.moveTo(6.1, 1.2); ctx.lineTo(7.6, 2.6);
+    ctx.stroke();
+
+    // Central wing seam & symmetrical spots
+    ctx.fillStyle = sp.spot;
+    ctx.fillRect(-5.4, -0.35, 8.2, 0.7);
+    ctx.beginPath();
+    ctx.arc(-2.9, -2.2, 1.0, 0, Math.PI * 2);
+    ctx.arc(-0.2, -2.0, 1.05, 0, Math.PI * 2);
+    ctx.arc(-2.9, 2.2, 1.0, 0, Math.PI * 2);
+    ctx.arc(-0.2, 2.0, 1.05, 0, Math.PI * 2);
+    ctx.arc(1.7, 0, 0.85, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Curved specular dome sheen
+    ctx.fillStyle = 'rgba(255,255,255,0.68)';
+    ctx.beginPath();
+    ctx.ellipse(-2.0, -3.2, 2.1, 0.8, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // --- Realistic Jungle Viper / Snake Sprite (4 Natural Rainforest Color Morphs) ---
+
+  public drawSnakeSprite(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    facingLeft: boolean,
+    animTimer: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    ctx.save();
+    ctx.scale(scale * (facingLeft ? -1 : 1), scale);
+    const halfW = width / 2;
+    const halfH = height / 2;
+
+    const morph = ((variantIndex % 4) + 4) % 4;
+    const palettes = [
+      // 0: Emerald Viper (Bothriechis viridis)
+      { body: '#15803d', dark: '#052e16', pattern: '#86efac', belly: '#fef08a', head: '#166534', eye: '#facc15', isRinged: false },
+      // 1: Golden Eyelash Viper (Bothriechis schlegelii)
+      { body: '#d97706', dark: '#78350f', pattern: '#fde047', belly: '#fef3c7', head: '#b45309', eye: '#dc2626', isRinged: false },
+      // 2: Jungle Coral Snake (Micrurus)
+      { body: '#dc2626', dark: '#18181b', pattern: '#fef08a', belly: '#fecaca', head: '#18181b', eye: '#facc15', isRinged: true },
+      // 3: Rainforest Bushmaster (Lachesis muta)
+      { body: '#5c4033', dark: '#1c1917', pattern: '#a8a29e', belly: '#d6d3d1', head: '#442c22', eye: '#f59e0b', isRinged: false },
+    ];
+    const p = palettes[morph];
+
+    const slitherPhase = animTimer * 9.5;
+    const baseY = halfH - 2.6;
+
+    // Subtle ground contact shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+    ctx.beginPath();
+    ctx.ellipse(-1, halfH - 0.5, halfW * 0.88, 2.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Multi-segment sinuous slithering body from tapered tail to neck
+    const segments = 13;
+    const segPoints: Array<{ x: number; y: number; r: number }> = [];
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments; // 0 = tail tip, 1 = neck
+      const x = -halfW + 2 + t * (width - 10);
+      const waveAmp = 2.6 * Math.sin(t * Math.PI);
+      const y = baseY - Math.abs(Math.sin(slitherPhase - t * 5.2)) * waveAmp - (t > 0.78 ? (t - 0.78) * 20 : 0);
+      const r = t < 0.2 ? 1.1 + t * 8 : (t > 0.85 ? 3.2 - (t - 0.85) * 4 : 2.9 + Math.sin(t * Math.PI) * 1.0);
+      segPoints.push({ x, y, r });
+    }
+
+    // 1. Dark scale outline pass
+    for (let i = 0; i < segPoints.length; i++) {
+      const pt = segPoints[i];
+      ctx.fillStyle = p.dark;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, pt.r + 0.9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 2. Main reptilian body + ventral belly + species markings
+    for (let i = 0; i < segPoints.length; i++) {
+      const pt = segPoints[i];
+      let fill = p.body;
+      if (p.isRinged) {
+        const band = i % 4;
+        fill = band === 0 ? p.dark : (band === 1 ? p.pattern : p.body);
+      }
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pale ventral belly scale underside
+      ctx.fillStyle = p.belly;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y + pt.r * 0.42, pt.r * 0.52, 0, Math.PI);
+      ctx.fill();
+
+      // Dorsal diamond/chevron scale markings on non-ringed vipers
+      if (!p.isRinged && i > 1 && i < segPoints.length - 1 && i % 2 === 0) {
+        ctx.fillStyle = p.dark;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y - pt.r * 0.85);
+        ctx.lineTo(pt.x + pt.r * 0.65, pt.y - pt.r * 0.15);
+        ctx.lineTo(pt.x, pt.y + pt.r * 0.3);
+        ctx.lineTo(pt.x - pt.r * 0.65, pt.y - pt.r * 0.15);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = p.pattern;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y - pt.r * 0.28, pt.r * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Glossy dorsal scale highlight
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+      ctx.beginPath();
+      ctx.ellipse(pt.x, pt.y - pt.r * 0.45, pt.r * 0.45, pt.r * 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 3. Raised Triangular Venomous Viper Head
+    const neck = segPoints[segPoints.length - 1];
+    const headBob = Math.sin(animTimer * 6.5) * 0.7;
+    const hx = neck.x + 2.8;
+    const hy = neck.y - 1.2 + headBob;
+
+    // Flickering forked crimson tongue
+    const tongueCycle = (animTimer * 2.4) % 1;
+    if (tongueCycle < 0.34) {
+      const ext = Math.sin((tongueCycle / 0.34) * Math.PI);
+      const tLen = 3.5 + ext * 4.5;
+      const tipX = hx + 5.8 + tLen;
+      const tipY = hy + 0.6 + Math.sin(animTimer * 36) * 0.9;
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 1.05;
+      ctx.beginPath();
+      ctx.moveTo(hx + 5.2, hy + 0.5);
+      ctx.lineTo(tipX - 1.8, tipY);
+      ctx.moveTo(tipX - 1.8, tipY);
+      ctx.lineTo(tipX, tipY - 1.6);
+      ctx.moveTo(tipX - 1.8, tipY);
+      ctx.lineTo(tipX, tipY + 1.5);
+      ctx.stroke();
+    }
+
+    // Head dark outline
+    ctx.fillStyle = p.dark;
+    ctx.beginPath();
+    ctx.moveTo(hx - 4.2, hy - 3.6);
+    ctx.lineTo(hx + 6.4, hy - 1.0);
+    ctx.lineTo(hx + 6.2, hy + 1.8);
+    ctx.lineTo(hx - 3.6, hy + 3.4);
+    ctx.closePath();
+    ctx.fill();
+
+    // Head fill
+    ctx.fillStyle = p.head;
+    ctx.beginPath();
+    ctx.moveTo(hx - 3.4, hy - 2.8);
+    ctx.lineTo(hx + 5.5, hy - 0.6);
+    ctx.lineTo(hx + 5.3, hy + 1.3);
+    ctx.lineTo(hx - 3.0, hy + 2.6);
+    ctx.closePath();
+    ctx.fill();
+
+    // Pale jaw underside & subtle fang glint
+    ctx.fillStyle = p.belly;
+    ctx.fillRect(hx - 1.5, hy + 1.2, 6.0, 1.0);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(hx + 3.2, hy + 1.8, 0.9, 1.3);
+
+    // Supraocular viper brow ridge
+    ctx.fillStyle = p.pattern;
+    ctx.fillRect(hx - 0.6, hy - 2.4, 3.0, 0.85);
+
+    // Glowing vertical-slit reptile eye
+    ctx.fillStyle = p.eye;
+    ctx.beginPath();
+    ctx.ellipse(hx + 1.1, hy - 0.7, 1.45, 1.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(hx + 0.85, hy - 1.65, 0.55, 1.9);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(hx + 1.5, hy - 1.2, 0.5, 0.5);
+
+    // Heat-sensing loreal pit / nostril
+    ctx.fillStyle = p.dark;
+    ctx.fillRect(hx + 3.8, hy - 0.5, 0.8, 0.8);
+
+    ctx.restore();
+  }
+
+  /**
+   * Biome-authentic enemy coat selection:
+   * 1. Grass / Plains biome ('coop', 'trail', 'juvenile', 'fields'): regular + other non-arctic coats (NO Arctic White).
+   * 2. Jungle biome ('jungle'): exact same non-arctic coats as Plains (NO Arctic White), plus all 4 snake morphs.
+   * 3. Snowy / Arctic biome ('storm', 'snowy'): ONLY Arctic White and regular coat (NOT the rest).
+   */
+  private getBiomeEnemyVariant(enemy: Enemy, levelTheme?: LevelConfig['theme']): number {
+    if (enemy.type === 'snake') {
+      return this.hashVariant(enemy.id, 4);
+    }
+
+    const isSnowy = levelTheme === 'storm' || levelTheme === 'snowy';
+    let allowed: number[];
+
+    if (enemy.type === 'wolf') {
+      // Wolf palettes: 0=Timber Grey (regular), 1=Arctic White, 2=Cinnamon, 3=Melanistic Black
+      allowed = isSnowy ? [0, 1] : [0, 2, 3];
+    } else if (enemy.type === 'fox') {
+      // Fox palettes: 0=Red Fox (regular), 1=Silver Fox, 2=Cross Fox, 3=Arctic White
+      allowed = isSnowy ? [0, 3] : [0, 1, 2];
+    } else {
+      // Bear palettes: 0=Grizzly Brown (regular), 1=Kodiak Cinnamon, 2=Polar/Arctic White, 3=Black Bear
+      allowed = isSnowy ? [0, 2] : [0, 1, 3];
+    }
+
+    return allowed[this.hashVariant(enemy.id, allowed.length)];
+  }
+
+  // --- Enemies (Wolf, Fox, Snake, Bear): Render in-combat on platforms ---
+
+  public renderEnemy(enemy: Enemy, camera: Camera, levelTheme?: LevelConfig['theme']) {
     if (enemy.state === 'defeated') return;
     const ctx = this.ctx;
     const sx = enemy.x - camera.x;
@@ -5061,19 +6683,22 @@ export class GameRenderer {
     ctx.save();
 
     if (enemy.hurtTimer > 0) {
-      // Subtle hurt blink/alpha so the fox/wolf/bear texture and detail are never replaced or lost
+      // Subtle hurt blink/alpha so the creature texture and detail are never replaced or lost
       ctx.globalAlpha = 0.75;
     }
 
     const isLeft = enemy.facing === 'left';
     ctx.translate(sx + enemy.width / 2, sy + enemy.height / 2);
 
+    const variantIdx = this.getBiomeEnemyVariant(enemy, levelTheme);
     if (enemy.type === 'wolf') {
-      this.drawWolfSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer);
+      this.drawWolfSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx);
     } else if (enemy.type === 'fox') {
-      this.drawFoxSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer);
+      this.drawFoxSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx);
+    } else if (enemy.type === 'snake') {
+      this.drawSnakeSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx);
     } else {
-      this.drawBearSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer);
+      this.drawBearSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx);
     }
 
     const halfW = enemy.width / 2;
@@ -5264,17 +6889,17 @@ export class GameRenderer {
         ctx.fillRect(rx - 4, groundY - 22 - Math.sin(time * 14) * 6, 8, 8);
       });
 
-      const beastLabel = waveType === 'wolf' ? 'WOLVES' : (waveType === 'fox' ? 'FOXES' : 'BEARS');
+      const beastLabel = waveType === 'wolf' ? 'WOLVES' : (waveType === 'fox' ? 'FOXES' : (waveType === 'snake' ? 'VENOMOUS SNAKES' : 'BEARS'));
       ctx.textAlign = 'center';
       ctx.font = '700 12px "Silkscreen", monospace';
-      ctx.fillStyle = pulse > 0.5 ? '#f5d0fe' : '#fde047';
-      ctx.shadowColor = '#7e22ce';
+      ctx.fillStyle = waveType === 'snake' ? (pulse > 0.5 ? '#86efac' : '#fde047') : (pulse > 0.5 ? '#f5d0fe' : '#fde047');
+      ctx.shadowColor = waveType === 'snake' ? '#15803d' : '#7e22ce';
       ctx.shadowBlur = 8;
       ctx.fillText(`⚠ COCKATRICE SUMMONING ${beastLabel}! ⚠`, this.canvas.width / 2, 96);
       ctx.restore();
     } else if (boss.state === 'waiting_summons') {
       const waveType = boss.summonWaveType || 'wolf';
-      const beastLabel = waveType === 'wolf' ? 'WOLVES' : (waveType === 'fox' ? 'FOXES' : 'BEARS');
+      const beastLabel = waveType === 'wolf' ? 'WOLVES' : (waveType === 'fox' ? 'FOXES' : (waveType === 'snake' ? 'SNAKES' : 'BEARS'));
       const pulse = 0.65 + Math.sin(time * 8) * 0.35;
       const bannerW = Math.min(480, this.canvas.width - 28);
       const bannerX = (this.canvas.width - bannerW) / 2;
@@ -5283,7 +6908,7 @@ export class GameRenderer {
       ctx.save();
       ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
       ctx.fillRect(bannerX, bannerY, bannerW, 26);
-      ctx.strokeStyle = `rgba(192, 132, 252, ${pulse})`;
+      ctx.strokeStyle = waveType === 'snake' ? `rgba(74, 222, 128, ${pulse})` : `rgba(192, 132, 252, ${pulse})`;
       ctx.lineWidth = 2;
       ctx.strokeRect(bannerX, bannerY, bannerW, 26);
       ctx.textAlign = 'center';
@@ -5532,15 +7157,21 @@ export class GameRenderer {
       ctx.fillRect(-7, 14 + bodyBob, 2, 1);
       ctx.restore();
     } else if (marks === 0 || isRegrowing) {
-      // Regrown healthy scales & pristine plumage details!
+      // Layered iridescent reptile-bird dorsal scales with metallic jade sheen
       ctx.save();
       ctx.strokeStyle = isRegrowing ? '#86efac' : '#34d399';
-      ctx.lineWidth = 1.2;
-      for (let r = 0; r < 5; r++) {
-        ctx.beginPath();
-        ctx.arc(-8 + r * 7, 8 + bodyBob, 5, Math.PI * 0.2, Math.PI * 0.8);
-        ctx.stroke();
+      ctx.lineWidth = 1.4;
+      for (let row = 0; row < 2; row++) {
+        for (let r = 0; r < 6; r++) {
+          ctx.beginPath();
+          ctx.arc(-14 + r * 7 + (row % 2) * 3.5, 4 + row * 7 + bodyBob, 4.8, Math.PI * 0.15, Math.PI * 0.85);
+          ctx.stroke();
+        }
       }
+      // Subtle specular scale glint
+      ctx.fillStyle = isRegrowing ? '#fef08a' : 'rgba(167, 243, 208, 0.5)';
+      ctx.fillRect(-4, 2 + bodyBob, 5, 2);
+      ctx.fillRect(8, 9 + bodyBob, 4, 1.8);
       if (isRegrowing) {
         const blink = Math.sin(time * 16) > 0;
         ctx.fillStyle = blink ? '#fef08a' : '#ffffff';
@@ -5622,14 +7253,24 @@ export class GameRenderer {
       ctx.fill();
     }
 
-    // Glowing amber wing vein lines
+    // Glowing amber wing vein lines & anatomical wyvern finger ribs
+    ctx.strokeStyle = '#022c22';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(35, -20); ctx.lineTo(28, 16);
+    ctx.moveTo(32, -20); ctx.lineTo(10, 22);
+    ctx.moveTo(22, -20); ctx.lineTo(-8, 22);
+    ctx.stroke();
+
     ctx.strokeStyle = '#facc15';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.4;
     ctx.beginPath();
     ctx.moveTo(34, -20);
     ctx.lineTo(15, 12);
     ctx.moveTo(18, -20);
     ctx.lineTo(2, 18);
+    ctx.moveTo(4, -18);
+    ctx.lineTo(-14, 15);
     ctx.stroke();
 
     // Emerald trailing flight feathers
@@ -5655,7 +7296,7 @@ export class GameRenderer {
     }
     ctx.restore();
 
-    // 5. Extended Muscular Scaled Serpent Neck
+    // 5. Extended Muscular Scaled Serpent Neck with Feathered Rooster Hackle Ruff
     ctx.fillStyle = '#047857';
     ctx.beginPath();
     if (isSlumpedLookingDown) {
@@ -5671,6 +7312,19 @@ export class GameRenderer {
     }
     ctx.closePath();
     ctx.fill();
+
+    // Layered rooster-serpent hackle ruff transitioning neck to torso
+    if (!isSlumpedLookingDown) {
+      ctx.fillStyle = '#065f46';
+      for (let hIdx = 0; hIdx < 4; hIdx++) {
+        ctx.beginPath();
+        ctx.moveTo(18 + hIdx * 5, -6 + hIdx * 2 + bodyBob);
+        ctx.lineTo(13 + hIdx * 5, 5 + hIdx * 2 + bodyBob);
+        ctx.lineTo(24 + hIdx * 5, 1 + hIdx * 2 + bodyBob);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
 
     // Throat scutes
     ctx.fillStyle = '#dc2626';
@@ -5758,8 +7412,17 @@ export class GameRenderer {
     ctx.closePath();
     ctx.fill();
 
-    // Sharp Ivory Dragon Fangs inside the open maw!
+    // Molten furnace glow inside open maw + sharp ivory dragon fangs!
     if (jawDrop > 3) {
+      const mawGlow = ctx.createRadialGradient(headX + 18, headY + 5 + jawDrop * 0.4, 1, headX + 18, headY + 5 + jawDrop * 0.4, 14);
+      mawGlow.addColorStop(0, 'rgba(254, 240, 138, 0.92)');
+      mawGlow.addColorStop(0.55, 'rgba(249, 115, 22, 0.65)');
+      mawGlow.addColorStop(1, 'rgba(185, 28, 28, 0)');
+      ctx.fillStyle = mawGlow;
+      ctx.beginPath();
+      ctx.ellipse(headX + 18, headY + 5 + jawDrop * 0.45, 11, 5 + jawDrop * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+
       ctx.fillStyle = '#ffffff';
       for (let t = 0; t < 3; t++) {
         ctx.beginPath();
@@ -6470,8 +8133,7 @@ export class GameRenderer {
     if (isIntro) {
       const introDialogues = [
         "who dares enter my realm?",
-        "well.. i guess i need to spice things up!",
-        "when you defeat me.. it will be the last thing you will ever know"
+        "well.. i guess i need to spice things up!"
       ];
       fullText = introDialogues[boss.dialogueIndex] || '';
     } else {
@@ -7012,6 +8674,7 @@ export class GameRenderer {
 
     const isBlinking = isGrounded && !isMoving && ((time % 3.6) < 0.14);
 
+    const PLAYER_VISUAL_SCALE = 0.72;
     this.renderCharacterModel(
       this.ctx,
       cx,
@@ -7022,8 +8685,9 @@ export class GameRenderer {
       effSword,
       {
         facing: player.facing,
-        width: player.width,
-        height: player.height,
+        width: player.width / PLAYER_VISUAL_SCALE,
+        height: player.height / PLAYER_VISUAL_SCALE,
+        scale: PLAYER_VISUAL_SCALE,
         time,
         isAttacking: player.isAttacking,
         isBlocking: player.isBlocking,
@@ -7038,6 +8702,22 @@ export class GameRenderer {
         fireResistActive: Boolean(player.fireResistTimer && player.fireResistTimer > 0),
       }
     );
+
+    // Subtle toxic-emerald venom shimmer around the chicken while poisoned
+    if ((player.poisonTimer ?? 0) > 0) {
+      const ctx = this.ctx;
+      const pulse = 0.25 + Math.sin(time * 9) * 0.14;
+      ctx.save();
+      const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, Math.max(player.width, player.height) * 0.85);
+      grad.addColorStop(0, `rgba(74, 222, 128, ${pulse})`);
+      grad.addColorStop(0.65, `rgba(22, 163, 74, ${pulse * 0.55})`);
+      grad.addColorStop(1, 'rgba(22, 163, 74, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(player.width, player.height) * 0.85, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   /**
@@ -7960,7 +9640,7 @@ export class GameRenderer {
         ctx.ellipse(0, walkBounce, halfW - 0.5, halfH + 0.5 + jumpStretch, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // 2. Flowing Cape of Hackles sweeping down back
+        // 2. Flowing Cape of Hackles + Realistic Wing Covert Scallops
         ctx.fillStyle = pal.hackles[0];
         ctx.beginPath();
         ctx.moveTo(-6, -halfH + 4 + walkBounce);
@@ -7974,6 +9654,14 @@ export class GameRenderer {
         ctx.fillRect(-3, -halfH + 5 + walkBounce, 11, 8);
         ctx.fillStyle = pal.hackles[2];
         ctx.fillRect(-1, -halfH + 7 + walkBounce, 7, 5);
+        // Layered wing covert feather scallops along flank
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.18)';
+        ctx.lineWidth = 1.1;
+        for (let fw = 0; fw < 3; fw++) {
+          ctx.beginPath();
+          ctx.arc(-6 + fw * 5, 4 + walkBounce, 4.2, 0.25, Math.PI - 0.25);
+          ctx.stroke();
+        }
 
         // 3. SPECTACULAR FLOWING IRIDESCENT SICKLE TAIL PLUMES!
         // Outer Colossal Sickle
@@ -8072,12 +9760,16 @@ export class GameRenderer {
         // 7. Visible Pixel Armor on Adult Rooster
         this.drawPixelArmor(ctx, 'rooster', 'adult', armor, walkBounce, halfW, halfH, opts.skin, time);
 
-        // 8. Dinosaurian Scaled Legs with Lethal Calcified Fighting Spurs!
+        // 8. Dinosaurian Scaled Legs with Horizontal Tarsal Scales & Fighting Spurs!
         const footY = isJumping ? halfH - 4 : halfH - 1.5;
         ctx.fillStyle = '#c2410c';
         // Back leg
         ctx.fillRect(-7 + footCycle, footY - 5, 5, 7.5);
         ctx.fillRect(-9 + footCycle, footY + 1.5, 9.5, 3.5);
+        // Subtle tarsal avian scale ridges
+        ctx.fillStyle = '#7c2d12';
+        ctx.fillRect(-6.5 + footCycle, footY - 3, 4, 0.9);
+        ctx.fillRect(-6.5 + footCycle, footY - 1, 4, 0.9);
         // Deadly calcified ivory fighting spur protruding backward!
         ctx.fillStyle = '#f8fafc';
         ctx.beginPath();
@@ -8092,6 +9784,9 @@ export class GameRenderer {
         ctx.fillStyle = '#c2410c';
         ctx.fillRect(4 - footCycle, footY - 5, 5, 7.5);
         ctx.fillRect(3 - footCycle, footY + 1.5, 10, 3.5);
+        ctx.fillStyle = '#7c2d12';
+        ctx.fillRect(4.5 - footCycle, footY - 3, 4, 0.9);
+        ctx.fillRect(4.5 - footCycle, footY - 1, 4, 0.9);
 
         // 9. Colossal Mighty Sword
         this.drawSword(ctx, walkBounce, isAttacking, sword === 'none' ? 'gold' : sword, true);
@@ -8119,7 +9814,7 @@ export class GameRenderer {
         ctx.ellipse(0, walkBounce, halfW + 3, halfH + 1 + jumpStretch, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Feather bars across back & breast
+        // Feather bars & layered covert scallops across back & breast
         ctx.fillStyle = pal.bars[0];
         ctx.fillRect(-8, -4 + walkBounce, 5, 3.5);
         ctx.fillRect(-4, 5 + walkBounce, 5, 3.5);
@@ -8130,6 +9825,14 @@ export class GameRenderer {
         ctx.fillRect(-6, 1 + walkBounce, 4, 2);
         ctx.fillRect(0, 3 + walkBounce, 4, 2);
         ctx.fillRect(5, -1 + walkBounce, 4, 2);
+        // Soft natural wing covert feather scallops
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.16)';
+        ctx.lineWidth = 1.05;
+        for (let fw = 0; fw < 3; fw++) {
+          ctx.beginPath();
+          ctx.arc(-6 + fw * 5, 3.5 + walkBounce, 4.1, 0.25, Math.PI - 0.25);
+          ctx.stroke();
+        }
 
         // 2. Majestic Broad Fanned Tiered Tail held with regal poise
         ctx.fillStyle = pal.tailHen[0];
@@ -8202,13 +9905,18 @@ export class GameRenderer {
         // 6. Visible Pixel Armor on Adult Hen
         this.drawPixelArmor(ctx, 'hen', 'adult', armor, walkBounce, halfW, halfH, opts.skin, time);
 
-        // 7. Sturdy smooth armored feet (no spurs, true to biology!)
+        // 7. Sturdy scaled avian feet (no spurs, true to biology!)
         const footY = isJumping ? halfH - 4 : halfH - 1.5;
         ctx.fillStyle = '#c2410c';
         ctx.fillRect(-7 + footCycle, footY - 5, 5, 7.5);
         ctx.fillRect(-8 + footCycle, footY + 1.5, 9.5, 3.5);
         ctx.fillRect(4 - footCycle, footY - 5, 5, 7.5);
         ctx.fillRect(3 - footCycle, footY + 1.5, 10, 3.5);
+        ctx.fillStyle = '#7c2d12';
+        ctx.fillRect(-6.5 + footCycle, footY - 3, 4, 0.9);
+        ctx.fillRect(-6.5 + footCycle, footY - 1, 4, 0.9);
+        ctx.fillRect(4.5 - footCycle, footY - 3, 4, 0.9);
+        ctx.fillRect(4.5 - footCycle, footY - 1, 4, 0.9);
 
         // 8. Colossal Mighty Sword
         this.drawSword(ctx, walkBounce, isAttacking, sword === 'none' ? 'gold' : sword, true);

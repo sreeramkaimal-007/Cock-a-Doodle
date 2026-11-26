@@ -14,6 +14,7 @@ interface GameHUDProps {
   armor: ArmorType;
   sword: SwordType;
   fireResistTimer?: number;
+  poisonTimer?: number;
   soundEnabled: boolean;
   musicEnabled: boolean;
   showTouchControls: boolean;
@@ -65,62 +66,76 @@ export const PixelFlameIcon: React.FC<{ className?: string }> = ({ className = '
   </svg>
 );
 
-// Retro 8-bit Pixelated Heart Component
-const PixelHeart: React.FC<{ filled: boolean; className?: string }> = ({ filled, className = '' }) => (
-  <svg
-    viewBox="0 0 10 9"
-    className={`w-5 h-5 sm:w-6 sm:h-6 transition-transform ${filled ? 'scale-100' : 'scale-90 opacity-70'} ${className}`}
-    style={{ shapeRendering: 'crispEdges' }}
-  >
-    {/* Dark brown pixel outline */}
-    <rect x="1" y="0" width="3" height="1" fill="#3b1302" />
-    <rect x="6" y="0" width="3" height="1" fill="#3b1302" />
-    <rect x="0" y="1" width="1" height="3" fill="#3b1302" />
-    <rect x="4" y="1" width="2" height="2" fill="#3b1302" />
-    <rect x="9" y="1" width="1" height="3" fill="#3b1302" />
-    <rect x="0" y="4" width="1" height="1" fill="#3b1302" />
-    <rect x="9" y="4" width="1" height="1" fill="#3b1302" />
-    <rect x="1" y="5" width="1" height="1" fill="#3b1302" />
-    <rect x="8" y="5" width="1" height="1" fill="#3b1302" />
-    <rect x="2" y="6" width="1" height="1" fill="#3b1302" />
-    <rect x="7" y="6" width="1" height="1" fill="#3b1302" />
-    <rect x="3" y="7" width="1" height="1" fill="#3b1302" />
-    <rect x="6" y="7" width="1" height="1" fill="#3b1302" />
-    <rect x="4" y="8" width="2" height="1" fill="#3b1302" />
+// Retro 8-bit Pixelated Heart Component (supports full, half, empty, and poisoned venom tint)
+const PixelHeart: React.FC<{ fillState: 'full' | 'half' | 'empty'; poisoned?: boolean; className?: string }> = ({
+  fillState,
+  poisoned = false,
+  className = '',
+}) => {
+  const baseFill = poisoned ? '#16a34a' : '#dc2626';
+  const hiFill = poisoned ? '#4ade80' : '#ef4444';
+  const emptyFill = '#1e293b';
 
-    {/* Interior Fill */}
-    {filled ? (
-      <>
-        {/* Deep Crimson/Red Base */}
-        <rect x="1" y="1" width="3" height="3" fill="#dc2626" />
-        <rect x="6" y="1" width="3" height="3" fill="#dc2626" />
-        <rect x="1" y="4" width="8" height="1" fill="#dc2626" />
-        <rect x="2" y="5" width="6" height="1" fill="#dc2626" />
-        <rect x="3" y="6" width="4" height="1" fill="#dc2626" />
-        <rect x="4" y="7" width="2" height="1" fill="#dc2626" />
+  return (
+    <svg
+      viewBox="0 0 10 9"
+      className={`w-5 h-5 sm:w-6 sm:h-6 transition-transform ${fillState !== 'empty' ? 'scale-100' : 'scale-90 opacity-70'} ${className}`}
+      style={{ shapeRendering: 'crispEdges' }}
+    >
+      {/* Dark brown pixel outline */}
+      <rect x="1" y="0" width="3" height="1" fill="#3b1302" />
+      <rect x="6" y="0" width="3" height="1" fill="#3b1302" />
+      <rect x="0" y="1" width="1" height="3" fill="#3b1302" />
+      <rect x="4" y="1" width="2" height="2" fill="#3b1302" />
+      <rect x="9" y="1" width="1" height="3" fill="#3b1302" />
+      <rect x="0" y="4" width="1" height="1" fill="#3b1302" />
+      <rect x="9" y="4" width="1" height="1" fill="#3b1302" />
+      <rect x="1" y="5" width="1" height="1" fill="#3b1302" />
+      <rect x="8" y="5" width="1" height="1" fill="#3b1302" />
+      <rect x="2" y="6" width="1" height="1" fill="#3b1302" />
+      <rect x="7" y="6" width="1" height="1" fill="#3b1302" />
+      <rect x="3" y="7" width="1" height="1" fill="#3b1302" />
+      <rect x="6" y="7" width="1" height="1" fill="#3b1302" />
+      <rect x="4" y="8" width="2" height="1" fill="#3b1302" />
 
-        {/* Vibrant Red/Scarlet Highlights */}
-        <rect x="2" y="2" width="2" height="2" fill="#ef4444" />
-        <rect x="7" y="2" width="2" height="2" fill="#ef4444" />
-        <rect x="3" y="4" width="4" height="1" fill="#ef4444" />
+      {/* Empty Slate Base */}
+      <rect x="1" y="1" width="3" height="3" fill={emptyFill} />
+      <rect x="6" y="1" width="3" height="3" fill={emptyFill} />
+      <rect x="1" y="4" width="8" height="1" fill={emptyFill} />
+      <rect x="2" y="5" width="6" height="1" fill={emptyFill} />
+      <rect x="3" y="6" width="4" height="1" fill={emptyFill} />
+      <rect x="4" y="7" width="2" height="1" fill={emptyFill} />
 
-        {/* White Pixel Glint */}
-        <rect x="1" y="1" width="1" height="1" fill="#ffffff" />
-        <rect x="2" y="1" width="1" height="1" fill="#ffffff" />
-      </>
-    ) : (
-      <>
-        {/* Empty Heart Dark Slate Fill */}
-        <rect x="1" y="1" width="3" height="3" fill="#1e293b" />
-        <rect x="6" y="1" width="3" height="3" fill="#1e293b" />
-        <rect x="1" y="4" width="8" height="1" fill="#1e293b" />
-        <rect x="2" y="5" width="6" height="1" fill="#1e293b" />
-        <rect x="3" y="6" width="4" height="1" fill="#1e293b" />
-        <rect x="4" y="7" width="2" height="1" fill="#1e293b" />
-      </>
-    )}
-  </svg>
-);
+      {/* Left Half Fill (shown for both half & full) */}
+      {fillState !== 'empty' && (
+        <>
+          <rect x="1" y="1" width="3" height="3" fill={baseFill} />
+          <rect x="1" y="4" width="4" height="1" fill={baseFill} />
+          <rect x="2" y="5" width="3" height="1" fill={baseFill} />
+          <rect x="3" y="6" width="2" height="1" fill={baseFill} />
+          <rect x="4" y="7" width="1" height="1" fill={baseFill} />
+          <rect x="2" y="2" width="2" height="2" fill={hiFill} />
+          <rect x="3" y="4" width="2" height="1" fill={hiFill} />
+          <rect x="1" y="1" width="1" height="1" fill="#ffffff" />
+          <rect x="2" y="1" width="1" height="1" fill="#ffffff" />
+        </>
+      )}
+
+      {/* Right Half Fill (shown for full only) */}
+      {fillState === 'full' && (
+        <>
+          <rect x="6" y="1" width="3" height="3" fill={baseFill} />
+          <rect x="5" y="4" width="4" height="1" fill={baseFill} />
+          <rect x="5" y="5" width="3" height="1" fill={baseFill} />
+          <rect x="5" y="6" width="2" height="1" fill={baseFill} />
+          <rect x="5" y="7" width="1" height="1" fill={baseFill} />
+          <rect x="7" y="2" width="2" height="2" fill={hiFill} />
+          <rect x="5" y="4" width="2" height="1" fill={hiFill} />
+        </>
+      )}
+    </svg>
+  );
+};
 
 // Retro 8-bit Pixelated Coin Component
 const PixelCoin: React.FC<{ className?: string }> = ({ className = 'w-5 h-5 sm:w-6 sm:h-6' }) => (
@@ -242,6 +257,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   armor,
   sword,
   fireResistTimer = 0,
+  poisonTimer = 0,
   soundEnabled,
   musicEnabled,
   showTouchControls,
@@ -255,6 +271,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onLogOut,
 }) => {
   const isFireResistActive = fireResistTimer > 0;
+  const isPoisoned = poisonTimer > 0;
 
   return (
     <div className="absolute top-0 left-0 right-0 pt-5 sm:pt-7 md:pt-8 px-3.5 sm:px-6 md:px-8 flex flex-col gap-2 pointer-events-none select-none z-20">
@@ -263,15 +280,35 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         {/* Hearts & Status Buff Container */}
         <div className="pointer-events-auto flex items-center gap-2">
           {/* Hearts Container - Chunky 8-Bit Pixel Frame */}
-          <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-900 border-[3px] border-black px-2.5 sm:px-3 py-1.5 shadow-[3px_3px_0_#000000]">
-            {Array.from({ length: maxHealth }).map((_, i) => (
-              <PixelHeart
-                key={i}
-                filled={i < health}
-                className="w-4.5 h-4.5 sm:w-5 sm:h-5 md:w-6 md:h-6"
-              />
-            ))}
+          <div className={`flex items-center gap-1.5 sm:gap-2 bg-slate-900 border-[3px] ${isPoisoned ? 'border-emerald-500' : 'border-black'} px-2.5 sm:px-3 py-1.5 shadow-[3px_3px_0_#000000]`}>
+            {Array.from({ length: maxHealth }).map((_, i) => {
+              const fillState: 'full' | 'half' | 'empty' =
+                health >= i + 1 ? 'full' : (health >= i + 0.5 ? 'half' : 'empty');
+              return (
+                <PixelHeart
+                  key={i}
+                  fillState={fillState}
+                  poisoned={isPoisoned}
+                  className="w-4.5 h-4.5 sm:w-5 sm:h-5 md:w-6 md:h-6"
+                />
+              );
+            })}
           </div>
+
+          {/* Active Snake Venom Poison Status Indicator */}
+          {isPoisoned && (
+            <div
+              className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-950 to-lime-950 border-[3px] border-black px-2 sm:px-2.5 py-1 shadow-[3px_3px_0_#000000]"
+              title="Poisoned by Jungle Viper venom: slowly draining half of your health!"
+            >
+              <span className="font-pixel-arcade text-[8px] sm:text-[9px] text-emerald-400 font-bold tracking-tight drop-shadow-[0_1px_0_#052e16]">
+                POISONED
+              </span>
+              <span className="font-pixel-arcade text-[9px] sm:text-[10px] text-lime-300 font-bold tabular-nums drop-shadow-[0_1px_0_#052e16]">
+                {Math.ceil(poisonTimer)}s
+              </span>
+            </div>
+          )}
 
           {/* Small Flame Icon Buff for Fire-Resist on Player's Shield */}
           {isFireResistActive && (
