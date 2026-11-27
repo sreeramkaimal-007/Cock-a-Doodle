@@ -1,4 +1,4 @@
-import { LevelConfig, Platform, Coin, TreasureChest, Checkpoint, VolcanoHazard, BoulderHazard, ThundercloudHazard, Enemy, FarmerMiniBoss } from './types';
+import { LevelConfig, Platform, Coin, TreasureChest, Checkpoint, VolcanoHazard, BoulderHazard, ThundercloudHazard, Enemy, FarmerMiniBoss, SeaFish, SeaFishSpecies } from './types';
 
 function hashId(id: string): number {
   let h = 2166136261;
@@ -279,10 +279,34 @@ export const LEVELS: LevelConfig[] = [
       ...coinArc('c1_c3', 800, 350, 3, 30),
       ...coinLine('c1_c4', 1150, 440, 4),
     ],
-    chests: [],
-    checkpoints: [cp('cp1', 640, 420)],
+    chests: [
+      {
+        id: 'c1_ch1',
+        x: 680,
+        y: 388,
+        width: 36,
+        height: 32,
+        opened: false,
+        rewardType: 'coins',
+        rewardAmount: 25,
+        animProgress: 0,
+      },
+      {
+        id: 'c1_ch2',
+        x: 1185,
+        y: 448,
+        width: 36,
+        height: 32,
+        opened: false,
+        rewardType: 'coins',
+        rewardAmount: 35,
+        animProgress: 0,
+      },
+    ],
+    brushPickup: { x: 184, y: 480, taken: false },
+    checkpoints: [cp('cp1', 600, 420)],
     farmer: farmerMiniBoss('farmer_lvl1', 42, 480, 10, 214),
-    hint: 'Use A/D to walk, Space to jump through the fence gaps, and X / K to peck Old Farmer Jed!'
+    hint: 'Pick up the Archaeology Brush (for the Desert Lands later!), open treasure chests, hop fence gaps, and peck Old Farmer Jed!'
   },
   {
     id: 2,
@@ -553,7 +577,7 @@ export const LEVELS: LevelConfig[] = [
       p('j10_m2', 1530, 270, 110, 22, 'wood', { isMoving: true, moveRangeX: 0, moveRangeY: 80, moveSpeed: 1.2, startX: 1530, startY: 270 }),
       p('j10_wolf2_plat', 1740, 420, 280, 24, 'grass'),
       p('j10_f2', 2090, 480, 510, 120, 'grass'),
-      p('j10_high', 1040, 270, 140, 22, 'stone'),
+      p('j10_high', 1040, 315, 140, 22, 'stone'),
     ],
     coins: [
       ...coinLine('j10_1', 200, 440, 4),
@@ -563,14 +587,14 @@ export const LEVELS: LevelConfig[] = [
       ...coinLine('j10_5', 2150, 440, 4),
     ],
     chests: [
-      chest('j10_chest', 1080, 244, 'coins', 25),
+      chest('j10_chest', 1090, 283, 'iron_sword', 1),
     ],
     checkpoints: [cp('j10_cp', 1395, 360)],
     enemies: [
       wolf('j10_w1', 1060, 396, 990, 1240),
       wolf('j10_w2', 1820, 396, 1750, 2000),
     ],
-    hint: 'Stomp wolves on the head or leap over them to survive!'
+    hint: 'You have no sword yet! Jump up and open the chest above the first wolf to get your Sword!'
   },
 
   // ================= WORLD 4: THE JUNGLE OF FIRE (Levels 11-19) =================
@@ -1345,11 +1369,11 @@ export const LEVELS: LevelConfig[] = [
     hint: 'Victory is in sight! The green fields lie just beyond the mountain gate!'
   },
 
-  // ================= WORLD 6: THE GREEN FIELDS • SUMMIT ARENA (Level 30 - Grand Finale Boss) =================
+  // ================= WORLD 6: THE BOSS (Level 30 - Cockatrice Boss) =================
   {
     id: 30,
     world: 6,
-    worldName: 'World 6:the End',
+    worldName: 'the Boss',
     title: 'The Cockatrice Lair',
     subtitle: 'who dares enter my realm? Defeat the legendary Cockatrice!',
     worldWidth: 1600,
@@ -1533,14 +1557,16 @@ export const LEVELS: LevelConfig[] = [
       });
     }
 
+    // Sand Cats & sun-bleached bones live along the warm golden background dune ridge!
+    const bgDuneY = 418;
     const boneMap = new Map<string, { id: string; x: number; y: number; meatRemaining: number }>();
     spec.sandCatSpots.forEach((sc, bIdx) => {
-      const key = `${sc.boneX}_${sc.y}`;
+      const key = `${sc.boneX}_${bgDuneY}`;
       if (!boneMap.has(key)) {
         boneMap.set(key, {
           id: `bone_${spec.id}_${bIdx}`,
           x: sc.boneX,
-          y: sc.y,
+          y: bgDuneY,
           meatRemaining: 100,
         });
       }
@@ -1550,7 +1576,7 @@ export const LEVELS: LevelConfig[] = [
     const sandCats = spec.sandCatSpots.map((sc, sIdx) => ({
       id: `sandcat_${spec.id}_${sIdx}`,
       x: sc.x,
-      y: sc.y,
+      y: bgDuneY,
       vx: 0,
       patrolLeft: sc.left,
       patrolRight: sc.right,
@@ -1560,7 +1586,7 @@ export const LEVELS: LevelConfig[] = [
       animTimer: sIdx * 0.9,
       isBaby: sc.baby,
       variantIndex: sc.variant,
-      targetBoneId: boneMap.get(`${sc.boneX}_${sc.y}`)?.id,
+      targetBoneId: boneMap.get(`${sc.boneX}_${bgDuneY}`)?.id,
     }));
 
     const falcons = spec.falconXs.map((fx, fIdx) => ({
@@ -1604,7 +1630,7 @@ export const LEVELS: LevelConfig[] = [
       facing: 'left' as const,
       health: 3,
       maxHealth: 3,
-      speed: 74 + idx * 5,
+      speed: 1.45 + idx * 0.08,
       damage: 1,
       state: 'patrol' as const,
       detectionRadius: 190,
@@ -1612,6 +1638,72 @@ export const LEVELS: LevelConfig[] = [
       animTimer: eIdx * 0.7,
       hurtTimer: 0,
     }));
+
+    // Prickly Desert Cactuses (Saguaro Giant, Prickly Pear, and Golden Barrel) standing on desert ground & mesas!
+    const cactiLayouts: Array<Array<{ x: number; y: number; variant: 0 | 1 | 2; flower?: boolean }>> = [
+      // Stage 31: Gentle intro with 4 distinct desert cactuses
+      [
+        { x: 465, y: 460, variant: 1, flower: true },
+        { x: 935, y: 460, variant: 0, flower: true },
+        { x: 1645, y: 460, variant: 2, flower: true },
+        { x: 2140, y: 460, variant: 0, flower: false },
+      ],
+      // Stage 32: 5 prickly cactuses across ground & ruin ledge
+      [
+        { x: 420, y: 460, variant: 0, flower: true },
+        { x: 675, y: 460, variant: 2, flower: true },
+        { x: 1185, y: 460, variant: 1, flower: true },
+        { x: 1615, y: 350, variant: 2, flower: true },
+        { x: 2295, y: 460, variant: 0, flower: true },
+      ],
+      // Stage 33: Canyon cactuses
+      [
+        { x: 390, y: 460, variant: 1, flower: true },
+        { x: 650, y: 460, variant: 0, flower: false },
+        { x: 1170, y: 460, variant: 2, flower: true },
+        { x: 1685, y: 460, variant: 0, flower: true },
+        { x: 2110, y: 460, variant: 1, flower: true },
+        { x: 2480, y: 460, variant: 2, flower: true },
+      ],
+      // Stage 34: Pharaoh's Ruin Ridge
+      [
+        { x: 430, y: 460, variant: 0, flower: true },
+        { x: 680, y: 460, variant: 1, flower: true },
+        { x: 1140, y: 460, variant: 0, flower: false },
+        { x: 1610, y: 350, variant: 2, flower: true },
+        { x: 1755, y: 460, variant: 1, flower: true },
+        { x: 2375, y: 460, variant: 0, flower: true },
+      ],
+      // Stage 35: Mirage Citadel Pass
+      [
+        { x: 385, y: 460, variant: 2, flower: true },
+        { x: 645, y: 460, variant: 0, flower: true },
+        { x: 1155, y: 460, variant: 1, flower: true },
+        { x: 1615, y: 350, variant: 2, flower: true },
+        { x: 1765, y: 460, variant: 0, flower: true },
+        { x: 2150, y: 460, variant: 1, flower: true },
+        { x: 2680, y: 460, variant: 0, flower: true },
+      ],
+    ];
+
+    const cacti = (cactiLayouts[idx] || cactiLayouts[0]).map((c, cIdx) => {
+      const dims =
+        c.variant === 0
+          ? { width: 32, height: 50 } // Saguaro Giant
+          : c.variant === 1
+            ? { width: 34, height: 34 } // Prickly Pear
+            : { width: 28, height: 26 }; // Golden Barrel
+      return {
+        id: `cactus_${spec.id}_${cIdx}`,
+        x: c.x,
+        y: c.y,
+        width: dims.width,
+        height: dims.height,
+        variant: c.variant,
+        hasFlower: c.flower ?? true,
+        hitCooldown: 0,
+      };
+    });
 
     return {
       id: spec.id,
@@ -1635,8 +1727,10 @@ export const LEVELS: LevelConfig[] = [
           height: 32,
           opened: false,
           rewardType: idx % 2 === 0 ? 'coins' : 'heart',
-          rewardAmount: idx % 2 === 0 ? 45 : 1,
+          rewardAmount: idx % 2 === 0 ? 55 : 1,
           animProgress: 0,
+          isDigSite: true,
+          digProgress: 0,
         },
         {
           id: `ch_d${spec.id}_2`,
@@ -1645,9 +1739,11 @@ export const LEVELS: LevelConfig[] = [
           width: 36,
           height: 32,
           opened: false,
-          rewardType: 'coins',
-          rewardAmount: 60,
+          rewardType: idx === 2 || idx === 4 ? 'netherite_armor' : 'coins',
+          rewardAmount: idx === 2 || idx === 4 ? 1 : 75,
           animProgress: 0,
+          isDigSite: true,
+          digProgress: 0,
         },
       ],
       checkpoints: [
@@ -1657,10 +1753,11 @@ export const LEVELS: LevelConfig[] = [
       falcons,
       sandCats,
       desertBones,
+      cacti,
       hasShieldSnatchCutscene: spec.hasCutscene,
       hint: spec.hasCutscene
-        ? 'A Desert Falcon snatched your Royal Shield! Press ▼ Down Arrow (or S) to CROUCH under swooping Falcons!'
-        : 'Hold ▼ Down Arrow (or S) to crouch beneath swooping Desert Falcons — Sand Cats & kittens are peaceful!',
+        ? 'A Falcon snatched your Shield! Hold ▼ Down to CROUCH under Falcons, jump over prickly Cactuses, and brush desert mounds (X)!'
+        : 'Hold ▼ Down to crouch under Falcons, leap over prickly Desert Cactuses, and spot Sand Cats roaming by the pyramids!',
     };
   }),
 
@@ -1678,12 +1775,12 @@ export const LEVELS: LevelConfig[] = [
       treeXs: [315, 430, 545],
       woodTarget: 3,
       rockSpecs: [
-        { x: 1160, laneY: -36 },
-        { x: 1440, laneY: 36 },
-        { x: 1720, laneY: -10 },
-        { x: 2040, laneY: 42 },
-        { x: 2340, laneY: -40 },
-        { x: 2610, laneY: 16 },
+        { x: 1180, laneY: -78 },
+        { x: 1470, laneY: 74 },
+        { x: 1760, laneY: -18 },
+        { x: 2070, laneY: 88 },
+        { x: 2370, laneY: -86 },
+        { x: 2640, laneY: 32 },
       ],
       sharkRanges: [
         { left: 1240, right: 1760 },
@@ -1699,14 +1796,14 @@ export const LEVELS: LevelConfig[] = [
       treeXs: [310, 425, 540],
       woodTarget: 3,
       rockSpecs: [
-        { x: 1120, laneY: 34 },
-        { x: 1360, laneY: -40 },
-        { x: 1580, laneY: 6 },
-        { x: 1840, laneY: -44 },
-        { x: 2060, laneY: 40 },
-        { x: 2320, laneY: -14 },
-        { x: 2580, laneY: 44 },
-        { x: 2840, laneY: -32 },
+        { x: 1140, laneY: 72 },
+        { x: 1390, laneY: -86 },
+        { x: 1620, laneY: 14 },
+        { x: 1880, laneY: -94 },
+        { x: 2100, laneY: 84 },
+        { x: 2360, laneY: -30 },
+        { x: 2610, laneY: 92 },
+        { x: 2870, laneY: -70 },
       ],
       sharkRanges: [
         { left: 1180, right: 1660 },
@@ -1723,15 +1820,15 @@ export const LEVELS: LevelConfig[] = [
       treeXs: [295, 395, 495, 590],
       woodTarget: 4,
       rockSpecs: [
-        { x: 1140, laneY: -42 },
-        { x: 1350, laneY: 32 },
-        { x: 1590, laneY: -16 },
-        { x: 1810, laneY: 46 },
-        { x: 2040, laneY: -44 },
-        { x: 2260, laneY: 12 },
-        { x: 2490, laneY: -38 },
-        { x: 2730, laneY: 42 },
-        { x: 2980, laneY: -18 },
+        { x: 1160, laneY: -88 },
+        { x: 1380, laneY: 68 },
+        { x: 1620, laneY: -34 },
+        { x: 1850, laneY: 94 },
+        { x: 2080, laneY: -92 },
+        { x: 2300, laneY: 26 },
+        { x: 2530, laneY: -80 },
+        { x: 2770, laneY: 88 },
+        { x: 3020, laneY: -36 },
       ],
       sharkRanges: [
         { left: 1200, right: 1680 },
@@ -1749,17 +1846,17 @@ export const LEVELS: LevelConfig[] = [
       treeXs: [295, 395, 495, 590],
       woodTarget: 4,
       rockSpecs: [
-        { x: 1120, laneY: 0 },
-        { x: 1330, laneY: -46 },
-        { x: 1520, laneY: 42 },
-        { x: 1740, laneY: -24 },
-        { x: 1960, laneY: 36 },
-        { x: 2170, laneY: -46 },
-        { x: 2380, laneY: 16 },
-        { x: 2600, laneY: -40 },
-        { x: 2820, laneY: 44 },
-        { x: 3040, laneY: -18 },
-        { x: 3260, laneY: 32 },
+        { x: 1140, laneY: 0 },
+        { x: 1360, laneY: -94 },
+        { x: 1560, laneY: 88 },
+        { x: 1780, laneY: -50 },
+        { x: 2000, laneY: 76 },
+        { x: 2210, laneY: -96 },
+        { x: 2420, laneY: 32 },
+        { x: 2640, laneY: -84 },
+        { x: 2860, laneY: 92 },
+        { x: 3080, laneY: -38 },
+        { x: 3290, laneY: 68 },
       ],
       sharkRanges: [
         { left: 1160, right: 1620 },
@@ -1778,18 +1875,18 @@ export const LEVELS: LevelConfig[] = [
       treeXs: [295, 395, 495, 590],
       woodTarget: 4,
       rockSpecs: [
-        { x: 1120, laneY: -42 },
-        { x: 1320, laneY: 38 },
-        { x: 1530, laneY: -8 },
-        { x: 1730, laneY: -46 },
-        { x: 1930, laneY: 42 },
-        { x: 2140, laneY: 4 },
-        { x: 2360, laneY: -44 },
-        { x: 2560, laneY: 38 },
-        { x: 2780, laneY: -22 },
-        { x: 2990, laneY: 44 },
-        { x: 3210, laneY: -40 },
-        { x: 3430, laneY: 12 },
+        { x: 1140, laneY: -88 },
+        { x: 1350, laneY: 82 },
+        { x: 1560, laneY: -18 },
+        { x: 1760, laneY: -96 },
+        { x: 1960, laneY: 88 },
+        { x: 2170, laneY: 12 },
+        { x: 2390, laneY: -92 },
+        { x: 2590, laneY: 80 },
+        { x: 2810, laneY: -46 },
+        { x: 3020, laneY: 92 },
+        { x: 3240, laneY: -82 },
+        { x: 3460, laneY: 28 },
       ],
       sharkRanges: [
         { left: 1180, right: 1660 },
@@ -1803,7 +1900,8 @@ export const LEVELS: LevelConfig[] = [
   ].map((spec, idx): LevelConfig => {
     const w = spec.worldWidth;
     const waterStartX = 840;
-    const waterLevelY = 426;
+    // Spacious wide open ocean! Water spans from y=240 down to y=540 (300px tall sea), center sailing lane at y=385!
+    const waterLevelY = 385;
     const islandStartX = w - 340;
 
     const platforms: LevelConfig['platforms'] = [
@@ -1814,9 +1912,9 @@ export const LEVELS: LevelConfig[] = [
     ];
 
     const coins: LevelConfig['coins'] = [];
-    // Shore coins + ocean lane coins
+    // Shore coins + wide ocean lane coins
     for (let cx = 340; cx < islandStartX - 100; cx += 210) {
-      const seaLaneY = cx < waterStartX ? 416 : waterLevelY - 24 + ((cx % 3) - 1) * 34;
+      const seaLaneY = cx < waterStartX ? 416 : waterLevelY + ((cx % 5) - 2) * 44;
       coins.push({
         id: `c_co${spec.id}_${cx}`,
         x: cx,
@@ -1842,6 +1940,7 @@ export const LEVELS: LevelConfig[] = [
       variant: (tIdx % 2 === 0 ? 'palm' : 'coastal_pine') as 'palm' | 'coastal_pine',
     }));
 
+    const chestRockIndex = Math.min(2, Math.max(0, spec.rockSpecs.length - 1));
     const seaRocks = spec.rockSpecs.map((rs, rIdx) => ({
       id: `rock_${spec.id}_${rIdx}`,
       x: rs.x,
@@ -1852,15 +1951,17 @@ export const LEVELS: LevelConfig[] = [
       hitCooldown: 0,
       variant: rIdx % 3,
       foamPhase: rIdx * 1.1,
+      hasChest: rIdx === chestRockIndex,
     }));
+    const chestRock = seaRocks[chestRockIndex];
 
     const sharks = spec.sharkRanges.map((sr, sIdx) => ({
       id: `shark_${spec.id}_${sIdx}`,
       x: (sr.left + sr.right) / 2,
-      y: waterLevelY + 20,
+      y: waterLevelY + 24 + ((sIdx % 3) - 1) * 42,
       vx: 0,
       vy: 0,
-      baseY: waterLevelY + 18,
+      baseY: waterLevelY + 24 + ((sIdx % 3) - 1) * 42,
       patrolLeft: sr.left,
       patrolRight: sr.right,
       facing: (sIdx % 2 === 0 ? 'left' : 'right') as 'left' | 'right',
@@ -1873,9 +1974,45 @@ export const LEVELS: LevelConfig[] = [
       variantIndex: (sIdx + idx) % 4,
     }));
 
+    // Vibrant swimming ocean fish of 5 distinct real-life species!
+    const fishSpeciesList: SeaFishSpecies[] = [
+      'clownfish',
+      'blue_tang',
+      'red_snapper',
+      'golden_angelfish',
+      'silver_mackerel',
+    ];
+    const fishCount = 18 + idx * 2;
+    const seaSpan = Math.max(400, (islandStartX - 60) - (waterStartX + 60));
+    const seaFish: SeaFish[] = Array.from({ length: fishCount }).map((_, fIdx) => {
+      const fx = waterStartX + 75 + Math.round((fIdx / fishCount) * seaSpan + ((fIdx * 53) % 70) - 35);
+      const depthBand = fIdx % 5;
+      // Spread across upper, mid, and lower ocean waters (surface at y=240, bottom at y=540)
+      const baseY = 266 + depthBand * 52 + ((fIdx * 19) % 24);
+      const dir = fIdx % 2 === 0 ? 1 : -1;
+      const patrolHalf = 130 + (fIdx % 3) * 55;
+      const minX = Math.max(waterStartX + 36, fx - patrolHalf);
+      const maxX = Math.min(islandStartX - 36, fx + patrolHalf);
+      const speed = 28 + (fIdx % 4) * 11;
+      return {
+        id: `fish_${spec.id}_${fIdx}`,
+        x: Math.max(minX, Math.min(maxX, fx)),
+        y: baseY,
+        baseY,
+        vx: dir * speed,
+        minX,
+        maxX,
+        species: fishSpeciesList[(fIdx + idx) % fishSpeciesList.length],
+        facing: (dir > 0 ? 'right' : 'left') as 'left' | 'right',
+        swimPhase: fIdx * 1.15,
+        size: 0.92 + (fIdx % 3) * 0.14,
+        caught: false,
+      };
+    });
+
     const seagulls = Array.from({ length: spec.seagullCount }).map((_, gIdx) => {
       const gx = 520 + gIdx * Math.floor((w - 860) / spec.seagullCount);
-      const gy = 105 + (gIdx % 3) * 32;
+      const gy = 68 + (gIdx % 3) * 34;
       return {
         id: `gull_${spec.id}_${gIdx}`,
         x: gx,
@@ -1886,7 +2023,7 @@ export const LEVELS: LevelConfig[] = [
         homeY: gy,
         facing: (gIdx % 2 === 0 ? 'right' : 'left') as 'left' | 'right',
         state: 'flying' as const,
-        stateTimer: 2.5 + gIdx * 1.1,
+        stateTimer: 2.2 + gIdx * 0.9,
         animTimer: gIdx * 0.7,
         hasFish: false,
         raftOffsetX: gIdx % 2 === 0 ? 22 : 76,
@@ -1908,6 +2045,19 @@ export const LEVELS: LevelConfig[] = [
       platforms,
       coins,
       chests: [
+        ...(chestRock ? [{
+          id: `ch_rock_${spec.id}`,
+          x: Math.round(chestRock.x + chestRock.width / 2 - 18),
+          y: Math.round(chestRock.y - 26),
+          width: 36,
+          height: 32,
+          opened: false,
+          rewardType: 'coral_armor' as const,
+          rewardAmount: 1,
+          animProgress: 0,
+          isRockChest: true,
+          rockId: chestRock.id,
+        }] : []),
         {
           id: `ch_co${spec.id}_1`,
           x: islandStartX + 75,
@@ -1951,10 +2101,11 @@ export const LEVELS: LevelConfig[] = [
       seaRocks,
       sharks,
       seagulls,
+      seaFish,
       waterStartX,
       waterLevelY,
       woodTarget: spec.woodTarget,
-      hint: 'Pick up the Axe in the stump, press X/K to chop trees, build & push your Raft into the sea, then steer ▲▼ to dodge rocks & Sharks!',
+      hint: 'Pick up the Axe in the stump, press X/K to chop trees, build & push your Raft into the wide sea, then steer ▲▼ to dodge rocks & Sharks!',
     };
   }),
 ];
@@ -2035,6 +2186,16 @@ export function getLevelConfig(id: number): LevelConfig {
             }
           }
         }
+      }
+    });
+  }
+
+  // Guarantee buried dig spots ONLY appear in World 7 (the Desert lands) — never in Levels 1–30 or Peckerin Coast!
+  if (lvl.theme !== 'desert' && lvl.chests) {
+    lvl.chests.forEach(ch => {
+      if (ch.isDigSite) {
+        ch.isDigSite = false;
+        ch.digProgress = 0;
       }
     });
   }

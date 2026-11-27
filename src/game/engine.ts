@@ -156,6 +156,9 @@ export class GameEngine {
       woodTarget: this.level.woodTarget || 0,
       onRaft: false,
       raftPushProgress: 0,
+      hasBrush: Boolean(saveData.hasBrush || this.level.theme === 'desert'),
+      isBrushing: false,
+      brushTimer: 0,
     };
 
     // World 7: the Desert lands — Falcon snatches the Royal Shield in Level 31 cutscene,
@@ -194,7 +197,10 @@ export class GameEngine {
         this.armorType = 'iron';
       }
     }
-    if (this.swordType === 'none') {
+    if (levelId === 10) {
+      // Level 10 ("Growing Up"): Player has NO sword until they open the Level 10 Sword Chest!
+      this.swordType = 'none';
+    } else if (this.swordType === 'none') {
       if (this.player.stage === 'teen' || this.player.stage === 'adult') {
         this.swordType = 'gold';
       } else if (this.player.stage === 'juvenile') {
@@ -296,11 +302,27 @@ export class GameEngine {
 
     const openedChestSet = new Set(this.saveData.openedChestIds || []);
     this.level.chests.forEach(chest => {
+      // On Level 10, always keep the Sword Chest closed on entry so the player must open it to get their sword!
+      if (levelId === 10 && chest.id === 'j10_chest') {
+        chest.opened = false;
+        return;
+      }
       const chestKey = `${levelId}_${chest.id}`;
       if (openedChestSet.has(chestKey)) {
         chest.opened = true;
       }
     });
+
+    if (levelId === 10) {
+      this.callbacks.onStatsUpdate(
+        this.player.health,
+        this.coinsEarnedThisLevel,
+        this.player.stage,
+        this.armorType,
+        this.swordType,
+        this.hasShield
+      );
+    }
 
     const checkpointSet = new Set(this.saveData.activatedCheckpointIds || []);
     this.level.checkpoints.forEach(cp => {
@@ -672,6 +694,15 @@ export class GameEngine {
   private triggerAttack() {
     if (this.player.attackCooldown > 0) return;
 
+    // On Level 10, the player has no sword until opening the Level 10 Treasure Chest!
+    if (this.level.id === 10 && this.swordType === 'none') {
+      this.player.attackCooldown = 0.4;
+      if (!this.floatingTexts.some(ft => ft.text.includes('OPEN THE CHEST'))) {
+        this.addFloatingText('⚔️ NO SWORD! OPEN THE CHEST ABOVE!', this.player.x + this.player.width / 2, this.player.y - 26, '#fde047');
+      }
+      return;
+    }
+
     this.player.isAttacking = true;
     this.player.attackTimer = 0.22;
     this.player.attackCooldown = 0.35;
@@ -803,12 +834,17 @@ export class GameEngine {
       }
     }
 
-    // Check hit against unopened chests
+    // Check hit against unopened chests & buried dig sites
     this.level.chests.forEach(chest => {
       if (!chest.opened) {
-        const dist = Math.hypot(this.player.x - chest.x, this.player.y - chest.y);
-        if (dist < 48) {
-          this.openChest(chest);
+        const dist = Math.hypot((this.player.x + this.player.width / 2) - (chest.x + chest.width / 2), (this.player.y + this.player.height / 2) - (chest.y + chest.height / 2));
+        const reach = chest.isRockChest ? 82 : 56;
+        if (dist < reach) {
+          if (chest.isDigSite) {
+            this.brushDigSite(chest, 0.36);
+          } else {
+            this.openChest(chest);
+          }
         }
       }
     });
@@ -960,6 +996,12 @@ export class GameEngine {
     this.updateMovingPlatforms(delta);
     this.updateDesertShieldSnatch(delta);
     this.updatePlayer(delta);
+    if (this.player.brushTimer && this.player.brushTimer > 0) {
+      this.player.brushTimer = Math.max(0, this.player.brushTimer - delta);
+      if (this.player.brushTimer <= 0) {
+        this.player.isBrushing = false;
+      }
+    }
     this.updateEmote(delta);
     this.updatePoison(delta);
     this.updateHazards(delta);
@@ -1493,19 +1535,46 @@ export class GameEngine {
       }
     }
 
-    // Background Wildlife Discoveries by Biome
+    if (this.level.cacti) {
+      for (const c of this.level.cacti) {
+        if (c.x + c.width >= viewLeft && c.x <= viewRight) {
+          this.reportEncounter('desert_cactus');
+          break;
+        }
+      }
+    }
+
+    // Background Wildlife & Botanical Flora Discoveries by Biome
     if (this.level.id <= 10) {
       this.reportEncounter('sheep');
+      this.reportEncounter('meadow_sunflower');
+      this.reportEncounter('grass_wildflower');
+      this.reportEncounter('meadow_oak_tree');
     } else if (this.level.world === 4) {
       this.reportEncounter('monkey');
+      this.reportEncounter('jungle_palm');
+      this.reportEncounter('jungle_fern');
+      this.reportEncounter('grass_wildflower');
     } else if (this.level.world === 5) {
       this.reportEncounter('hare');
+      this.reportEncounter('pine_evergreen');
+    } else if (this.level.world === 6 || this.level.theme === 'fields') {
+      this.reportEncounter('volcanic_ember_bush');
+      this.reportEncounter('meadow_sunflower');
+      this.reportEncounter('grass_wildflower');
+      this.reportEncounter('meadow_oak_tree');
     } else if (this.level.world === 7 || this.level.theme === 'desert') {
       this.reportEncounter('sand_cat');
       this.reportEncounter('falcon');
+      this.reportEncounter('desert_cactus');
+      this.reportEncounter('desert_oasis_shrub');
     } else if (this.level.world === 8 || this.level.theme === 'coast') {
       this.reportEncounter('seagull');
-    } else if (
+      this.reportEncounter('sea_fish');
+      this.reportEncounter('coastal_tree');
+      this.reportEncounter('sea_kelp_coral');
+    }
+    if (
       this.level.id === 30 &&
       (this.saveData.hasCompletedGame || this.level.cockatrice?.state === 'defeated')
     ) {
@@ -2226,6 +2295,59 @@ export class GameEngine {
         }
       });
     }
+
+    // Prickly Desert Cactuses (World 7): needle prick damage, bounce knockback & cactus spine burst!
+    if (this.level.cacti) {
+      this.level.cacti.forEach(c => {
+        if (c.hitCooldown && c.hitCooldown > 0) {
+          c.hitCooldown = Math.max(0, c.hitCooldown - dt);
+        }
+        const insetX = 5;
+        const insetTop = 5;
+        const cLeft = c.x + insetX;
+        const cRight = c.x + c.width - insetX;
+        const cTop = c.y - c.height + insetTop;
+        const cBottom = c.y;
+
+        if (
+          this.player.x + this.player.width > cLeft &&
+          this.player.x < cRight &&
+          this.player.y + this.player.height > cTop &&
+          this.player.y < cBottom
+        ) {
+          if (this.player.invulnerableTimer <= 0 && (!c.hitCooldown || c.hitCooldown <= 0)) {
+            c.hitCooldown = 0.75;
+            const playerCenterX = this.player.x + this.player.width / 2;
+            const cactusCenterX = c.x + c.width / 2;
+            const knockDir = playerCenterX < cactusCenterX ? -1 : 1;
+
+            audio.playCactusPrick();
+            this.takeDamage(1, knockDir);
+            // Extra crisp hop away from the prickly spines
+            this.player.vy = -255;
+            this.reportEncounter('desert_cactus');
+            this.addFloatingText('🌵 OUCH! PRICKED!', cactusCenterX, cTop - 10, '#bef264');
+
+            // Burst ivory cactus spines & green sap droplets
+            for (let i = 0; i < 10; i++) {
+              const angle = -Math.PI * 0.15 - Math.random() * Math.PI * 0.7;
+              const speed = 75 + Math.random() * 115;
+              this.particles.push({
+                x: cactusCenterX + (Math.random() - 0.5) * (c.width * 0.6),
+                y: cTop + Math.random() * (c.height * 0.65),
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - 30,
+                size: i % 2 === 0 ? 2.5 : 3.2,
+                color: i % 3 === 0 ? '#fef9c3' : i % 3 === 1 ? '#4ade80' : '#f43f5e',
+                life: 0.42 + Math.random() * 0.18,
+                maxLife: 0.6,
+                gravity: 240,
+              });
+            }
+          }
+        }
+      });
+    }
   }
 
   private updateEnemies(dt: number) {
@@ -2767,17 +2889,18 @@ export class GameEngine {
 
           if (raft.x >= waterStartX + 24) {
             raft.state = 'sailing';
-            raft.y = waterLevelY;
-            raft.laneOffsetY = 0;
+            // Start smoothly from beach launch elevation into the wide ocean!
+            raft.laneOffsetY = Math.max(-125, Math.min(118, 438 - waterLevelY));
+            raft.y = waterLevelY + raft.laneOffsetY;
             p.onRaft = true;
             p.facing = 'right';
             audio.playSharkLunge();
             this.triggerScreenShake(4, 0.2);
-            this.addFloatingText('⛵ ALL ABOARD! ▲▼ STEER TO DODGE ROCKS & SHARKS!', raft.x + 50, raft.y - 54, '#38bdf8');
+            this.addFloatingText('⛵ ALL ABOARD! WIDE SEA — STEER ▲▼ FREELY!', raft.x + 50, raft.y - 54, '#38bdf8');
             for (let i = 0; i < 18; i++) {
               this.particles.push({
                 x: raft.x + Math.random() * raft.width,
-                y: waterLevelY + 10,
+                y: raft.y + 10,
                 vx: (Math.random() - 0.5) * 140,
                 vy: -55 - Math.random() * 95,
                 size: 3.5,
@@ -2793,15 +2916,15 @@ export class GameEngine {
         }
       } else if (raft.state === 'sailing') {
         // Horizontal sailing speed (gentle forward breeze + player control)
-        const targetVx = this.input.right ? 215 : this.input.left ? 58 : 138;
+        const targetVx = this.input.right ? 220 : this.input.left ? 56 : 140;
         raft.vx += (targetVx - raft.vx) * Math.min(1, dt * 6);
         raft.x += raft.vx * dt;
 
-        // Vertical wave-lane steering (Up/Space steers up, Down/S steers down!)
+        // Spacious vertical wave-lane steering across the entire tall ocean (Up/Space steers up, Down/S steers down!)
         const steerDir = (this.input.jump ? -1 : 0) + (this.input.down ? 1 : 0);
-        const targetVy = steerDir * 148;
-        raft.vy += (targetVy - raft.vy) * Math.min(1, dt * 9);
-        raft.laneOffsetY = Math.max(-56, Math.min(56, raft.laneOffsetY + raft.vy * dt));
+        const targetVy = steerDir * 195;
+        raft.vy += (targetVy - raft.vy) * Math.min(1, dt * 10);
+        raft.laneOffsetY = Math.max(-125, Math.min(118, raft.laneOffsetY + raft.vy * dt));
         raft.y = waterLevelY + raft.laneOffsetY + Math.sin(raft.bobPhase) * 3.5;
 
         // Keep hero perched cleanly on the raft deck
@@ -2835,6 +2958,26 @@ export class GameEngine {
             const overlapY = Math.abs((raft.y + 8) - rockY) < 25;
 
             if (overlapX && overlapY && raft.invulnTimer <= 0 && rock.hitCooldown <= 0) {
+              if (this.armorType === 'coral' && Math.random() < 0.5) {
+                raft.invulnTimer = 0.9;
+                rock.hitCooldown = 1.2;
+                audio.playShieldBlock();
+                this.addFloatingText('🪸 CORAL ARMOR GUARDED RAFT!', raft.x + 40, raft.y - 34, '#2dd4bf');
+                for (let i = 0; i < 10; i++) {
+                  this.particles.push({
+                    x: raft.x + raft.width * 0.7,
+                    y: raft.y + 8,
+                    vx: (Math.random() - 0.5) * 140,
+                    vy: -50 - Math.random() * 80,
+                    size: 3.5,
+                    color: i % 2 === 0 ? '#fb7185' : '#2dd4bf',
+                    life: 0.45,
+                    maxLife: 0.45,
+                    gravity: 120,
+                  });
+                }
+                continue;
+              }
               raft.health = Math.max(0, raft.health - 1);
               raft.invulnTimer = 1.25;
               rock.hitCooldown = 1.4;
@@ -2917,7 +3060,7 @@ export class GameEngine {
               shark.facing = dx >= 0 ? 'right' : 'left';
               shark.state = 'telegraph';
               shark.timer = 0.68;
-              shark.baseY = Math.max(waterLevelY - 46, Math.min(waterLevelY + 52, raft.y + 18));
+              shark.baseY = Math.max(waterLevelY - 112, Math.min(waterLevelY + 104, raft.y + 18));
               shark.y = shark.baseY;
             }
           }
@@ -2973,11 +3116,37 @@ export class GameEngine {
       }
     }
 
-    // 6. Innocent Coastal Seagulls (flying, diving to catch fish, resting on your raft, flying away!)
+    // 5b. Vibrant Swimming Sea Fish (multiple real-life species cruising the ocean!)
+    const seaTopY = waterLevelY - 145;
+    if (this.level.seaFish) {
+      for (const fish of this.level.seaFish) {
+        if (fish.caught) continue;
+        fish.swimPhase += dt * 3.4;
+        fish.x += fish.vx * dt;
+        if (fish.x <= fish.minX) {
+          fish.x = fish.minX;
+          fish.vx = Math.abs(fish.vx);
+          fish.facing = 'right';
+        } else if (fish.x >= fish.maxX) {
+          fish.x = fish.maxX;
+          fish.vx = -Math.abs(fish.vx);
+          fish.facing = 'left';
+        }
+        fish.y = Math.max(seaTopY + 18, Math.min(516, fish.baseY + Math.sin(fish.swimPhase) * 9));
+      }
+    }
+
+    // 6. Innocent Coastal Seagulls (flying, diving to catch REAL sea fish & removing them from the sea, resting on your raft, flying away!)
     if (this.level.seagulls) {
       const anyGullOnRaft = this.level.seagulls.some(
         g => g.state === 'approaching_raft' || g.state === 'resting_on_raft'
       );
+      const targetedFishIds = new Set(
+        this.level.seagulls
+          .filter(g => g.state === 'diving_fish' && g.targetFishId)
+          .map(g => g.targetFishId as string)
+      );
+
       for (const gull of this.level.seagulls) {
         gull.animTimer += dt;
         gull.stateTimer -= dt;
@@ -3000,41 +3169,86 @@ export class GameEngine {
               raft.state === 'sailing' &&
               !anyGullOnRaft &&
               Math.abs(gull.x - (raft.x + raft.width / 2)) < 260 &&
-              Math.random() < 0.65
+              Math.random() < 0.55
             ) {
               gull.state = 'approaching_raft';
               gull.hasFish = false;
+              gull.targetFishId = undefined;
+              gull.caughtFishSpecies = undefined;
               gull.stateTimer = 4.5;
-            } else if (gull.x > waterStartX + 80 && gull.x < this.level.worldWidth - 380) {
-              // Dive into the sparkling waves to catch a fish!
-              gull.state = 'diving_fish';
-              gull.hasFish = false;
-              gull.stateTimer = 2.0;
+            } else if (this.level.seaFish && gull.x > waterStartX + 40 && gull.x < this.level.worldWidth - 340) {
+              // Spot a live uncaught fish swimming in the sea below and dive straight for it!
+              let bestFish: typeof this.level.seaFish[number] | null = null;
+              let bestDist = 420;
+              for (const f of this.level.seaFish) {
+                if (f.caught || targetedFishIds.has(f.id)) continue;
+                const d = Math.abs(f.x - gull.x);
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestFish = f;
+                }
+              }
+              if (bestFish) {
+                gull.state = 'diving_fish';
+                gull.hasFish = false;
+                gull.targetFishId = bestFish.id;
+                gull.caughtFishSpecies = undefined;
+                targetedFishIds.add(bestFish.id);
+                gull.facing = bestFish.x >= gull.x ? 'right' : 'left';
+                gull.stateTimer = 3.2;
+              } else {
+                gull.stateTimer = 2.4 + Math.random() * 2.2;
+              }
             } else {
               gull.stateTimer = 2.5 + Math.random() * 2.5;
             }
           }
         } else if (gull.state === 'diving_fish') {
-          gull.x += (gull.facing === 'right' ? 75 : -75) * dt;
-          gull.y += 185 * dt;
-          if (gull.y >= waterLevelY - 8) {
-            gull.hasFish = true;
-            gull.state = 'carrying_fish';
-            gull.stateTimer = 3.2;
-            audio.playSeagullCall();
-            // Small splash where seagull catches a fish
-            for (let i = 0; i < 8; i++) {
-              this.particles.push({
-                x: gull.x,
-                y: waterLevelY,
-                vx: (Math.random() - 0.5) * 80,
-                vy: -40 - Math.random() * 55,
-                size: 2.5,
-                color: '#e0f2fe',
-                life: 0.4,
-                maxLife: 0.4,
-                gravity: 220,
-              });
+          const targetFish = this.level.seaFish?.find(f => f.id === gull.targetFishId && !f.caught);
+          if (!targetFish || gull.stateTimer <= 0) {
+            // Fish already gone or dive timed out — pull smoothly back up to sky
+            gull.targetFishId = undefined;
+            gull.state = 'taking_off';
+            gull.stateTimer = 1.4;
+          } else {
+            const dx = targetFish.x - gull.x;
+            const dy = targetFish.y - gull.y;
+            const dist = Math.hypot(dx, dy);
+            gull.facing = dx >= 0 ? 'right' : 'left';
+            const diveSpeed = 235;
+            if (dist > 1) {
+              gull.x += (dx / dist) * diveSpeed * dt;
+              gull.y += (dy / dist) * diveSpeed * dt;
+            }
+            if (dist <= 22) {
+              // Snatched! That exact fish disappears from the sea and is now held in the seagull's beak!
+              targetFish.caught = true;
+              gull.hasFish = true;
+              gull.caughtFishSpecies = targetFish.species;
+              gull.targetFishId = undefined;
+              gull.state = 'carrying_fish';
+              gull.stateTimer = 3.8;
+              audio.playSeagullCall();
+
+              const splashAccent =
+                targetFish.species === 'clownfish' ? '#fb923c' :
+                targetFish.species === 'blue_tang' ? '#38bdf8' :
+                targetFish.species === 'red_snapper' ? '#f43f5e' :
+                targetFish.species === 'golden_angelfish' ? '#facc15' :
+                '#e2e8f0';
+              for (let i = 0; i < 12; i++) {
+                this.particles.push({
+                  x: targetFish.x,
+                  y: targetFish.y,
+                  vx: (Math.random() - 0.5) * 115,
+                  vy: -45 - Math.random() * 75,
+                  size: i % 3 === 0 ? 3.2 : 2.5,
+                  color: i % 3 === 0 ? splashAccent : '#e0f2fe',
+                  life: 0.45,
+                  maxLife: 0.45,
+                  gravity: 220,
+                });
+              }
             }
           }
         } else if (gull.state === 'carrying_fish') {
@@ -3042,6 +3256,7 @@ export class GameEngine {
           gull.y += (gull.homeY - gull.y) * Math.min(1, dt * 2.4);
           if (gull.stateTimer <= 0) {
             gull.hasFish = false;
+            gull.caughtFishSpecies = undefined;
             gull.state = 'flying';
             gull.stateTimer = 3.0 + Math.random() * 2.5;
           }
@@ -5019,53 +5234,316 @@ export class GameEngine {
       }
     });
 
-    // Chests proximity opening (walk near)
+    // Level 1 Archaeology Brush Pickup
+    const brush = this.level.brushPickup;
+    if (brush && !brush.taken) {
+      const dist = Math.hypot((p.x + p.width / 2) - brush.x, (p.y + p.height) - brush.y);
+      if (dist < 42) {
+        brush.taken = true;
+        p.hasBrush = true;
+        audio.playDigDiscover();
+        this.addFloatingText('🖌️ GOT ARCHAEOLOGY BRUSH! DIG MOUNDS WITH X!', brush.x, brush.y - 44, '#fde047');
+        for (let i = 0; i < 16; i++) {
+          this.particles.push({
+            x: brush.x,
+            y: brush.y - 16,
+            vx: (Math.random() - 0.5) * 160,
+            vy: -50 - Math.random() * 110,
+            size: 3.5,
+            color: i % 2 === 0 ? '#fde047' : '#fb923c',
+            life: 0.65,
+            maxLife: 0.65,
+            gravity: 220,
+          });
+        }
+        if (!this.saveData.hasBrush) {
+          this.saveData.hasBrush = true;
+          this.callbacks.onSaveDataUpdate?.({ hasBrush: true });
+        }
+      }
+    }
+
+    // Chests, Buried Dig Sites & Peckerin Coast Sea Rock Chests
+    const raft = this.level.raft;
     this.level.chests.forEach(chest => {
       if (!chest.opened) {
-        const dist = Math.hypot(p.x + p.width / 2 - (chest.x + chest.width / 2), p.y + p.height / 2 - (chest.y + chest.height / 2));
-        if (dist < 32) {
+        const cx = chest.x + chest.width / 2;
+        const cy = chest.y + chest.height / 2;
+        const playerDist = Math.hypot(p.x + p.width / 2 - cx, p.y + p.height / 2 - cy);
+
+        if (chest.isRockChest) {
+          const raftDist = raft
+            ? Math.hypot((raft.x + raft.width / 2) - cx, (raft.y + raft.height / 2) - cy)
+            : 999;
+          if (playerDist < 76 || raftDist < 78) {
+            this.openChest(chest);
+          }
+        } else if (chest.isDigSite && this.level.theme === 'desert') {
+          if (playerDist < 38) {
+            if (p.hasBrush) {
+              const prevStep = Math.floor((chest.digProgress ?? 0) * 3);
+              chest.digProgress = Math.min(1, (chest.digProgress ?? 0) + dt * 0.58);
+              const nextStep = Math.floor(chest.digProgress * 3);
+              p.isBrushing = true;
+              p.brushTimer = Math.max(p.brushTimer ?? 0, 0.16);
+              if (nextStep > prevStep || Math.random() < 0.12) {
+                if (nextStep > prevStep) audio.playBrushSweep();
+                this.particles.push({
+                  x: cx + (Math.random() - 0.5) * 24,
+                  y: chest.y + chest.height - 6,
+                  vx: (Math.random() - 0.5) * 85,
+                  vy: -40 - Math.random() * 55,
+                  size: 3,
+                  color: this.level.theme === 'desert' ? '#fcd34d' : '#a16207',
+                  life: 0.4,
+                  maxLife: 0.4,
+                  gravity: 200,
+                });
+              }
+              if (chest.digProgress >= 1) {
+                this.openChest(chest);
+              }
+            } else if (Math.floor(this.time * 2) % 3 === 0 && !this.floatingTexts.some(ft => ft.text.includes('GRAB THE BRUSH'))) {
+              this.addFloatingText('🖌️ GRAB THE BRUSH AT THE START TO DIG!', cx, chest.y - 24, '#fde047');
+            }
+          }
+        } else if (playerDist < 32) {
           this.openChest(chest);
         }
       }
     });
   }
 
+  private brushDigSite(chest: TreasureChest, amount: number) {
+    if (chest.opened) return;
+    if (!this.player.hasBrush) {
+      this.addFloatingText('🖌️ GRAB THE BRUSH AT THE START TO DIG!', chest.x + chest.width / 2, chest.y - 24, '#fde047');
+      return;
+    }
+
+    this.player.isBrushing = true;
+    this.player.brushTimer = 0.28;
+    audio.playBrushSweep();
+    chest.digProgress = Math.min(1, (chest.digProgress ?? 0) + amount);
+
+    const cx = chest.x + chest.width / 2;
+    const cy = chest.y + chest.height - 6;
+    for (let i = 0; i < 8; i++) {
+      this.particles.push({
+        x: cx + (Math.random() - 0.5) * 26,
+        y: cy,
+        vx: (Math.random() - 0.5) * 130,
+        vy: -45 - Math.random() * 80,
+        size: 3 + Math.random() * 2,
+        color: this.level.theme === 'desert' ? (i % 2 === 0 ? '#fcd34d' : '#d97706') : (i % 2 === 0 ? '#a16207' : '#d6b48c'),
+        life: 0.45,
+        maxLife: 0.45,
+        gravity: 220,
+      });
+    }
+
+    if (chest.digProgress >= 1) {
+      this.openChest(chest);
+    } else {
+      const pct = Math.round(chest.digProgress * 100);
+      this.addFloatingText(`🖌️ BRUSHING ${pct}%`, cx, chest.y - 18, '#fef08a');
+    }
+  }
+
+  private unlockArmorInSave(armor: ArmorType) {
+    const existing = this.saveData.unlockedArmors || [];
+    const nextArmors = Array.from(new Set([...existing, armor]));
+    this.saveData.unlockedArmors = nextArmors;
+    this.callbacks.onSaveDataUpdate?.({ unlockedArmors: nextArmors, armor });
+  }
+
+  private awardRandomizedLoot(chest: TreasureChest) {
+    const cx = chest.x + chest.width / 2;
+    const cy = chest.y;
+    const isDig = Boolean(chest.isDigSite);
+    const isCoast = this.level.theme === 'coast' || Boolean(chest.isRockChest);
+    const isDesert = this.level.theme === 'desert';
+    const worldScale = Math.max(1, this.level.world);
+    const ownedArmors = new Set(this.saveData.unlockedArmors || []);
+    if (this.armorType !== 'none') ownedArmors.add(this.armorType);
+
+    const spawnBurst = (colors: string[], count = 16) => {
+      for (let i = 0; i < count; i++) {
+        this.particles.push({
+          x: cx,
+          y: cy + 10,
+          vx: (Math.random() - 0.5) * 190,
+          vy: -Math.random() * 140 - 40,
+          size: 3.5 + Math.random() * 2.5,
+          color: colors[i % colors.length],
+          life: 0.65,
+          maxLife: 0.65,
+        });
+      }
+    };
+
+    const roll = Math.random();
+
+    // 1. Mystery Gear Discovery (unowned armor/sword suitable for current world!)
+    if (roll < 0.16) {
+      const candidateArmor: ArmorType | null =
+        isCoast && !ownedArmors.has('coral') ? 'coral' :
+        isDesert && !ownedArmors.has('netherite') ? 'netherite' :
+        this.level.world >= 5 && !ownedArmors.has('diamond') ? 'diamond' :
+        this.level.world >= 4 && !ownedArmors.has('gold') ? 'gold' :
+        this.level.world >= 2 && !ownedArmors.has('iron') ? 'iron' :
+        null;
+
+      if (candidateArmor) {
+        this.armorType = candidateArmor;
+        this.unlockArmorInSave(candidateArmor);
+        audio.playEvolution();
+        const labelMap: Record<Exclude<ArmorType, 'none'>, { text: string; color: string; cols: string[] }> = {
+          iron: { text: isDig ? '🖌️ DUG UP IRON ARMOR!' : '🛡️ LUCKY IRON ARMOR!', color: '#e2e8f0', cols: ['#e2e8f0', '#94a3b8'] },
+          gold: { text: isDig ? '🖌️ DUG UP GOLD ARMOR!' : '🛡️ LUCKY GOLD ARMOR!', color: '#fde047', cols: ['#fde047', '#f59e0b'] },
+          diamond: { text: isDig ? '🖌️ DUG UP DIAMOND ARMOR!' : '💎 LUCKY DIAMOND ARMOR!', color: '#38bdf8', cols: ['#38bdf8', '#e0f2fe'] },
+          netherite: { text: '🔥 NETHERITE ARMOR UNEARTHED! 🔥', color: '#c084fc', cols: ['#c084fc', '#f59e0b', '#292524'] },
+          coral: { text: '🪸 CORAL ARMOR DISCOVERED! 🪸', color: '#fb7185', cols: ['#fb7185', '#2dd4bf', '#fef08a'] },
+        };
+        const info = labelMap[candidateArmor];
+        this.addFloatingText(info.text, cx, cy - 28, info.color);
+        spawnBurst(info.cols, 22);
+        return;
+      }
+    }
+
+    // 2. Heart & Antidote / Full Vitality Feast
+    if (roll < 0.34) {
+      const wasPoisoned = (this.player.poisonTimer ?? 0) > 0;
+      const missingHp = this.player.maxHealth - this.player.health;
+      if (missingHp > 0 || wasPoisoned) {
+        const healAmt = Math.random() < 0.4 ? this.player.maxHealth : 1;
+        this.player.health = Math.min(this.player.maxHealth, this.player.health + healAmt);
+        this.player.poisonTimer = 0;
+        this.player.poisonMaxDuration = 0;
+        this.player.poisonDrainRemaining = 0;
+        const bonusCoins = 12 + Math.floor(Math.random() * 18);
+        this.coinsEarnedThisLevel += bonusCoins;
+        const msg = healAmt >= this.player.maxHealth
+          ? (isDig ? `🖌️ OASIS ELIXIR! FULL HP +${bonusCoins}c` : `❤️ FULL HEART FEAST +${bonusCoins}c!`)
+          : (wasPoisoned ? `💚 +1 HEART & CURE +${bonusCoins}c!` : `❤️ +1 HEART & +${bonusCoins} COINS!`);
+        this.addFloatingText(msg, cx, cy - 26, wasPoisoned ? '#4ade80' : '#f43f5e');
+        spawnBurst(['#f43f5e', '#4ade80', '#fde047'], 16);
+        return;
+      }
+    }
+
+    // 3. Fire-Shield / Golden Aura Elixir + Bonus Coins
+    if (roll < 0.50) {
+      this.player.fireResistTimer = Math.max(this.player.fireResistTimer ?? 0, 24);
+      const bonus = 20 + Math.floor(Math.random() * 25);
+      this.coinsEarnedThisLevel += bonus;
+      this.addFloatingText(
+        isDig ? `🖌️ SUN ELIXIR! FIRE SHIELD +${bonus}c` : `🔥 FIRE-RESIST ELIXIR +${bonus}c!`,
+        cx,
+        cy - 26,
+        '#fb923c'
+      );
+      spawnBurst(['#fb923c', '#fde047', '#f97316'], 18);
+      return;
+    }
+
+    // 4. Rare Treasure Relic / Gem Drop
+    if (roll < 0.72) {
+      const relics = isDesert
+        ? [
+            { name: 'GOLDEN SCARAB', col: '#facc15', mult: 1.5 },
+            { name: 'PHARAOH RUBY', col: '#f43f5e', mult: 1.7 },
+            { name: 'ANCIENT EMERALD', col: '#34d399', mult: 1.6 },
+            { name: 'SUNSTONE FOSSIL', col: '#fb923c', mult: 1.4 },
+          ]
+        : isCoast
+        ? [
+            { name: 'ROYAL SEA PEARL', col: '#e0f2fe', mult: 1.6 },
+            { name: 'CORAL SAPPHIRE', col: '#38bdf8', mult: 1.7 },
+            { name: 'CAPTAIN DOUBLOONS', col: '#facc15', mult: 1.5 },
+            { name: 'STARFISH AMULET', col: '#fb7185', mult: 1.4 },
+          ]
+        : [
+            { name: 'SHINY EMERALD', col: '#34d399', mult: 1.5 },
+            { name: 'ROYAL RUBY', col: '#f43f5e', mult: 1.7 },
+            { name: 'SKY SAPPHIRE', col: '#38bdf8', mult: 1.6 },
+            { name: 'GOLDEN EGG RELIC', col: '#facc15', mult: 1.8 },
+          ];
+      const pick = relics[Math.floor(Math.random() * relics.length)];
+      const value = Math.round((28 + worldScale * 8 + Math.floor(Math.random() * 28)) * pick.mult);
+      this.coinsEarnedThisLevel += value;
+      this.addFloatingText(
+        isDig ? `🖌️ DUG UP ${pick.name}! +${value}c` : `💎 ${pick.name}! +${value} COINS!`,
+        cx,
+        cy - 28,
+        pick.col
+      );
+      spawnBurst([pick.col, '#ffffff', '#facc15'], 18);
+      return;
+    }
+
+    // 5. Randomized Coin Pouch / Lucky Triple Jackpot!
+    const isJackpot = Math.random() < 0.25;
+    const baseCoins = 22 + worldScale * 7 + Math.floor(Math.random() * 34);
+    const totalCoins = isJackpot ? Math.round(baseCoins * 2.1) : baseCoins;
+    this.coinsEarnedThisLevel += totalCoins;
+    this.addFloatingText(
+      isJackpot
+        ? (isDig ? `🖌️ JACKPOT DIG! +${totalCoins} COINS!` : `✨ MEGA JACKPOT! +${totalCoins} COINS!`)
+        : (isDig ? `🖌️ DUG UP +${totalCoins} COINS!` : `🪙 +${totalCoins} COINS!`),
+      cx,
+      cy - 26,
+      isJackpot ? '#fde047' : '#facc15'
+    );
+    spawnBurst(isJackpot ? ['#fde047', '#f59e0b', '#ffffff'] : ['#facc15', '#fbbf24'], isJackpot ? 24 : 14);
+  }
+
   private openChest(chest: TreasureChest) {
     if (chest.opened) return;
     chest.opened = true;
-    audio.playChest();
+    if (chest.isDigSite) {
+      chest.digProgress = 1;
+      audio.playDigDiscover();
+    } else {
+      audio.playChest();
+    }
 
-    if (chest.rewardType === 'coins') {
-      this.coinsEarnedThisLevel += chest.rewardAmount;
-      this.addFloatingText(`+${chest.rewardAmount} COINS!`, chest.x + chest.width / 2, chest.y - 24, '#facc15');
-    } else if (chest.rewardType === 'heart') {
-      const wasPoisoned = (this.player.poisonTimer ?? 0) > 0;
-      this.player.health = Math.min(this.player.maxHealth, this.player.health + 1);
-      this.player.poisonTimer = 0;
-      this.player.poisonMaxDuration = 0;
-      this.player.poisonDrainRemaining = 0;
-      this.addFloatingText(wasPoisoned ? '+1 HEART! POISON CURED!' : '+1 HEART!', chest.x + chest.width / 2, chest.y - 24, wasPoisoned ? '#4ade80' : '#f43f5e');
-    } else if (chest.rewardType === 'iron_armor') {
-      this.armorType = 'iron';
-      this.addFloatingText('IRON ARMOR!', chest.x + chest.width / 2, chest.y - 24, '#e2e8f0');
-    } else if (chest.rewardType === 'gold_armor') {
-      this.armorType = 'gold';
-      this.addFloatingText('GOLD ARMOR!', chest.x + chest.width / 2, chest.y - 24, '#fde047');
-    } else if (chest.rewardType === 'diamond_armor') {
-      this.armorType = 'diamond';
-      this.addFloatingText('DIAMOND ARMOR!', chest.x + chest.width / 2, chest.y - 24, '#38bdf8');
+    // Mandatory Quest Chest 1: Level 10 Sword Chest ALWAYS awards your sword!
+    if (this.level.id === 10 && chest.id === 'j10_chest') {
+      const savedSword = this.saveData.sword;
+      const grantedSword: SwordType =
+        savedSword === 'netherite' || savedSword === 'diamond' || savedSword === 'gold'
+          ? savedSword
+          : 'iron';
+      this.swordType = grantedSword;
+      if (this.saveData.sword === 'none' || !this.saveData.sword) {
+        this.saveData.sword = grantedSword;
+        this.callbacks.onSaveDataUpdate?.({ sword: grantedSword });
+      }
+      const bonusCoins = 15 + Math.floor(Math.random() * 20);
+      this.coinsEarnedThisLevel += bonusCoins;
       audio.playEvolution();
-    } else if (chest.rewardType === 'iron_sword') {
-      this.swordType = 'iron';
-      this.addFloatingText('IRON SWORD!', chest.x + chest.width / 2, chest.y - 24, '#e2e8f0');
-    } else if (chest.rewardType === 'gold_sword') {
-      this.swordType = 'gold';
-      this.addFloatingText('GOLD SWORD!', chest.x + chest.width / 2, chest.y - 24, '#fde047');
-    } else if (chest.rewardType === 'diamond_sword') {
-      this.swordType = 'diamond';
-      this.addFloatingText('DIAMOND SWORD!', chest.x + chest.width / 2, chest.y - 24, '#38bdf8');
-      audio.playEvolution();
+      this.addFloatingText(
+        `⚔️ ${grantedSword.toUpperCase()} SWORD UNLOCKED! +${bonusCoins}c`,
+        chest.x + chest.width / 2,
+        chest.y - 30,
+        '#38bdf8'
+      );
+      for (let s = 0; s < 22; s++) {
+        this.particles.push({
+          x: chest.x + chest.width / 2,
+          y: chest.y + 10,
+          vx: (Math.random() - 0.5) * 190,
+          vy: -Math.random() * 150 - 40,
+          size: 4 + Math.random() * 2.5,
+          color: s % 2 === 0 ? '#e2e8f0' : '#38bdf8',
+          life: 0.75,
+          maxLife: 0.75,
+        });
+      }
     } else if (chest.rewardType === 'shield') {
+      // Mandatory Quest Chest 2: Royal Shield
       this.hasShield = true;
       this.player.hasShield = true;
       audio.playEvolution();
@@ -5083,6 +5561,58 @@ export class GameEngine {
           maxLife: 0.8
         });
       }
+    } else if (chest.rewardType === 'coral_armor') {
+      // Peckerin Coast Sea Rock Chest: strong chance for Coral Armor if not owned, else randomized ocean loot!
+      const alreadyOwned = (this.saveData.unlockedArmors || []).includes('coral') || this.armorType === 'coral';
+      const priorRockChestsOpened = (this.saveData.openedChestIds || []).filter(id => id.includes('ch_rock_')).length;
+      const foundCoralArmor = !alreadyOwned && (priorRockChestsOpened >= 1 || this.level.id >= 37 || Math.random() < 0.68);
+      if (foundCoralArmor) {
+        this.armorType = 'coral';
+        this.unlockArmorInSave('coral');
+        audio.playEvolution();
+        this.addFloatingText('🪸 CORAL ARMOR DISCOVERED! 🪸', chest.x + chest.width / 2, chest.y - 36, '#fb7185');
+        this.addFloatingText('GUARDED AGAINST SHARKS & SEA ROCKS!', chest.x + chest.width / 2, chest.y - 16, '#2dd4bf');
+        for (let s = 0; s < 26; s++) {
+          this.particles.push({
+            x: chest.x + chest.width / 2,
+            y: chest.y + 8,
+            vx: (Math.random() - 0.5) * 200,
+            vy: -Math.random() * 150 - 45,
+            size: 4 + Math.random() * 3,
+            color: s % 3 === 0 ? '#fb7185' : (s % 3 === 1 ? '#2dd4bf' : '#fef08a'),
+            life: 0.85,
+            maxLife: 0.85,
+          });
+        }
+      } else {
+        this.awardRandomizedLoot(chest);
+      }
+    } else if (chest.rewardType === 'netherite_armor') {
+      // Desert Lands Dig Spot: high chance for Netherite Armor if not yet owned, else randomized desert dig loot!
+      const alreadyOwned = (this.saveData.unlockedArmors || []).includes('netherite') || this.armorType === 'netherite';
+      if (!alreadyOwned && (this.level.id >= 32 || Math.random() < 0.72)) {
+        this.armorType = 'netherite';
+        this.unlockArmorInSave('netherite');
+        audio.playEvolution();
+        this.addFloatingText('🔥 NETHERITE ARMOR EXCAVATED! 🔥', chest.x + chest.width / 2, chest.y - 34, '#c084fc');
+        for (let s = 0; s < 24; s++) {
+          this.particles.push({
+            x: chest.x + chest.width / 2,
+            y: chest.y + 10,
+            vx: (Math.random() - 0.5) * 200,
+            vy: -Math.random() * 160 - 40,
+            size: 4 + Math.random() * 3,
+            color: s % 3 === 0 ? '#c084fc' : (s % 3 === 1 ? '#f59e0b' : '#292524'),
+            life: 0.8,
+            maxLife: 0.8,
+          });
+        }
+      } else {
+        this.awardRandomizedLoot(chest);
+      }
+    } else {
+      // ALL other treasure chests & dig spots award randomized items!
+      this.awardRandomizedLoot(chest);
     }
 
     // Permanently remember this chest as already opened/empty when returning to this level
@@ -5109,7 +5639,12 @@ export class GameEngine {
 
     // Armor damage reduction
     let actualDamage = amount;
-    if (this.armorType === 'diamond') {
+    if (this.armorType === 'netherite') {
+      actualDamage = Math.max(0.5, Math.round(amount * 0.25 * 2) / 2);
+    } else if (this.armorType === 'coral') {
+      const coastalBonus = this.level.theme === 'coast' ? 0.25 : 0.35;
+      actualDamage = Math.max(0.5, Math.round(amount * coastalBonus * 2) / 2);
+    } else if (this.armorType === 'diamond') {
       actualDamage = Math.max(1, Math.floor(amount * 0.25));
     } else if (this.armorType === 'gold') {
       actualDamage = Math.max(1, Math.floor(amount * 0.5));
@@ -5208,12 +5743,12 @@ export class GameEngine {
       this.callbacks.onActionStat?.('levelsClearedWithoutDamage');
     }
 
-    if (this.level.id === 30 || this.level.id === 40) {
-      // Level 30 celebrates defeating the Cockatrice (and unlocks World 7: the Desert lands);
-      // Level 40 celebrates completing Peckerin Coast (all 40 stages)!
+    if (this.level.id === 40) {
+      // Level 40 finishes Peckerin Coast and displays the "TO BE CONTINUED..." finale sign!
       audio.playVictory();
       this.callbacks.onVictory(this.coinsEarnedThisLevel);
     } else {
+      // Level 30 clears smoothly without an end cutscene and unlocks World 7: the Desert lands!
       // Level 15 triggers Teen Chicken evolution inside World 4
       const nextLevel = this.level.id + 1;
       if (nextLevel === 15) {

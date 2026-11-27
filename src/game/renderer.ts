@@ -1,9 +1,9 @@
 import { 
-  PlayerState, Platform, Coin, TreasureChest, Checkpoint,
+  PlayerState, Platform, Coin, TreasureChest, BrushPickup, Checkpoint,
   VolcanoHazard, BoulderHazard, ThundercloudHazard, Enemy, Particle, FloatingText, Camera, LevelConfig,
   ChickenGender, ArmorType, SwordType, GrowthStage, CockatriceBoss, BossFireProjectile, SilkieSamFriend, FarmerMiniBoss,
-  DesertFalcon, DesertBonePile, SandCatWildlife, ShieldSnatchCutscene,
-  AxeStump, ChoppableTree, WoodLogPickup, CoastalRaft, SeaRock, SeaShark, CoastalSeagull
+  DesertFalcon, DesertBonePile, SandCatWildlife, DesertCactus, ShieldSnatchCutscene,
+  AxeStump, ChoppableTree, WoodLogPickup, CoastalRaft, SeaRock, SeaShark, CoastalSeagull, SeaFish, SeaFishSpecies
 } from './types';
 import { getSkinPalette } from './skins';
 import { audio } from './audio';
@@ -12,6 +12,10 @@ export class GameRenderer {
   private ctx: CanvasRenderingContext2D;
   private canvas: HTMLCanvasElement;
   private fenceGateStates: Map<string, { angle: number; vel: number; lastTime: number; isOpen: boolean; lastLatchSoundTime: number }> = new Map();
+  private outlineSrcCanvas: HTMLCanvasElement | null = null;
+  private outlineTintCanvas: HTMLCanvasElement | null = null;
+  private isInsideOutline: boolean = false;
+  private lastRenderTime: number = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -26,6 +30,109 @@ export class GameRenderer {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
+  private ensureOutlineCanvases(w: number, h: number): {
+    srcCanvas: HTMLCanvasElement;
+    srcCtx: CanvasRenderingContext2D;
+    tintCanvas: HTMLCanvasElement;
+    tintCtx: CanvasRenderingContext2D;
+  } | null {
+    if (typeof document === 'undefined') return null;
+    if (!this.outlineSrcCanvas) {
+      this.outlineSrcCanvas = document.createElement('canvas');
+      this.outlineSrcCanvas.width = 256;
+      this.outlineSrcCanvas.height = 256;
+    }
+    if (!this.outlineTintCanvas) {
+      this.outlineTintCanvas = document.createElement('canvas');
+      this.outlineTintCanvas.width = 256;
+      this.outlineTintCanvas.height = 256;
+    }
+    if (this.outlineSrcCanvas.width < w || this.outlineSrcCanvas.height < h) {
+      const nw = Math.max(this.outlineSrcCanvas.width, w);
+      const nh = Math.max(this.outlineSrcCanvas.height, h);
+      this.outlineSrcCanvas.width = nw;
+      this.outlineSrcCanvas.height = nh;
+      this.outlineTintCanvas.width = nw;
+      this.outlineTintCanvas.height = nh;
+    }
+    const srcCtx = this.outlineSrcCanvas.getContext('2d');
+    const tintCtx = this.outlineTintCanvas.getContext('2d');
+    if (!srcCtx || !tintCtx) return null;
+    srcCtx.imageSmoothingEnabled = false;
+    tintCtx.imageSmoothingEnabled = false;
+    return {
+      srcCanvas: this.outlineSrcCanvas,
+      srcCtx,
+      tintCanvas: this.outlineTintCanvas,
+      tintCtx,
+    };
+  }
+
+  /**
+   * Wraps any world sprite (enemy, wildlife, plant, tree, flower, hero, or prop) in a
+   * crisp 8-direction ink-black (#09090b) cartoon outline without touching UI buttons/HUD.
+   */
+  private drawCartoonOutlined(
+    targetCtx: CanvasRenderingContext2D,
+    boxW: number,
+    boxH: number,
+    anchorX: number,
+    anchorY: number,
+    drawFn: (ctx: CanvasRenderingContext2D) => void,
+    thickness: number = 1.75
+  ) {
+    if (this.isInsideOutline) {
+      drawFn(targetCtx);
+      return;
+    }
+    const bw = Math.max(16, Math.ceil(boxW));
+    const bh = Math.max(16, Math.ceil(boxH));
+    const buffers = this.ensureOutlineCanvases(bw, bh);
+    if (!buffers) {
+      drawFn(targetCtx);
+      return;
+    }
+
+    const { srcCanvas, srcCtx, tintCanvas, tintCtx } = buffers;
+    const prevThisCtx = this.ctx;
+    this.isInsideOutline = true;
+    try {
+      srcCtx.clearRect(0, 0, bw, bh);
+      srcCtx.save();
+      srcCtx.translate(anchorX, anchorY);
+      if (targetCtx === prevThisCtx) {
+        this.ctx = srcCtx;
+      }
+      drawFn(srcCtx);
+      srcCtx.restore();
+    } finally {
+      this.ctx = prevThisCtx;
+      this.isInsideOutline = false;
+    }
+
+    tintCtx.globalCompositeOperation = 'source-over';
+    tintCtx.clearRect(0, 0, bw, bh);
+    tintCtx.drawImage(srcCanvas, 0, 0, bw, bh, 0, 0, bw, bh);
+    tintCtx.globalCompositeOperation = 'source-in';
+    tintCtx.fillStyle = '#09090b';
+    tintCtx.fillRect(0, 0, bw, bh);
+    tintCtx.globalCompositeOperation = 'source-over';
+
+    const t = thickness;
+    const d = t * 0.72;
+    const ox = -anchorX;
+    const oy = -anchorY;
+    targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox - t, oy, bw, bh);
+    targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox + t, oy, bw, bh);
+    targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox, oy - t, bw, bh);
+    targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox, oy + t, bw, bh);
+    targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox - d, oy - d, bw, bh);
+    targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox + d, oy - d, bw, bh);
+    targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox - d, oy + d, bw, bh);
+    targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox + d, oy + d, bw, bh);
+    targetCtx.drawImage(srcCanvas, 0, 0, bw, bh, ox, oy, bw, bh);
+  }
+
   // --- Background: Biome Themes (Jungle at World 4, Snowy at World 5, Sunny Farm/Meadow) ---
 
   public renderBackground(
@@ -35,6 +142,7 @@ export class GameRenderer {
     levelId: number = 1, 
     isBossDefeated: boolean = false
   ) {
+    this.lastRenderTime = time;
     if (theme === 'fields' || levelId === 30) {
       this.renderLevel30SanctuaryBackground(camera, time, isBossDefeated);
     } else if (theme === 'desert') {
@@ -86,6 +194,9 @@ export class GameRenderer {
     ctx.beginPath();
     ctx.arc(sunX, sunY, 36, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.6;
+    ctx.stroke();
 
     if (isBossDefeated) {
       ctx.fillStyle = '#ffffff';
@@ -119,6 +230,9 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
 
     // 4. Mid Jungle Ridge with Ancient Massive Tropical Trees
     ctx.fillStyle = '#047857';
@@ -132,41 +246,30 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
 
-    // Giant Jungle Trees & Tropical Palm Silhouettes with Monkeys!
+    // Giant Jungle Palms & Tropical Ferns (exact Bestiary Log plant models!) with Monkeys!
     for (let i = 0; i < 7; i++) {
       const tx = (((i * 260) - (camera.x * 0.25)) % (w + 160)) - 60;
       const worldX = tx + camera.x * 0.25;
       const ty = h - 145 + Math.sin(worldX * 0.004 + 1.5) * 35;
 
-      // Tree trunk
-      ctx.fillStyle = '#1c1917';
-      ctx.fillRect(tx - 4, ty - 18, 8, 30);
+      // Exact Bestiary Canopy Jungle Palm
+      ctx.save();
+      ctx.translate(tx, ty + 10);
+      this.drawPlantSprite(ctx, 'jungle_palm', time + i * 0.6, 1.55, i % 3, false);
+      ctx.restore();
 
-      // Lush layered tropical palm crown
-      ctx.fillStyle = '#065f46';
-      ctx.beginPath();
-      ctx.arc(tx, ty - 24, 28, 0, Math.PI * 2);
-      ctx.arc(tx - 16, ty - 16, 20, 0, Math.PI * 2);
-      ctx.arc(tx + 16, ty - 16, 20, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Hanging tropical vines
-      ctx.strokeStyle = '#022c22';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(tx - 10, ty - 12);
-      ctx.bezierCurveTo(tx - 15, ty + 10, tx - 5, ty + 20, tx - 12, ty + 35);
-      ctx.moveTo(tx + 12, ty - 12);
-      ctx.bezierCurveTo(tx + 18, ty + 8, tx + 6, ty + 24, tx + 14, ty + 38);
-      ctx.stroke();
-
-      // Tropical pink & golden flower blooms
-      ctx.fillStyle = i % 2 === 0 ? '#f43f5e' : '#f59e0b';
-      ctx.beginPath();
-      ctx.arc(tx - 12, ty + 35, 3.5, 0, Math.PI * 2);
-      ctx.arc(tx + 14, ty + 38, 3.5, 0, Math.PI * 2);
-      ctx.fill();
+      // Exact Bestiary Rainforest Fern sprouting beside palm base
+      const fx = tx + (i % 2 === 0 ? 40 : -40);
+      const fWorldX = fx + camera.x * 0.25;
+      const fy = h - 145 + Math.sin(fWorldX * 0.004 + 1.5) * 35;
+      ctx.save();
+      ctx.translate(fx, fy + 6);
+      this.drawPlantSprite(ctx, 'jungle_fern', time + i * 0.5, 0.78, i % 3, false);
+      ctx.restore();
 
       // MONKEYS & BABY MONKEYS: Squeak in trees, climb down to walk/rest/eat bananas, and climb back up!
       if (i % 2 === 0 || i === 3) {
@@ -301,20 +404,18 @@ export class GameRenderer {
     ctx.closePath();
     ctx.fill();
 
-    // Jungle fern fronds along foreground
-    for (let x = 0; x < w + 50; x += 25) {
-      const worldX = x + camera.x * 0.45;
+    // Exact Bestiary Rainforest Ferns lining the foreground undergrowth
+    const fernStride = 110;
+    const firstFern = Math.floor((camera.x * 0.45 - 60) / fernStride);
+    const lastFern = Math.ceil((camera.x * 0.45 + w + 60) / fernStride);
+    for (let idx = firstFern; idx <= lastFern; idx++) {
+      const worldX = idx * fernStride + 30;
+      const fx = worldX - camera.x * 0.45;
       const fgY = h - 75 + Math.sin(worldX * 0.006 + 3) * 20;
-      const sway = Math.sin(time * 3 + x) * 3;
-
-      ctx.strokeStyle = '#10b981';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(x, fgY);
-      ctx.lineTo(x + sway - 6, fgY - 14);
-      ctx.moveTo(x, fgY);
-      ctx.lineTo(x + sway + 6, fgY - 12);
-      ctx.stroke();
+      ctx.save();
+      ctx.translate(fx, fgY + 6);
+      this.drawPlantSprite(ctx, 'jungle_fern', time + idx * 0.7, 0.85, Math.abs(idx) % 3, false);
+      ctx.restore();
     }
 
     // Glowing Jungle Fireflies & Floating Pollen Spores
@@ -331,6 +432,36 @@ export class GameRenderer {
 
   // Render Jungle Monkey (Adult or Baby) with autonomous activities: squeak, climb, walk, eat, rest
   public renderJungleMonkey(
+    tx: number,
+    ty: number,
+    time: number,
+    isScared: boolean,
+    treeIndex: number,
+    isCheering: boolean = false,
+    variantIndex?: number,
+    options?: {
+      isBaby?: boolean;
+      activity?: 'squeak' | 'climb' | 'walk' | 'eat' | 'rest';
+      facingDir?: 1 | -1;
+      skipBranchOffset?: boolean;
+    }
+  ) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(tx, ty);
+    this.drawCartoonOutlined(
+      ctx,
+      116,
+      116,
+      58,
+      62,
+      () => this._renderJungleMonkey(0, 0, time, isScared, treeIndex, isCheering, variantIndex, options),
+      1.6
+    );
+    ctx.restore();
+  }
+
+  private _renderJungleMonkey(
     tx: number,
     ty: number,
     time: number,
@@ -880,6 +1011,9 @@ export class GameRenderer {
       ctx.beginPath();
       ctx.arc(sunX, sunY, 34, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.6;
+      ctx.stroke();
 
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
@@ -926,9 +1060,14 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
 
     // Snowy Glaciers & White Mountain Peaks
     ctx.fillStyle = '#e2e8f0';
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.8;
     for (let x = 0; x <= w; x += 60) {
       const worldX = x + camera.x * 0.08;
       const peakY = h - 230 + Math.sin(worldX * 0.0025) * 75 + Math.cos(worldX * 0.006) * 35;
@@ -938,6 +1077,7 @@ export class GameRenderer {
       ctx.lineTo(x + 22, peakY + 45);
       ctx.closePath();
       ctx.fill();
+      ctx.stroke();
     }
 
     // 4. Mid Alpine Ridge with Snow-Laden Evergreen Pine Trees
@@ -952,42 +1092,19 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
 
-    // Snow-Dusted Pine Trees
+    // Snow-Dusted Pine Trees (exact Bestiary Log Frosty Alpine Pine!)
     for (let i = 0; i < 8; i++) {
       const tx = (((i * 240) - (camera.x * 0.22)) % (w + 160)) - 40;
       const worldX = tx + camera.x * 0.22;
       const ty = h - 140 + Math.sin(worldX * 0.0042 + 1.8) * 32;
-
-      // Dark tree trunk
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(tx - 3, ty - 6, 6, 16);
-
-      // Deep evergreen layers
-      ctx.fillStyle = '#0f766e';
-      ctx.beginPath();
-      ctx.moveTo(tx, ty - 38);
-      ctx.lineTo(tx + 16, ty - 6);
-      ctx.lineTo(tx - 16, ty - 6);
-      ctx.closePath();
-      ctx.fill();
-
-      // Heavy White Snow Blankets on Pine Branches
-      ctx.fillStyle = '#f8fafc';
-      ctx.beginPath();
-      ctx.moveTo(tx, ty - 38);
-      ctx.lineTo(tx + 9, ty - 22);
-      ctx.lineTo(tx - 9, ty - 22);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.moveTo(tx - 14, ty - 10);
-      ctx.lineTo(tx + 14, ty - 10);
-      ctx.lineTo(tx + 16, ty - 6);
-      ctx.lineTo(tx - 16, ty - 6);
-      ctx.closePath();
-      ctx.fill();
+      ctx.save();
+      ctx.translate(tx, ty + 10);
+      this.drawPlantSprite(ctx, 'pine_evergreen', time + i * 0.5, 1.38, i % 3, false);
+      ctx.restore();
     }
 
     // 5. Foreground Pure White Snowdrifts
@@ -1003,7 +1120,7 @@ export class GameRenderer {
     ctx.closePath();
     ctx.fill();
 
-    // Snow surface gleam
+    // Snow surface gleam with crisp black cartoon outline
     ctx.fillStyle = '#f8fafc';
     ctx.beginPath();
     ctx.moveTo(0, h);
@@ -1015,6 +1132,9 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
 
     // World 5 Background Snowshoe Hares & Level 29 Bear Chase (stops upon defeat!)
     if (levelId === 29 && !isBossDefeated) {
@@ -1378,11 +1498,14 @@ export class GameRenderer {
       ctx.arc(sunX, sunY, 130 + pulse, 0, Math.PI * 2);
       ctx.fill();
 
-      // Blazing red eclipse ring
+      // Blazing red eclipse ring with crisp black cartoon outline
       ctx.fillStyle = '#ef4444';
       ctx.beginPath();
       ctx.arc(sunX, sunY, 44, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.8;
+      ctx.stroke();
       ctx.fillStyle = '#fca5a5';
       ctx.beginPath();
       ctx.arc(sunX, sunY, 40, 0, Math.PI * 2);
@@ -1403,7 +1526,7 @@ export class GameRenderer {
       ctx.fillStyle = '#090103';
       ctx.fillRect(sunX - 3.5, sunY - 3, 3, 8);
 
-      // 3. Dark Charred-Crimson Nightmare Clouds
+      // 3. Dark Charred-Crimson Nightmare Clouds with black cartoon outlines
       for (let i = 0; i < 7; i++) {
         const cx = (((i * 250) + time * 12 - (camera.x * 0.04)) % (w + 260)) - 100;
         const cy = 18 + (i % 3) * 32;
@@ -1413,6 +1536,9 @@ export class GameRenderer {
         ctx.ellipse(cx + 22, cy + 5, 34, 14, 0, 0, Math.PI * 2);
         ctx.ellipse(cx + 72, cy + 7, 36, 13, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
         // Red underlit rim on clouds
         ctx.fillStyle = 'rgba(220, 38, 38, 0.35)';
         ctx.fillRect(cx + 8, cy + 20, 74, 3);
@@ -1592,25 +1718,28 @@ export class GameRenderer {
       ctx.closePath();
       ctx.fill();
 
-      // Jagged blackened thorns & bone shards lining the cursed foreground
-      for (let x = 0; x < w + 40; x += 28) {
-        const worldX = x + camera.x * 0.45;
+      // Scorched Ember Bushes (exact Bestiary Log model!) & eerie skulls lining World 6: the Boss
+      const emberStride = 112;
+      const firstEmber = Math.floor((camera.x * 0.45 - 60) / emberStride);
+      const lastEmber = Math.ceil((camera.x * 0.45 + w + 60) / emberStride);
+      for (let idx = firstEmber; idx <= lastEmber; idx++) {
+        const worldX = idx * emberStride + 24;
+        const ex = worldX - camera.x * 0.45;
         const hillY = h - 74 + Math.sin(worldX * 0.006 + 2.2) * 18;
-        ctx.fillStyle = '#1f0407';
-        ctx.beginPath();
-        ctx.moveTo(x - 4, hillY + 4);
-        ctx.lineTo(x + 2, hillY - 12);
-        ctx.lineTo(x + 7, hillY + 4);
-        ctx.closePath();
-        ctx.fill();
+        ctx.save();
+        ctx.translate(ex, hillY + 5);
+        this.drawPlantSprite(ctx, 'volcanic_ember_bush', time + idx * 0.6, 0.92, Math.abs(idx) % 3, false);
+        ctx.restore();
 
         // Occasional eerie pale skull embedded in the dark ash
-        if ((x / 28) % 5 === 0) {
+        if (Math.abs(idx) % 2 === 0) {
+          ctx.fillStyle = '#09090b';
+          ctx.fillRect(ex + 22, hillY - 5, 9, 7);
           ctx.fillStyle = '#b8a5a5';
-          ctx.fillRect(x + 8, hillY - 4, 7, 5);
+          ctx.fillRect(ex + 23, hillY - 4, 7, 5);
           ctx.fillStyle = '#090103';
-          ctx.fillRect(x + 9, hillY - 2.5, 1.8, 1.8);
-          ctx.fillRect(x + 12.2, hillY - 2.5, 1.8, 1.8);
+          ctx.fillRect(ex + 24, hillY - 2.5, 1.8, 1.8);
+          ctx.fillRect(ex + 27.2, hillY - 2.5, 1.8, 1.8);
         }
       }
 
@@ -1657,6 +1786,9 @@ export class GameRenderer {
     ctx.beginPath();
     ctx.arc(sunX, sunY, 36, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.6;
+    ctx.stroke();
 
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
@@ -1707,6 +1839,9 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
 
     // Rugged Shaded Mountain Ridges (Layer 2)
     ctx.fillStyle = '#312e81';
@@ -1722,6 +1857,9 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
 
     // Snow-Capped Alpine Mountain Summits & Sunlit Crags
     for (let pIdx = 0; pIdx < 7; pIdx++) {
@@ -1963,6 +2101,9 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
 
     // WATER SOURCE 4: Crystal Clear Foreground Pond with Water Lilies & Lotus
     const pond1X = ((280 - camera.x * 0.45) % (w + 260)) - 30;
@@ -2027,77 +2168,26 @@ export class GameRenderer {
       ctx.fillRect(springX - 4, sy - jetH + 2, 8, 2);
     }
 
-    // 7. ABUNDANT DENSE FLOWER CARPET (Poppies, Sunflowers, Bluebells, Lavender, Daisies)
-    for (let x = 0; x < w + 40; x += 14) {
-      const worldX = x + camera.x * 0.45;
+    // 7. ABUNDANT DENSE FLOWER CARPET (exact Bestiary Log Meadow Grass Flowers & Sunflowers!)
+    const sanctuaryStride = 74;
+    const firstSanc = Math.floor((camera.x * 0.45 - 50) / sanctuaryStride);
+    const lastSanc = Math.ceil((camera.x * 0.45 + w + 50) / sanctuaryStride);
+    for (let idx = firstSanc; idx <= lastSanc; idx++) {
+      const worldX = idx * sanctuaryStride + 20;
+      const fx = worldX - camera.x * 0.45;
       const hillY = h - 75 + Math.sin(worldX * 0.005 + 2.2) * 20;
-      const sway = Math.sin(time * 4 + x) * 2.5;
-
-      // Stem
-      ctx.strokeStyle = '#15803d';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(x, hillY);
-      ctx.lineTo(x + sway, hillY - 9);
-      ctx.stroke();
-
-      // Flower blossom varieties
-      const flowerType = (x * 7) % 6;
-      if (flowerType === 0) {
-        // Crimson wild poppy
-        ctx.fillStyle = '#f43f5e';
-        ctx.beginPath();
-        ctx.arc(x + sway, hillY - 10, 3.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#0f172a'; // black center
-        ctx.fillRect(x + sway - 1, hillY - 11, 2, 2);
-      } else if (flowerType === 1) {
-        // Sunny yellow daffodil / buttercup
-        ctx.fillStyle = '#facc15';
-        ctx.beginPath();
-        ctx.arc(x + sway, hillY - 10, 3.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ea580c';
-        ctx.fillRect(x + sway - 1, hillY - 11, 2, 2);
-      } else if (flowerType === 2) {
-        // Purple royal lavender
-        ctx.fillStyle = '#a855f7';
-        ctx.fillRect(x + sway - 1.5, hillY - 13, 3, 6);
-        ctx.fillStyle = '#c084fc';
-        ctx.fillRect(x + sway - 1, hillY - 15, 2, 2);
-      } else if (flowerType === 3) {
-        // Azure bluebell
-        ctx.fillStyle = '#38bdf8';
-        ctx.beginPath();
-        ctx.arc(x + sway, hillY - 10, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(x + sway - 1, hillY - 11, 2, 1.5);
-      } else if (flowerType === 4) {
-        // Pure white daisy with gold center
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(x + sway, hillY - 10, 3.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#f59e0b';
-        ctx.fillRect(x + sway - 1, hillY - 11, 2, 2);
-      } else {
-        // Tall golden sunflower
-        ctx.strokeStyle = '#166534';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(x, hillY);
-        ctx.lineTo(x + sway, hillY - 16);
-        ctx.stroke();
-        ctx.fillStyle = '#eab308';
-        ctx.beginPath();
-        ctx.arc(x + sway, hillY - 17, 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#451a03'; // dark brown sunflower seed center
-        ctx.beginPath();
-        ctx.arc(x + sway, hillY - 17, 2.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      const isSunflower = ((idx % 3) + 3) % 3 === 0;
+      ctx.save();
+      ctx.translate(fx, hillY + 4);
+      this.drawPlantSprite(
+        ctx,
+        isSunflower ? 'meadow_sunflower' : 'grass_wildflower',
+        time + idx * 0.5,
+        isSunflower ? 0.85 : 0.78,
+        Math.abs(idx) % 3,
+        false
+      );
+      ctx.restore();
     }
 
     // 8. BUTTERFLIES AND INSECTS! (Only appear when the boss is defeated and sanctuary peace is restored)
@@ -2178,6 +2268,9 @@ export class GameRenderer {
     ctx.beginPath();
     ctx.arc(sunX, sunY, 34, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.6;
+    ctx.stroke();
 
     // 3. Clouds
     ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
@@ -2200,6 +2293,9 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
 
     // 5. Middle Meadow with Trees & Fences
     ctx.fillStyle = '#4ade80';
@@ -2213,30 +2309,22 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
 
-    // Trees on Middle Meadow
+    // Meadow Oak Trees on Middle Meadow (exact Bestiary Log Coop Oak & Orchard Tree!)
     for (let i = 0; i < 8; i++) {
       const tx = (((i * 240) - (camera.x * 0.3)) % (w + 140)) - 40;
       const worldX = tx + camera.x * 0.3;
       const ty = h - 125 + Math.sin(worldX * 0.0042 + 1.2) * 30;
-
-      ctx.fillStyle = '#78350f';
-      ctx.fillRect(tx - 3, ty - 6, 6, 14);
-
-      ctx.fillStyle = '#15803d';
-      ctx.beginPath();
-      ctx.arc(tx, ty - 18, 18, 0, Math.PI * 2);
-      ctx.arc(tx - 10, ty - 12, 13, 0, Math.PI * 2);
-      ctx.arc(tx + 10, ty - 12, 13, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#22c55e';
-      ctx.beginPath();
-      ctx.arc(tx - 3, ty - 22, 10, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.save();
+      ctx.translate(tx, ty + 8);
+      this.drawPlantSprite(ctx, 'meadow_oak_tree', time + i * 0.6, 1.18, i % 3, false);
+      ctx.restore();
     }
 
-    // 6. Foreground Hill with Grass & Wildflowers
+    // 6. Foreground Hill with Grass & Exact Bestiary Background Wildflowers & Sunflowers
     ctx.fillStyle = '#22c55e';
     ctx.beginPath();
     ctx.moveTo(0, h);
@@ -2248,6 +2336,31 @@ export class GameRenderer {
     ctx.lineTo(w, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Background Meadow Grass Wildflowers & Sunflowers (exact 1:1 match with Plants Bestiary!)
+    const flowerStride = 82;
+    const firstFlowerIdx = Math.floor((camera.x * 0.45 - 50) / flowerStride);
+    const lastFlowerIdx = Math.ceil((camera.x * 0.45 + w + 50) / flowerStride);
+    for (let idx = firstFlowerIdx; idx <= lastFlowerIdx; idx++) {
+      const worldX = idx * flowerStride + 22;
+      const fx = worldX - camera.x * 0.45;
+      const fy = h - 85 + Math.sin(worldX * 0.0055 + 2.4) * 24;
+      const isSunflower = ((idx % 4) + 4) % 4 === 0;
+      ctx.save();
+      ctx.translate(fx, fy + 4);
+      this.drawPlantSprite(
+        ctx,
+        isSunflower ? 'meadow_sunflower' : 'grass_wildflower',
+        time + idx * 0.7,
+        isSunflower ? 0.85 : 0.76,
+        Math.abs(idx) % 3,
+        false
+      );
+      ctx.restore();
+    }
 
     // --- Pasture Animals & Level 10 Wolf Chase ---
     if (levelId === 10 && !isBossDefeated) {
@@ -2652,6 +2765,38 @@ export class GameRenderer {
       activity?: 'graze' | 'walk' | 'rest';
     }
   ) {
+    const sc = options?.scale || (options?.isLamb ? 0.68 : 1.0);
+    const padW = Math.ceil(104 * sc);
+    const padH = Math.ceil(88 * sc);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(x, y);
+    this.drawCartoonOutlined(
+      ctx,
+      padW,
+      padH,
+      Math.ceil(padW / 2),
+      Math.ceil(padH * 0.62),
+      () => this._renderGrazingSheep(0, 0, time, options),
+      Math.max(1.35, Math.min(2.3, 1.55 * Math.sqrt(sc)))
+    );
+    ctx.restore();
+  }
+
+  private _renderGrazingSheep(
+    x: number,
+    y: number,
+    time: number,
+    options?: {
+      facing?: 'left' | 'right';
+      scale?: number;
+      isLamb?: boolean;
+      animOffset?: number;
+      isCheering?: boolean;
+      variantIndex?: number;
+      activity?: 'graze' | 'walk' | 'rest';
+    }
+  ) {
     const ctx = this.ctx;
     const facing = options?.facing || 'left';
     const scale = options?.scale || (options?.isLamb ? 0.68 : 1.0);
@@ -2972,11 +3117,21 @@ export class GameRenderer {
 
   private drawFluffyCloud(x: number, y: number, width: number) {
     const ctx = this.ctx;
+    const callerColor = ctx.fillStyle;
+    const isStormTint = typeof callerColor === 'string' && !callerColor.startsWith('rgba(255') && callerColor !== '#ffffff' && callerColor !== '#f8fafc' && callerColor !== '#e2e8f0' && callerColor !== '#bae6fd';
     ctx.save();
-    ctx.fillStyle = 'rgba(226, 232, 240, 0.85)';
+    // Crisp black cartoon cloud silhouette outline behind every cloud layer
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(x + 2, y + 14, width - 4, 18);
+    ctx.fillRect(x - 2, y + 8, width + 4, 20);
+    ctx.fillRect(x + 8, y, width - 16, 28);
+    ctx.fillRect(x + 20, y - 8, width - 40, 34);
+    ctx.fillRect(x + width * 0.35 - 2, y - 12, width * 0.3 + 4, 18);
+
+    ctx.fillStyle = isStormTint ? callerColor : 'rgba(226, 232, 240, 0.92)';
     ctx.fillRect(x + 4, y + 16, width - 8, 14);
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = isStormTint ? callerColor : '#ffffff';
     ctx.fillRect(x, y + 10, width, 16);
     ctx.fillRect(x + 10, y + 2, width - 20, 24);
     ctx.fillRect(x + 22, y - 6, width - 44, 30);
@@ -3064,9 +3219,12 @@ export class GameRenderer {
       ctx.translate(-pivotX, -pivotY);
     }
 
-    // Wooden wall structure
+    // Wooden wall structure with crisp black cartoon outline
     ctx.fillStyle = '#92400e';
     ctx.fillRect(sx, sy + 14, coopW, coopH - 14);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.2;
+    ctx.strokeRect(sx, sy + 14, coopW, coopH - 14);
 
     // Vertical timber plank lines & highlights
     ctx.strokeStyle = '#78350f';
@@ -3078,7 +3236,7 @@ export class GameRenderer {
       ctx.stroke();
     }
     ctx.fillStyle = '#b45309';
-    ctx.fillRect(sx, sy + 14, coopW, 2);
+    ctx.fillRect(sx + 1, sy + 15, coopW - 2, 2);
 
     // Cozy arched doorway where the chick emerges
     const doorW = 20;
@@ -3093,6 +3251,9 @@ export class GameRenderer {
     ctx.lineTo(doorX, doorY + doorH);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
 
     // Warm cozy home glow inside the doorway when the chicken is nearby
     if (proximity > 0.02) {
@@ -3116,8 +3277,11 @@ export class GameRenderer {
     // Wooden perch bar across door
     ctx.fillStyle = '#d97706';
     ctx.fillRect(doorX - 2, doorY + doorH - 2, doorW + 4, 3);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(doorX - 2, doorY + doorH - 2, doorW + 4, 3);
 
-    // Red pitched shingle roof
+    // Red pitched shingle roof with crisp black cartoon outline
     ctx.fillStyle = '#b91c1c';
     ctx.beginPath();
     ctx.moveTo(sx + coopW / 2, sy);
@@ -3125,18 +3289,25 @@ export class GameRenderer {
     ctx.lineTo(sx - 7, sy + 15);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
 
     // Roof eaves & ridge cap
     ctx.fillStyle = '#f59e0b';
     ctx.fillRect(sx + coopW / 2 - 4, sy - 2, 8, 4);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(sx + coopW / 2 - 4, sy - 2, 8, 4);
     ctx.fillStyle = '#991b1b';
     ctx.fillRect(sx - 7, sy + 13, coopW + 14, 3);
+    ctx.strokeRect(sx - 7, sy + 13, coopW + 14, 3);
 
     // Cute painted wooden sign: "COOP"
     ctx.fillStyle = '#fef3c7';
     ctx.fillRect(sx + coopW / 2 - 12, sy + 15, 24, 8);
-    ctx.strokeStyle = '#78350f';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.5;
     ctx.strokeRect(sx + coopW / 2 - 12, sy + 15, 24, 8);
 
     ctx.fillStyle = '#92400e';
@@ -3149,6 +3320,9 @@ export class GameRenderer {
     ctx.beginPath();
     ctx.arc(sx + coopW / 2, sy + 7, 3, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
 
     ctx.restore();
 
@@ -3196,13 +3370,16 @@ export class GameRenderer {
     ctx.ellipse(sx + 36, sy + 1, 46, 6, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Wooden timber counter base
+    // Wooden timber counter base with crisp black cartoon outline
     const counterW = 68;
     const counterH = 28;
     ctx.fillStyle = '#78350f';
     ctx.fillRect(sx, sy - counterH, counterW, counterH);
     ctx.fillStyle = '#92400e';
     ctx.fillRect(sx + 2, sy - counterH + 2, counterW - 4, counterH - 4);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.2;
+    ctx.strokeRect(sx, sy - counterH, counterW, counterH);
 
     // Vertical plank lines
     ctx.strokeStyle = '#451a03';
@@ -3219,11 +3396,18 @@ export class GameRenderer {
     ctx.fillRect(sx - 4, sy - counterH - 4, counterW + 8, 5);
     ctx.fillStyle = '#d97706';
     ctx.fillRect(sx - 4, sy - counterH - 4, counterW + 8, 2);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.8;
+    ctx.strokeRect(sx - 4, sy - counterH - 4, counterW + 8, 5);
 
     // Market Stall Timber Canopy Posts
     ctx.fillStyle = '#543009';
     ctx.fillRect(sx + 2, sy - counterH - 46, 4, 46);
     ctx.fillRect(sx + counterW - 6, sy - counterH - 46, 4, 46);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(sx + 2, sy - counterH - 46, 4, 46);
+    ctx.strokeRect(sx + counterW - 6, sy - counterH - 46, 4, 46);
 
     // Awning Canopy with Scalloped Red & Gold Fabric Stripes
     const awningY = sy - counterH - 52;
@@ -3241,32 +3425,42 @@ export class GameRenderer {
       ctx.lineTo(stripeX - 2, awningY + 12);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
 
       // Scalloped fringe
       ctx.beginPath();
       ctx.arc(stripeX + sw / 2, awningY + 12, sw / 2, 0, Math.PI);
       ctx.fill();
+      ctx.stroke();
     }
 
     // Wooden Hanging Sign: "UPGRADES"
     ctx.fillStyle = '#fef3c7';
     ctx.fillRect(sx + 10, awningY - 14, counterW - 20, 10);
-    ctx.strokeStyle = '#78350f';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.8;
     ctx.strokeRect(sx + 10, awningY - 14, counterW - 20, 10);
     ctx.fillStyle = '#78350f';
     ctx.font = '700 6.5px "Silkscreen", monospace';
     ctx.textAlign = 'center';
     ctx.fillText('UPGRADES', sx + counterW / 2, awningY - 6);
 
-    // Display Items on Counter
+    // Display Items on Counter with crisp black cartoon outlines
     // 1. Glowing Heart Jar
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
     ctx.fillRect(sx + 8, sy - counterH - 12, 8, 8);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(sx + 8, sy - counterH - 12, 8, 8);
     ctx.fillStyle = '#ef4444';
     ctx.fillRect(sx + 10, sy - counterH - 10, 4, 4);
 
     // 2. Mini Steel Sword on Display Stand
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(sx + 25, sy - counterH - 13, 4, 11);
+    ctx.fillRect(sx + 23, sy - counterH - 8, 8, 4);
     ctx.fillStyle = '#94a3b8';
     ctx.fillRect(sx + 26, sy - counterH - 12, 2, 8);
     ctx.fillStyle = '#38bdf8';
@@ -3284,13 +3478,16 @@ export class GameRenderer {
     ctx.lineTo(sx + 44, sy - counterH - 5);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
 
     // Hanging Brass Lantern swaying in gentle breeze
     const lanternSway = Math.sin(time * 3) * 3;
     const lX = sx + counterW + 4;
     const lY = awningY + 6;
-    ctx.strokeStyle = '#451a03';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
     ctx.moveTo(sx + counterW - 4, awningY);
     ctx.lineTo(lX + lanternSway, lY);
@@ -3298,6 +3495,7 @@ export class GameRenderer {
 
     ctx.fillStyle = '#f59e0b';
     ctx.fillRect(lX - 3 + lanternSway, lY, 6, 8);
+    ctx.strokeRect(lX - 3 + lanternSway, lY, 6, 8);
     ctx.fillStyle = '#fef08a';
     ctx.fillRect(lX - 1.5 + lanternSway, lY + 1.5, 3, 5);
 
@@ -3323,6 +3521,7 @@ export class GameRenderer {
     ctx.ellipse(0, 20, 14, 4, 0, 0, Math.PI * 2);
     ctx.fill();
 
+    this.drawCartoonOutlined(ctx, 84, 76, 42, 42, (ctx) => {
     // Fluffy cloud plumage tail
     ctx.fillStyle = '#e2e8f0';
     ctx.beginPath();
@@ -3481,6 +3680,7 @@ export class GameRenderer {
     ctx.fillRect(-2.5, 18.8, 1.5, 1.2);
     ctx.fillRect(2.5, 18.8, 1.5, 1.2);
     ctx.fillRect(8.5, 18.8, 1.5, 1.2);
+    }, 1.7);
 
     ctx.restore(); // restore Sam
 
@@ -3747,6 +3947,9 @@ export class GameRenderer {
         ctx.fillStyle = '#450a0a';
         ctx.fillRect(gx + 1, sy + 12, 3, 4);
       }
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.6;
+      ctx.strokeRect(sx, sy, plat.width, plat.height);
       return;
     }
 
@@ -3790,6 +3993,9 @@ export class GameRenderer {
         ctx.fillStyle = '#fef3c7';
         ctx.fillRect(px + 20, sy + 2, 3, 2);
       }
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.6;
+      ctx.strokeRect(sx, sy, plat.width, plat.height);
       return;
     }
 
@@ -3824,14 +4030,20 @@ export class GameRenderer {
         ctx.fillStyle = '#38bdf8';
         ctx.fillRect(px + 22, sy + 5, 3, 2);
       }
-      // Subtle sea grass tufts along top
+      // Subtle sea grass tufts along top with crisp black cartoon outlines
       for (let gx = sx + 30; gx < sx + plat.width - 30; gx += 76) {
+        ctx.fillStyle = '#09090b';
+        ctx.fillRect(gx - 1, sy - 5, 4, 5);
+        ctx.fillRect(gx + 2, sy - 7, 4, 7);
         ctx.fillStyle = '#16a34a';
         ctx.fillRect(gx, sy - 4, 2, 4);
         ctx.fillRect(gx + 3, sy - 6, 2, 6);
         ctx.fillStyle = '#4ade80';
         ctx.fillRect(gx + 1, sy - 3, 2, 3);
       }
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.6;
+      ctx.strokeRect(sx, sy, plat.width, plat.height);
       return;
     }
 
@@ -3878,17 +4090,15 @@ export class GameRenderer {
         ctx.fillRect(gx + 1, sy + 11, 2, 3);
       }
 
-      // Small wildflowers on grass
-      for (let fx = sx + 12; fx < sx + plat.width - 12; fx += 32) {
-        const flowerColor = (fx % 64 === 0) ? '#f43f5e' : (fx % 48 === 0 ? '#facc15' : '#38bdf8');
-        ctx.fillStyle = flowerColor;
-        ctx.beginPath();
-        ctx.arc(fx, sy - 3, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(fx - 1, sy - 4, 2, 2);
-        ctx.fillStyle = '#16a34a';
-        ctx.fillRect(fx - 0.5, sy - 1, 1, 3);
+      // Grass Wildflower Clusters (exact 1:1 match with Plants Bestiary!)
+      for (let lx = 26; lx < plat.width - 26; lx += 76) {
+        const fx = sx + lx;
+        if (fx < -40 || fx > this.canvas.width + 40) continue;
+        const fIdx = Math.abs(Math.floor((plat.x + lx) / 76)) % 3;
+        ctx.save();
+        ctx.translate(fx, sy + 1);
+        this.drawPlantSprite(ctx, 'grass_wildflower', this.lastRenderTime + fIdx * 0.7, 0.52, fIdx, false);
+        ctx.restore();
       }
 
     // 2. "make the platforms at world 5 make everthing snow and under dirt and icicles"
@@ -3921,20 +4131,23 @@ export class GameRenderer {
         ctx.fill();
       }
 
-      // Hanging Crystalline Icicles on the underside of the dirt!
+      // Hanging Crystalline Icicles on the underside of the dirt with crisp black cartoon outlines!
       const icicleCount = Math.max(2, Math.floor(plat.width / 14));
       for (let i = 0; i < icicleCount; i++) {
         const ix = sx + i * 14 + 4;
         const iLen = 8 + ((i * 7) % 11); // varied icicle lengths
 
         // Translucent cyan ice
-        ctx.fillStyle = 'rgba(56, 189, 248, 0.75)';
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.85)';
         ctx.beginPath();
         ctx.moveTo(ix, sy + plat.height);
         ctx.lineTo(ix + 3, sy + plat.height + iLen);
         ctx.lineTo(ix + 6, sy + plat.height);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
 
         // White core & sparkling light tip
         ctx.fillStyle = '#ffffff';
@@ -3986,16 +4199,15 @@ export class GameRenderer {
         ctx.fillRect(gx + 1, sy + 11, 2, 3);
       }
 
-      for (let fx = sx + 12; fx < sx + plat.width - 12; fx += 32) {
-        const flowerColor = (fx % 64 === 0) ? '#f43f5e' : (fx % 48 === 0 ? '#facc15' : '#38bdf8');
-        ctx.fillStyle = flowerColor;
-        ctx.beginPath();
-        ctx.arc(fx, sy - 3, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(fx - 1, sy - 4, 2, 2);
-        ctx.fillStyle = '#16a34a';
-        ctx.fillRect(fx - 0.5, sy - 1, 1, 3);
+      // Grass Wildflower Clusters (exact 1:1 match with Plants Bestiary!)
+      for (let lx = 26; lx < plat.width - 26; lx += 76) {
+        const fx = sx + lx;
+        if (fx < -40 || fx > this.canvas.width + 40) continue;
+        const fIdx = Math.abs(Math.floor((plat.x + lx) / 76)) % 3;
+        ctx.save();
+        ctx.translate(fx, sy + 1);
+        this.drawPlantSprite(ctx, 'grass_wildflower', this.lastRenderTime + fIdx * 0.7, 0.52, fIdx, false);
+        ctx.restore();
       }
 
     } else if (plat.type === 'wood' || plat.type === 'bridge') {
@@ -4049,9 +4261,9 @@ export class GameRenderer {
         ctx.fillRect(sx + plat.width - 5, ry + 2, 2, 2);
       }
 
-      // Crisp dark timber outline so fence gaps read clearly
-      ctx.strokeStyle = '#451a03';
-      ctx.lineWidth = 1.5;
+      // Crisp black cartoon outline so fence gaps read clearly
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.2;
       ctx.strokeRect(sx, sy, plat.width, plat.height);
 
       // Pointed wooden picket cap on top
@@ -4062,8 +4274,8 @@ export class GameRenderer {
       ctx.lineTo(sx, sy);
       ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = '#451a03';
-      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2;
       ctx.stroke();
 
     } else if (plat.type === 'ruins') {
@@ -4122,15 +4334,26 @@ export class GameRenderer {
       }
     }
 
+    if (plat.type !== 'fence') {
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(sx, sy, plat.width, plat.height);
+    }
+
     if (plat.isMoving) {
       ctx.fillStyle = '#38bdf8';
       ctx.fillRect(sx + plat.width / 2 - 5, sy + plat.height / 2 - 4, 10, 8);
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx + plat.width / 2 - 5, sy + plat.height / 2 - 4, 10, 8);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(sx + plat.width / 2 - 2, sy + plat.height / 2 - 2, 4, 4);
 
       ctx.fillStyle = '#f59e0b';
       ctx.fillRect(sx + 2, sy + 3, 5, plat.height - 6);
       ctx.fillRect(sx + plat.width - 7, sy + 3, 5, plat.height - 6);
+      ctx.strokeRect(sx + 2, sy + 3, 5, plat.height - 6);
+      ctx.strokeRect(sx + plat.width - 7, sy + 3, 5, plat.height - 6);
     }
   }
 
@@ -4264,6 +4487,9 @@ export class GameRenderer {
           const catchY = gap.bottomY - camera.y - 3;
           ctx.fillStyle = approachGlow > 0.1 ? '#fde047' : '#d97706';
           ctx.fillRect(hingeScreenX - 4, catchY, 8, 4);
+          ctx.strokeStyle = '#09090b';
+          ctx.lineWidth = 1.6;
+          ctx.strokeRect(hingeScreenX - 4, catchY, 8, 4);
           ctx.fillStyle = '#451a03';
           ctx.fillRect(hingeScreenX - 2, catchY + 1, 4, 2);
         }
@@ -4319,15 +4545,18 @@ export class GameRenderer {
           ctx.fillRect(-1, by + 1.5, 2, 1.5);
         }
 
-        // Dark crisp wood outline
-        ctx.strokeStyle = '#451a03';
-        ctx.lineWidth = 1.2;
+        // Crisp black cartoon wood outline
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 2.2;
         ctx.strokeRect(-leafW / 2, 0, leafW, gateLen);
 
         // Golden brass latch tip at bottom of the swinging gate (glints when player approaches)
         const latchGlow = Math.abs(state.angle) > 0.25 || approachGlow > 0.15;
         ctx.fillStyle = latchGlow ? '#fef08a' : '#eab308';
         ctx.fillRect(-3.5, gateLen - 5, 7, 4);
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(-3.5, gateLen - 5, 7, 4);
         ctx.fillStyle = '#78350f';
         ctx.fillRect(-1.5, gateLen - 4, 3, 2);
 
@@ -4337,10 +4566,14 @@ export class GameRenderer {
         ctx.save();
         ctx.fillStyle = '#334155';
         ctx.fillRect(hingeScreenX - 6, hingeScreenY - 4, 12, 6);
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 1.6;
+        ctx.strokeRect(hingeScreenX - 6, hingeScreenY - 4, 12, 6);
         ctx.fillStyle = '#94a3b8';
         ctx.beginPath();
         ctx.arc(hingeScreenX, hingeScreenY, 3.2, 0, Math.PI * 2);
         ctx.fill();
+        ctx.stroke();
         ctx.fillStyle = '#f8fafc';
         ctx.fillRect(hingeScreenX - 1, hingeScreenY - 1.5, 1.5, 1.5);
         ctx.restore();
@@ -4358,13 +4591,16 @@ export class GameRenderer {
 
       if (sx + s.width < -40 || sx > this.canvas.width + 40) return;
 
-      // 1. Carved stone bedrock foundation with bevel
+      // 1. Carved stone bedrock foundation with crisp black cartoon outline
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(sx, sy + s.height - 6, s.width, 6);
       ctx.fillStyle = '#475569';
       ctx.fillRect(sx, sy + s.height - 7, s.width, 2);
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(sx, sy + s.height - 2, s.width, 2);
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx, sy + s.height - 7, s.width, 7);
 
       // Warning rivets along base
       for (let rx = sx + 6; rx < sx + s.width; rx += 14) {
@@ -4374,7 +4610,7 @@ export class GameRenderer {
         ctx.fillRect(rx, sy + s.height - 5, 1, 1);
       }
 
-      // 2. Individual gleam-honed steel spikes
+      // 2. Individual gleam-honed steel spikes with crisp black cartoon outlines
       const spikeW = 12;
       const count = Math.max(1, Math.floor(s.width / spikeW));
       for (let i = 0; i < count; i++) {
@@ -4416,6 +4652,16 @@ export class GameRenderer {
         ctx.lineTo(spkPeakX - 3.5, spkPeakY + 7);
         ctx.closePath();
         ctx.fill();
+
+        // Crisp black cartoon outline around full spike triangle
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(spkPeakX, spkPeakY);
+        ctx.lineTo(spkX + spikeW, sy + s.height - 6);
+        ctx.lineTo(spkX, sy + s.height - 6);
+        ctx.closePath();
+        ctx.stroke();
 
         // Glossy highlight dot on tip
         ctx.fillStyle = '#fca5a5';
@@ -4466,11 +4712,11 @@ export class GameRenderer {
       ctx.fillStyle = beamGrad;
       ctx.fillRect(padX - 4, padY - 70, padSize + 8, 70);
 
-      // 2. Glowing platform stone foundation
+      // 2. Glowing platform stone foundation with crisp black cartoon outline
       ctx.fillStyle = '#064e3b';
       ctx.fillRect(padX - 2, padY, padSize + 4, 8);
-      ctx.strokeStyle = '#10b981';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.2;
       ctx.strokeRect(padX - 2, padY, padSize + 4, 8);
 
       // 3. 5 by 5 Grid of Luminous Energy Squares (small square cells)
@@ -4495,6 +4741,9 @@ export class GameRenderer {
       ctx.beginPath();
       ctx.arc(sx, padY + 2, 4.5, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
       ctx.fillStyle = '#15803d';
       ctx.fillRect(sx - 1, padY + 1, 2, 2);
 
@@ -4509,11 +4758,11 @@ export class GameRenderer {
 
     } else {
       // DORMANT CHECKPOINT: Small 5 by 5 square platform before being stepped on
-      // 1. Weathered ancient slate stone foundation
+      // 1. Weathered ancient slate stone foundation with crisp black cartoon outline
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(padX - 2, padY, padSize + 4, 8);
-      ctx.strokeStyle = '#475569';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.2;
       ctx.strokeRect(padX - 2, padY, padSize + 4, 8);
 
       // 2. 5 by 5 Grid of Dormant Stone Squares
@@ -4536,6 +4785,9 @@ export class GameRenderer {
       ctx.beginPath();
       ctx.arc(sx, padY + 2, 3.5, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
       // Dim resting yellow amber notch
       ctx.fillStyle = '#ca8a04';
       ctx.fillRect(sx - 1, padY + 1, 2, 2);
@@ -4571,8 +4823,8 @@ export class GameRenderer {
     ctx.fillStyle = `rgba(250, 204, 21, ${glowPulse})`;
     ctx.fillRect(ox - u, oy - u, 12 * u, 12 * u);
 
-    // --- 1. Dark Brown Pixel Outline (#3b1302) ---
-    ctx.fillStyle = '#3b1302';
+    // --- 1. Crisp Ink-Black Cartoon Outline (#09090b) ---
+    ctx.fillStyle = '#09090b';
     // Top & bottom caps
     ctx.fillRect(ox + 3 * u, oy + 0 * u, 4 * u, u);
     ctx.fillRect(ox + 3 * u, oy + 9 * u, 4 * u, u);
@@ -4624,12 +4876,320 @@ export class GameRenderer {
     ctx.restore();
   }
 
-  public renderChest(chest: TreasureChest, camera: Camera, time: number) {
+  public renderBrushPickup(pickup: BrushPickup, camera: Camera, time: number) {
+    if (pickup.taken) return;
+    const ctx = this.ctx;
+    const sx = Math.round(pickup.x - camera.x);
+    const sy = Math.round(pickup.y - camera.y);
+    if (sx < -80 || sx > this.canvas.width + 80) return;
+
+    const bob = Math.sin(time * 4.2) * 4;
+    ctx.save();
+
+    // Warm golden sunlit beam around the Archaeology Brush on Level 1
+    const beam = ctx.createLinearGradient(sx, sy - 92, sx, sy);
+    beam.addColorStop(0, 'rgba(250, 204, 21, 0)');
+    beam.addColorStop(0.6, 'rgba(250, 204, 21, 0.22)');
+    beam.addColorStop(1, 'rgba(251, 146, 60, 0.42)');
+    ctx.fillStyle = beam;
+    ctx.fillRect(sx - 18, sy - 92, 36, 92);
+
+    // Subtle mossy wooden stand/dirt mound beneath the brush with black cartoon outline
+    ctx.fillStyle = '#78350f';
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 2, 16, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#b45309';
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 3, 12, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Detailed angled Archaeology Brush (wooden handle, brass ferrule, layered fine bristles)
+    ctx.save();
+    ctx.translate(sx, sy - 24 + bob);
+    ctx.rotate(-0.42 + Math.sin(time * 3) * 0.08);
+
+    // Crisp black cartoon outline around entire brush
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(-5, -19, 10, 34);
+    ctx.fillRect(-6.5, -12, 13, 10);
+    ctx.fillRect(-7.5, -23, 15, 15);
+    // Turned cedar wood handle
+    ctx.fillStyle = '#92400e';
+    ctx.fillRect(-3, -4, 6, 17);
+    ctx.fillStyle = '#d97706';
+    ctx.fillRect(-2, -3, 2, 15);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(1, -3, 2, 15);
+    // Brass copper ferrule band with rivet shine
+    ctx.fillStyle = '#ca8a04';
+    ctx.fillRect(-4.5, -10, 9, 6);
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(-3, -9, 3, 4);
+    ctx.fillStyle = '#a16207';
+    ctx.fillRect(2, -9, 2, 4);
+    // Natural horsehair brush bristles
+    ctx.fillStyle = '#fde68a';
+    ctx.fillRect(-5.5, -21, 11, 11);
+    ctx.fillStyle = '#d97706';
+    ctx.fillRect(-5.5, -21, 11, 3);
+    ctx.fillStyle = '#92400e';
+    ctx.fillRect(-3, -20, 1.5, 9);
+    ctx.fillRect(0, -20, 1.5, 9);
+    ctx.fillRect(3, -20, 1.5, 9);
+    ctx.restore();
+
+    // Floating sparkle motes
+    for (let i = 0; i < 3; i++) {
+      const spX = sx + Math.sin(time * 3 + i * 2.1) * 18;
+      const spY = sy - 18 - ((time * 24 + i * 14) % 36);
+      ctx.fillStyle = i % 2 === 0 ? '#fef08a' : '#ffffff';
+      ctx.fillRect(Math.round(spX), Math.round(spY), 3, 3);
+    }
+
+    // Crisp retro floating pickup sign
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.fillRect(sx - 48, sy - 64 + bob * 0.4, 96, 17);
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(sx - 48, sy - 64 + bob * 0.4, 96, 17);
+    ctx.fillStyle = '#fef08a';
+    ctx.font = '700 8px "Silkscreen", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('DIG BRUSH!', sx, sy - 53 + bob * 0.4);
+
+    ctx.restore();
+  }
+
+  public renderChest(chest: TreasureChest, camera: Camera, time: number, levelTheme?: LevelConfig['theme']) {
     const ctx = this.ctx;
     const sx = chest.x - camera.x;
     const sy = chest.y - camera.y;
 
-    if (sx < -60 || sx > this.canvas.width + 60) return;
+    if (sx < -70 || sx > this.canvas.width + 70) return;
+
+    // 1. BURIED DIG SITE (Excavated with Archaeology Brush instead of regular chests!)
+    if (chest.isDigSite) {
+      const progress = chest.opened ? 1 : (chest.digProgress ?? 0);
+      const isDesert = levelTheme === 'desert';
+      const baseX = sx + chest.width / 2;
+      const groundY = sy + chest.height;
+
+      ctx.save();
+      if (chest.opened) {
+        // Neatly brushed hollow excavation crater with scattered sand/soil rim
+        ctx.fillStyle = isDesert ? '#92400e' : '#451a03';
+        ctx.beginPath();
+        ctx.ellipse(baseX, groundY - 3, 21, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = isDesert ? '#d97706' : '#78350f';
+        ctx.beginPath();
+        ctx.ellipse(baseX, groundY - 4, 15, 3.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+
+      // Mound height shrinks smoothly as the player brushes layers away!
+      const moundH = Math.max(8, 22 * (1 - progress * 0.55));
+      const moundW = 24;
+
+      // Subtle golden/amethyst aura for Netherite Armor buried sites
+      const isNetheriteSite = chest.rewardType === 'netherite_armor';
+      if (isNetheriteSite) {
+        const pulse = 0.25 + Math.sin(time * 5) * 0.14;
+        const grad = ctx.createRadialGradient(baseX, groundY - 10, 4, baseX, groundY - 10, 34);
+        grad.addColorStop(0, `rgba(192, 132, 252, ${pulse + 0.2})`);
+        grad.addColorStop(0.6, `rgba(245, 158, 11, ${pulse})`);
+        grad.addColorStop(1, 'rgba(245, 158, 11, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(baseX, groundY - 10, 34, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Layered sandy/earthy buried mound with crisp black cartoon outline
+      ctx.fillStyle = isDesert ? '#b45309' : '#713f12';
+      ctx.beginPath();
+      ctx.moveTo(baseX - moundW, groundY);
+      ctx.quadraticCurveTo(baseX, groundY - moundH * 1.65, baseX + moundW, groundY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.4;
+      ctx.stroke();
+
+      // Sunlit upper crust of suspicious sand/dirt
+      ctx.fillStyle = isDesert ? '#f59e0b' : '#a16207';
+      ctx.beginPath();
+      ctx.moveTo(baseX - moundW + 4, groundY - 2);
+      ctx.quadraticCurveTo(baseX, groundY - moundH * 1.48, baseX + moundW - 5, groundY - 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Sand grains & tiny suspicious pebbles
+      ctx.fillStyle = isDesert ? '#fef08a' : '#d6b48c';
+      ctx.fillRect(Math.round(baseX - 12), Math.round(groundY - 7), 3, 2);
+      ctx.fillRect(Math.round(baseX + 7), Math.round(groundY - 9), 3, 2);
+      ctx.fillRect(Math.round(baseX - 2), Math.round(groundY - moundH + 3), 4, 2);
+
+      // Buried artifact / armor corner gradually emerging as player brushes!
+      const peekH = 4 + progress * 12;
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(Math.round(baseX - 8.5), Math.round(groundY - 5.5 - peekH), 17, Math.round(peekH + 2.5));
+      ctx.fillStyle = isNetheriteSite ? '#1c1917' : '#d97706';
+      ctx.fillRect(Math.round(baseX - 7), Math.round(groundY - 4 - peekH), 14, Math.round(peekH));
+      ctx.fillStyle = isNetheriteSite ? '#c084fc' : '#fde047';
+      ctx.fillRect(Math.round(baseX - 5), Math.round(groundY - 3 - peekH), 10, 3);
+
+      // Twinkling excavation glint
+      const glint = Math.sin(time * 7 + chest.x) > 0.25;
+      if (glint) {
+        ctx.fillStyle = isNetheriteSite ? '#e879f9' : '#fef9c3';
+        ctx.fillRect(Math.round(baseX + 2), Math.round(groundY - moundH - 4), 2, 7);
+        ctx.fillRect(Math.round(baseX - 0.5), Math.round(groundY - moundH - 1.5), 7, 2);
+      }
+
+      // Progress bar when partially brushed, or crisp BRUSH prompt
+      if (progress > 0.02) {
+        const bw = 38;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.fillRect(Math.round(baseX - bw / 2 - 1), Math.round(sy - 14), bw + 2, 7);
+        ctx.fillStyle = isNetheriteSite ? '#c084fc' : '#facc15';
+        ctx.fillRect(Math.round(baseX - bw / 2), Math.round(sy - 13), Math.round(bw * progress), 5);
+      } else {
+        const bobTag = Math.sin(time * 5) * 2;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(Math.round(baseX - 36), Math.round(sy - 20 + bobTag), 72, 14);
+        ctx.strokeStyle = isNetheriteSite ? '#c084fc' : '#facc15';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(Math.round(baseX - 36), Math.round(sy - 20 + bobTag), 72, 14);
+        ctx.fillStyle = isNetheriteSite ? '#e9d5ff' : '#fef08a';
+        ctx.font = '700 7.5px "Silkscreen", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(isNetheriteSite ? 'DIG RELIC!' : 'BRUSH (X)', baseX, sy - 10 + bobTag);
+      }
+      ctx.restore();
+      return;
+    }
+
+    // 2. PECKERIN COAST SEA ROCK TREASURE CHEST (May contain Coral Armor!)
+    if (chest.isRockChest) {
+      const bob = Math.sin(time * 3.2) * 1.5;
+      const ry = sy + bob;
+      ctx.save();
+
+      // Reef glow halo behind unopened Sea Rock Chest
+      if (!chest.opened) {
+        const glow = ctx.createRadialGradient(sx + chest.width / 2, ry + 14, 4, sx + chest.width / 2, ry + 14, 38);
+        glow.addColorStop(0, 'rgba(251, 113, 133, 0.45)');
+        glow.addColorStop(0.55, 'rgba(45, 212, 191, 0.25)');
+        glow.addColorStop(1, 'rgba(45, 212, 191, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(sx + chest.width / 2, ry + 14, 38, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Weathered sea-driftwood chest body with crisp black cartoon outline & turquoise copper straps
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(sx - 3, ry + 5, chest.width + 6, chest.height - 3);
+      ctx.fillStyle = '#134e4a';
+      ctx.fillRect(sx - 1, ry + 7, chest.width + 2, chest.height - 6);
+      ctx.fillStyle = '#0f766e';
+      ctx.fillRect(sx, ry + 8, chest.width, chest.height - 8);
+      // Reef turquoise metal bands
+      ctx.fillStyle = '#2dd4bf';
+      ctx.fillRect(sx + 3, ry + 8, 4, chest.height - 8);
+      ctx.fillRect(sx + chest.width - 7, ry + 8, 4, chest.height - 8);
+      ctx.fillRect(sx, ry + chest.height - 4, chest.width, 4);
+
+      // Living pink & orange staghorn coral branches growing off the chest corners with black outlines!
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(sx - 5.5, ry + 4.5, 6, 13);
+      ctx.fillRect(sx - 7.5, ry + 1.5, 6, 8);
+      ctx.fillRect(sx + chest.width - 1, ry + 8.5, 6.5, 12);
+      ctx.fillRect(sx + chest.width + 0.5, ry + 4.5, 6, 9);
+      ctx.fillStyle = '#f43f5e';
+      ctx.fillRect(sx - 4, ry + 6, 4, 10);
+      ctx.fillRect(sx - 6, ry + 3, 3, 5);
+      ctx.fillStyle = '#fb7185';
+      ctx.fillRect(sx + chest.width, ry + 10, 4, 9);
+      ctx.fillRect(sx + chest.width + 2, ry + 6, 3, 6);
+      ctx.fillStyle = '#fb923c';
+      ctx.fillRect(sx + 1, ry + chest.height - 8, 5, 4);
+
+      // Pearl clasp lock
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(sx + chest.width / 2 - 4, ry + 10, 8, 7);
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 1.6;
+      ctx.strokeRect(sx + chest.width / 2 - 4, ry + 10, 8, 7);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(sx + chest.width / 2 - 2, ry + 12, 4, 3);
+
+      if (chest.opened) {
+        // Opened coral lid with crisp black cartoon outline
+        ctx.fillStyle = '#115e59';
+        ctx.beginPath();
+        ctx.moveTo(sx, ry + 8);
+        ctx.lineTo(sx - 4, ry - 8);
+        ctx.lineTo(sx + chest.width + 4, ry - 8);
+        ctx.lineTo(sx + chest.width, ry + 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.globalAlpha = 0.55 + Math.sin(time * 7) * 0.2;
+        ctx.fillStyle = '#5eead4';
+        ctx.beginPath();
+        ctx.moveTo(sx + 4, ry + 10);
+        ctx.lineTo(sx - 8, ry - 24);
+        ctx.lineTo(sx + chest.width + 8, ry - 24);
+        ctx.lineTo(sx + chest.width - 4, ry + 10);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        // Closed domed sea-chest lid with black cartoon outline & pink coral polyps
+        ctx.fillStyle = '#115e59';
+        ctx.fillRect(sx, ry, chest.width, 11);
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(sx, ry, chest.width, 11);
+        ctx.fillStyle = '#14b8a6';
+        ctx.fillRect(sx + 2, ry + 1, chest.width - 4, 3);
+        ctx.fillStyle = '#2dd4bf';
+        ctx.fillRect(sx + 4, ry, 4, 11);
+        ctx.fillRect(sx + chest.width - 8, ry, 4, 11);
+        ctx.fillStyle = '#09090b';
+        ctx.fillRect(sx + 9, ry - 4.5, 5, 5.5);
+        ctx.fillRect(sx + 13, ry - 6.5, 5, 7.5);
+        ctx.fillRect(sx + 23, ry - 4.5, 5, 5.5);
+        ctx.fillStyle = '#fda4af';
+        ctx.fillRect(sx + 10, ry - 3, 3, 4);
+        ctx.fillRect(sx + 14, ry - 5, 3, 6);
+        ctx.fillRect(sx + 24, ry - 3, 3, 4);
+
+        // Floating tag above the Sea Rock Chest
+        const tagY = Math.round(ry - 24 + Math.sin(time * 4.5) * 2.5);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        ctx.fillRect(Math.round(sx - 24), tagY, 84, 15);
+        ctx.strokeStyle = '#fb7185';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(Math.round(sx - 24), tagY, 84, 15);
+        ctx.fillStyle = '#fda4af';
+        ctx.font = '700 7.5px "Silkscreen", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('CORAL CHEST?', sx + chest.width / 2, tagY + 10.5);
+      }
+
+      ctx.restore();
+      return;
+    }
 
     const isShieldChest = chest.rewardType === 'shield';
 
@@ -4683,6 +5243,13 @@ export class GameRenderer {
       ctx.restore();
     }
 
+    // Crisp black cartoon outline around regular Treasure Chest
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(sx - 2, sy + 6, chest.width + 4, chest.height - 4);
+    if (!chest.opened) {
+      ctx.fillRect(sx - 2, sy - 2, chest.width + 4, 14);
+    }
+
     ctx.fillStyle = isShieldChest ? '#0f172a' : '#78350f';
     ctx.fillRect(sx, sy + 8, chest.width, chest.height - 8);
 
@@ -4697,6 +5264,15 @@ export class GameRenderer {
     ctx.fillRect(sx + chest.width / 2 - 1, sy + 12, 2, 3);
 
     if (chest.opened) {
+      ctx.fillStyle = '#09090b';
+      ctx.beginPath();
+      ctx.moveTo(sx - 2, sy + 9);
+      ctx.lineTo(sx - 6, sy - 10);
+      ctx.lineTo(sx + chest.width + 6, sy - 10);
+      ctx.lineTo(sx + chest.width + 2, sy + 9);
+      ctx.closePath();
+      ctx.fill();
+
       ctx.fillStyle = isShieldChest ? '#0284c7' : '#92400e';
       ctx.beginPath();
       ctx.moveTo(sx, sy + 8);
@@ -4786,6 +5362,7 @@ export class GameRenderer {
       ctx.fill();
     }
 
+    this.drawCartoonOutlined(ctx, 114, 112, 56, 58, (ctx) => {
     // Silkie Tail: Ultra-fluffy cloud puffs (Cloud plumage)
     ctx.fillStyle = '#e2e8f0';
     ctx.beginPath();
@@ -4993,6 +5570,7 @@ export class GameRenderer {
       this.drawDroppedNetheriteSwordSprite(ctx, 0.85);
       ctx.restore();
     }
+    }, 1.8);
 
     ctx.restore(); // restore Sam transform
 
@@ -5218,6 +5796,8 @@ export class GameRenderer {
 
   // Draw Royal Shield Kite Sprite
   private drawShieldSprite(ctx: CanvasRenderingContext2D, scale: number = 1) {
+    const s = Math.max(0.5, Math.abs(scale));
+    this.drawCartoonOutlined(ctx, Math.ceil(36 * s), Math.ceil(42 * s), Math.ceil(18 * s), Math.ceil(20 * s), (ctx) => {
     ctx.save();
     ctx.scale(scale, scale);
 
@@ -5281,6 +5861,7 @@ export class GameRenderer {
     ctx.fillRect(-1, -3, 2, 2);
 
     ctx.restore();
+    }, 1.7);
   }
 
   // Render Dropped Netherite Sword on the platform
@@ -5345,7 +5926,7 @@ export class GameRenderer {
     ctx.save();
     ctx.scale(scale, scale);
 
-    // Purple enchantment aura glow
+    // Purple enchantment aura glow (kept outside crisp black silhouette)
     const swordAura = ctx.createRadialGradient(0, -10, 4, 0, -10, 26);
     swordAura.addColorStop(0, 'rgba(192, 132, 252, 0.45)');
     swordAura.addColorStop(0.7, 'rgba(126, 34, 206, 0.2)');
@@ -5355,6 +5936,7 @@ export class GameRenderer {
     ctx.arc(0, -10, 26, 0, Math.PI * 2);
     ctx.fill();
 
+    this.drawCartoonOutlined(ctx, 36, 76, 18, 46, (ctx) => {
     // Hilt (wrapped in dark obsidian twine with purple bindings)
     ctx.fillStyle = '#09090b';
     ctx.fillRect(-2, 7, 4, 11);
@@ -5433,6 +6015,7 @@ export class GameRenderer {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(1, -bladeLen + 14, 1.5, 1.5);
     ctx.fillRect(-1.5, -bladeLen + 22, 1.5, 1.5);
+    }, 1.5);
 
     ctx.restore();
   }
@@ -5509,6 +6092,9 @@ export class GameRenderer {
       ctx.lineTo(sx + v.width + 5, sy + v.height);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.6;
+      ctx.stroke();
 
       ctx.fillStyle = pal.mid;
       ctx.fillRect(sx + 4, sy + v.height * 0.45, v.width - 8, v.height * 0.55);
@@ -5519,6 +6105,9 @@ export class GameRenderer {
 
       ctx.fillStyle = '#292524';
       ctx.fillRect(sx + 10, sy, v.width - 20, 6);
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 1.8;
+      ctx.strokeRect(sx + 10, sy, v.width - 20, 6);
       ctx.fillStyle = '#22c55e';
       ctx.fillRect(sx + 14, sy - 2, v.width - 28, 2);
       return;
@@ -5526,7 +6115,7 @@ export class GameRenderer {
 
     const isHot = v.state === 'warning' || v.state === 'erupting';
 
-    // 1. Stepped medium volcanic cone silhouette with chunky basalt shoulders
+    // 1. Stepped medium volcanic cone silhouette with chunky basalt shoulders & black cartoon outline
     ctx.fillStyle = pal.base;
     ctx.beginPath();
     ctx.moveTo(sx - 6, sy + v.height);
@@ -5537,6 +6126,9 @@ export class GameRenderer {
     ctx.lineTo(sx + v.width + 6, sy + v.height);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.8;
+    ctx.stroke();
 
     // Faceted rock ribs for depth
     ctx.fillStyle = pal.mid;
@@ -5577,9 +6169,12 @@ export class GameRenderer {
     ctx.lineTo(sx + v.width * 0.72, sy + v.height - 2);
     ctx.stroke();
 
-    // 3. Stepped boiling caldera rim
+    // 3. Stepped boiling caldera rim with crisp black cartoon outline
     ctx.fillStyle = pal.base;
     ctx.fillRect(sx + 9, sy - 1, v.width - 18, 9);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx + 9, sy - 1, v.width - 18, 9);
     ctx.fillStyle = isHot ? pal.rimHot : pal.rimCold;
     ctx.fillRect(sx + 12, sy + 1, v.width - 24, 6);
     ctx.fillStyle = isHot ? pal.coreHot : pal.veinCold;
@@ -5597,6 +6192,9 @@ export class GameRenderer {
       ctx.arc(sx + v.width / 2 - 6, sy - 18, 10, 0, Math.PI * 2);
       ctx.arc(sx + v.width / 2 + 7, sy - 27, 13, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
       ctx.fillStyle = pal.coreHot;
       ctx.fillRect(sx + v.width / 2 - 3, sy - 14, 3, 3);
@@ -5611,7 +6209,7 @@ export class GameRenderer {
       ctx.fillRect(sx + 9, sy - 2, v.width - 18, 4);
     }
 
-    // 6. Render flying magma blobs smoothly even during cooldown until they settle
+    // 6. Render flying magma blobs smoothly with crisp black cartoon outline!
     if (v.lavaParticles && v.lavaParticles.length > 0) {
       v.lavaParticles.forEach(lp => {
         const lx = lp.x - camera.x;
@@ -5626,6 +6224,9 @@ export class GameRenderer {
         ctx.beginPath();
         ctx.arc(lx, ly, lp.radius, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 2;
+        ctx.stroke();
       });
     }
   }
@@ -5645,11 +6246,14 @@ export class GameRenderer {
         ctx.save();
         const isSnowy = levelTheme === 'snowy' || levelTheme === 'storm';
 
-        // 1. Temple Stone Chute Structure
+        // 1. Temple Stone Chute Structure with crisp black cartoon outline
         ctx.fillStyle = '#1c1917';
         ctx.fillRect(trapX - 34, trapY - 24, 68, 30);
         ctx.fillStyle = '#292524';
         ctx.fillRect(trapX - 30, trapY - 20, 60, 24);
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 2.4;
+        ctx.strokeRect(trapX - 34, trapY - 24, 68, 30);
 
         if (isSnowy) {
           // World 5: Temple trap with wooden supports & tarp covered in snow and ice!
@@ -5658,6 +6262,9 @@ export class GameRenderer {
           ctx.fillRect(trapX - 36, trapY - 14, 72, 8);
           ctx.fillStyle = '#78350f';
           ctx.fillRect(trapX - 34, trapY - 12, 68, 4);
+          ctx.strokeStyle = '#09090b';
+          ctx.lineWidth = 1.8;
+          ctx.strokeRect(trapX - 36, trapY - 14, 72, 8);
 
           // Heavy temple tarp / canopy draped over the trap
           ctx.fillStyle = '#1e293b'; // weathered heavy canvas tarp
@@ -5668,12 +6275,18 @@ export class GameRenderer {
           ctx.lineTo(trapX - 38, trapY + 14);
           ctx.closePath();
           ctx.fill();
+          ctx.strokeStyle = '#09090b';
+          ctx.lineWidth = 2.2;
+          ctx.stroke();
 
           // Thick snow drifts piled on top of the tarp
           ctx.fillStyle = '#cbd5e1';
           ctx.fillRect(trapX - 42, trapY - 14, 84, 6);
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(trapX - 42, trapY - 16, 84, 4);
+          ctx.strokeStyle = '#09090b';
+          ctx.lineWidth = 1.8;
+          ctx.strokeRect(trapX - 42, trapY - 16, 84, 8);
           for (let sxPos = trapX - 38; sxPos <= trapX + 34; sxPos += 12) {
             ctx.beginPath();
             ctx.arc(sxPos + 4, trapY - 16, 4, 0, Math.PI * 2);
@@ -5691,6 +6304,9 @@ export class GameRenderer {
             ctx.lineTo(icicleX + 5, trapY + 14);
             ctx.closePath();
             ctx.fill();
+            ctx.strokeStyle = '#09090b';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
             ctx.fillStyle = '#ffffff';
             ctx.beginPath();
             ctx.moveTo(icicleX + 1, trapY + 14);
@@ -5703,8 +6319,13 @@ export class GameRenderer {
           // World 4: Ancient jungle temple stone carved gargoyle/serpent trap
           ctx.fillStyle = '#064e3b';
           ctx.fillRect(trapX - 34, trapY - 26, 68, 6);
-          // Carved teeth on chute
+          ctx.strokeStyle = '#09090b';
+          ctx.lineWidth = 1.8;
+          ctx.strokeRect(trapX - 34, trapY - 26, 68, 6);
+          // Carved teeth on chute with black cartoon outlines
           ctx.fillStyle = '#e7e5e4';
+          ctx.strokeStyle = '#09090b';
+          ctx.lineWidth = 1.6;
           for (let t = trapX - 26; t < trapX + 26; t += 10) {
             ctx.beginPath();
             ctx.moveTo(t, trapY + 4);
@@ -5712,6 +6333,7 @@ export class GameRenderer {
             ctx.lineTo(t + 8, trapY + 4);
             ctx.closePath();
             ctx.fill();
+            ctx.stroke();
           }
           // Hanging jungle vines
           ctx.strokeStyle = '#15803d';
@@ -5729,13 +6351,21 @@ export class GameRenderer {
           // Trap doors firmly closed with iron latch
           ctx.fillStyle = '#0f172a';
           ctx.fillRect(trapX - 24, trapY + 4, 48, 6);
+          ctx.strokeStyle = '#09090b';
+          ctx.lineWidth = 1.6;
+          ctx.strokeRect(trapX - 24, trapY + 4, 48, 6);
           ctx.fillStyle = '#f59e0b';
           ctx.fillRect(trapX - 4, trapY + 3, 8, 8); // Gold trigger pin
+          ctx.strokeRect(trapX - 4, trapY + 3, 8, 8);
         } else {
           // Trap doors swung wide open downward!
           ctx.fillStyle = '#0f172a';
           ctx.fillRect(trapX - 26, trapY + 4, 6, 20);
           ctx.fillRect(trapX + 20, trapY + 4, 6, 20);
+          ctx.strokeStyle = '#09090b';
+          ctx.lineWidth = 1.6;
+          ctx.strokeRect(trapX - 26, trapY + 4, 6, 20);
+          ctx.strokeRect(trapX + 20, trapY + 4, 6, 20);
         }
 
         ctx.restore();
@@ -5744,22 +6374,29 @@ export class GameRenderer {
 
     if (sx < -50 || sx > this.canvas.width + 50) return;
 
-    // Falling warning target arrow
+    // Falling warning target arrow with crisp black cartoon outline
     if (b.isFalling && b.warningTimer > 0) {
       ctx.fillStyle = '#ef4444';
       ctx.fillRect(sx - 2, 20, 4, 32);
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx - 2, 20, 4, 32);
       ctx.beginPath();
       ctx.moveTo(sx - 9, 52);
       ctx.lineTo(sx + 9, 52);
       ctx.lineTo(sx, 66);
       ctx.closePath();
       ctx.fill();
+      ctx.stroke();
 
       // Pulsing impact beacon on ground
       ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
       ctx.beginPath();
       ctx.ellipse(sx, b.y - camera.y + b.radius, b.radius * 1.2, 8, 0, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
     }
 
     ctx.save();
@@ -5777,9 +6414,9 @@ export class GameRenderer {
     ctx.arc(-b.radius * 0.15, -b.radius * 0.15, b.radius * 0.85, 0, Math.PI * 2);
     ctx.fill();
 
-    // 2. Chiseled crags and fractures
-    ctx.strokeStyle = '#1c1917';
-    ctx.lineWidth = 2.5;
+    // 2. Bold ink-black cartoon outline & chiseled crags
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(0, 0, b.radius, 0, Math.PI * 2);
     ctx.stroke();
@@ -5978,7 +6615,7 @@ export class GameRenderer {
       ctx.arc(tx, startY + 2, 16, 0, Math.PI * 2);
       ctx.fill();
 
-      // Outer plasma halo trunk
+      // Outer plasma halo trunk + crisp ink-black cartoon outline behind lightning bolt
       ctx.lineCap = 'square';
       ctx.lineJoin = 'miter';
       ctx.strokeStyle = sp.boltGlow;
@@ -5986,6 +6623,10 @@ export class GameRenderer {
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
       for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 10.5;
       ctx.stroke();
 
       // Mid colored electric lightning trunk
@@ -6010,11 +6651,15 @@ export class GameRenderer {
         const endY = midY + totalH * 0.12;
 
         ctx.strokeStyle = sp.boltGlow;
-        ctx.lineWidth = 5;
+        ctx.lineWidth = 6.5;
         ctx.beginPath();
         ctx.moveTo(origin.x, origin.y);
         ctx.lineTo(midX, midY);
         ctx.lineTo(endX, endY);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 4.2;
         ctx.stroke();
 
         ctx.strokeStyle = sp.boltCore;
@@ -6065,6 +6710,30 @@ export class GameRenderer {
   }
 
   public drawWolfSprite(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    facingLeft: boolean,
+    animTimer: number,
+    scale: number = 1,
+    variantIndex: number = 0,
+    isInfected: boolean = false
+  ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil((width + 48) * s);
+    const bh = Math.ceil((height + 44) * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => this._drawWolfSprite(octx, width, height, facingLeft, animTimer, scale, variantIndex, isInfected),
+      Math.max(1.5, Math.min(2.5, 1.65 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawWolfSprite(
     ctx: CanvasRenderingContext2D,
     width: number,
     height: number,
@@ -6282,6 +6951,30 @@ export class GameRenderer {
     variantIndex: number = 0,
     isInfected: boolean = false
   ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil((width + 52) * s);
+    const bh = Math.ceil((height + 44) * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => this._drawFoxSprite(octx, width, height, facingLeft, animTimer, scale, variantIndex, isInfected),
+      Math.max(1.5, Math.min(2.5, 1.65 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawFoxSprite(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    facingLeft: boolean,
+    animTimer: number,
+    scale: number = 1,
+    variantIndex: number = 0,
+    isInfected: boolean = false
+  ) {
     ctx.save();
     ctx.scale(scale * (facingLeft ? -1 : 1), scale);
     const halfW = width / 2;
@@ -6436,6 +7129,30 @@ export class GameRenderer {
     variantIndex: number = 0,
     isInfected: boolean = false
   ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil((width + 48) * s);
+    const bh = Math.ceil((height + 44) * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => this._drawBearSprite(octx, width, height, facingLeft, animTimer, scale, variantIndex, isInfected),
+      Math.max(1.6, Math.min(2.6, 1.75 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawBearSprite(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    facingLeft: boolean,
+    animTimer: number,
+    scale: number = 1,
+    variantIndex: number = 0,
+    isInfected: boolean = false
+  ) {
     ctx.save();
     ctx.scale(scale * (facingLeft ? -1 : 1), scale);
     const halfW = width / 2;
@@ -6568,6 +7285,29 @@ export class GameRenderer {
   // ================= SHARED BACKGROUND WILDLIFE SPRITE MODELS (BESTIARY & WORLDS) =================
 
   public drawSnowshoeHareSprite(
+    ctx: CanvasRenderingContext2D,
+    time: number,
+    scale: number = 1,
+    isCheering: boolean = false,
+    variantIndex: number = 0,
+    isBaby: boolean = false,
+    activity: 'hop' | 'dig' | 'eat' | 'rest' = 'hop'
+  ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(92 * s);
+    const bh = Math.ceil(96 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh * 0.64),
+      (octx) => this._drawSnowshoeHareSprite(octx, time, scale, isCheering, variantIndex, isBaby, activity),
+      Math.max(1.35, Math.min(2.3, 1.55 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawSnowshoeHareSprite(
     ctx: CanvasRenderingContext2D,
     time: number,
     scale: number = 1,
@@ -6804,6 +7544,26 @@ export class GameRenderer {
     scale: number = 1,
     variantIndex: number = 0
   ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(68 * s);
+    const bh = Math.ceil(68 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => this._drawButterflySprite(octx, time, scale, variantIndex),
+      Math.max(1.25, Math.min(2.1, 1.45 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawButterflySprite(
+    ctx: CanvasRenderingContext2D,
+    time: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
     ctx.save();
     const flutterY = Math.sin(time * 4.5) * 4 * scale;
     ctx.translate(0, flutterY);
@@ -6875,6 +7635,26 @@ export class GameRenderer {
     scale: number = 1,
     variantIndex: number = 0
   ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(74 * s);
+    const bh = Math.ceil(64 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => this._drawDragonflySprite(octx, time, scale, variantIndex),
+      Math.max(1.25, Math.min(2.1, 1.45 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawDragonflySprite(
+    ctx: CanvasRenderingContext2D,
+    time: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
     ctx.save();
     const hoverX = Math.sin(time * 3.2) * 3 * scale;
     const hoverY = Math.cos(time * 4.2) * 3 * scale;
@@ -6939,6 +7719,26 @@ export class GameRenderer {
   }
 
   public drawHoneybeeSprite(
+    ctx: CanvasRenderingContext2D,
+    time: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(64 * s);
+    const bh = Math.ceil(64 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => this._drawHoneybeeSprite(octx, time, scale, variantIndex),
+      Math.max(1.25, Math.min(2.1, 1.45 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawHoneybeeSprite(
     ctx: CanvasRenderingContext2D,
     time: number,
     scale: number = 1,
@@ -7024,6 +7824,26 @@ export class GameRenderer {
     scale: number = 1,
     variantIndex: number = 0
   ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(64 * s);
+    const bh = Math.ceil(64 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => this._drawLadybugSprite(octx, time, scale, variantIndex),
+      Math.max(1.25, Math.min(2.1, 1.45 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawLadybugSprite(
+    ctx: CanvasRenderingContext2D,
+    time: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
     ctx.save();
     const crawl = Math.sin(time * 4) * 1.5 * scale;
     ctx.translate(crawl, 0);
@@ -7102,7 +7922,33 @@ export class GameRenderer {
     animTimer: number,
     scale: number = 1,
     variantIndex: number = 0,
-    isInfected: boolean = false
+    isInfected: boolean = false,
+    isDesert: boolean = false
+  ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil((width + 56) * s);
+    const bh = Math.ceil((height + 48) * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => this._drawSnakeSprite(octx, width, height, facingLeft, animTimer, scale, variantIndex, isInfected, isDesert),
+      Math.max(1.45, Math.min(2.4, 1.6 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawSnakeSprite(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    facingLeft: boolean,
+    animTimer: number,
+    scale: number = 1,
+    variantIndex: number = 0,
+    isInfected: boolean = false,
+    isDesert: boolean = false
   ) {
     ctx.save();
     ctx.scale(scale * (facingLeft ? -1 : 1), scale);
@@ -7120,6 +7966,12 @@ export class GameRenderer {
       // 3: Rainforest Bushmaster (Lachesis muta)
       { body: '#5c4033', dark: '#1c1917', pattern: '#a8a29e', belly: '#d6d3d1', head: '#442c22', eye: '#f59e0b', isRinged: false },
     ];
+    const desertPalettes = [
+      // Real-life Sahara Horned Viper (Cerastes cerastes) - pale sandy buff & warm ochre saddles
+      { body: '#d6b48c', dark: '#6b4226', pattern: '#b45309', belly: '#faf3e0', head: '#c9a275', eye: '#eab308', isRinged: false },
+      // Real-life Mojave Sidewinder - warm sunlit terracotta sand & dark umber blotches
+      { body: '#c89b6e', dark: '#57371d', pattern: '#92400e', belly: '#fef3c7', head: '#b9885b', eye: '#f59e0b', isRinged: false },
+    ];
     const infectedPalette = {
       body: '#140407',
       dark: '#050102',
@@ -7129,7 +7981,7 @@ export class GameRenderer {
       eye: '#ff1e1e',
       isRinged: false,
     };
-    const p = isInfected ? infectedPalette : palettes[morph];
+    const p = isInfected ? infectedPalette : (isDesert ? desertPalettes[morph % desertPalettes.length] : palettes[morph]);
 
     const slitherPhase = animTimer * 9.5;
     const baseY = halfH - 2.6;
@@ -7349,7 +8201,7 @@ export class GameRenderer {
     } else if (enemy.type === 'fox') {
       this.drawFoxSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx, isInfected);
     } else if (enemy.type === 'snake') {
-      this.drawSnakeSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx, isInfected);
+      this.drawSnakeSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx, isInfected, levelTheme === 'desert');
     } else {
       this.drawBearSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx, isInfected);
     }
@@ -7409,6 +8261,31 @@ export class GameRenderer {
   // --- Mini-Boss: Old Farmer Jed (Sprite + In-World Combat & Speech Bubble Renderer) ---
 
   public drawFarmerSprite(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    facingLeft: boolean,
+    animTimer: number,
+    scale: number = 1,
+    state: FarmerMiniBoss['state'] = 'patrol',
+    isSpeaking: boolean = false,
+    hasPitchfork: boolean = true
+  ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil((width + 96) * s);
+    const bh = Math.ceil((height + 70) * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh * 0.56),
+      (octx) => this._drawFarmerSprite(octx, width, height, facingLeft, animTimer, scale, state, isSpeaking, hasPitchfork),
+      Math.max(1.5, Math.min(2.5, 1.65 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawFarmerSprite(
     ctx: CanvasRenderingContext2D,
     width: number,
     height: number,
@@ -7974,7 +8851,6 @@ export class GameRenderer {
 
       // Apply scale so the boss is huge and imposing!
       const bossScale = 1.75 * (isExplodingAshes ? (1 + explodeProgress * 0.18) : 1);
-      ctx.scale(bossScale, bossScale);
 
       // Dissolve alpha during bright ash explosion or invulnerability blink
       if (isExplodingAshes) {
@@ -7982,6 +8858,9 @@ export class GameRenderer {
       } else if (boss.invulnerableTimer > 0 && Math.sin(time * 35) > 0) {
         ctx.globalAlpha = 0.45;
       }
+
+      this.drawCartoonOutlined(ctx, 460, 410, 230, 220, (ctx) => {
+      ctx.scale(bossScale, bossScale);
 
       const isLeft = boss.facing === 'left';
       if (isLeft) ctx.scale(-1, 1);
@@ -8569,6 +9448,7 @@ export class GameRenderer {
       }
     }
 
+      }, 2.4);
       ctx.restore();
     }
 
@@ -8751,6 +9631,9 @@ export class GameRenderer {
           ctx.beginPath();
           ctx.arc(puff.dx, puff.dy, Math.max(2, puff.r), 0, Math.PI * 2);
           ctx.fill();
+          ctx.strokeStyle = '#09090b';
+          ctx.lineWidth = 1.8;
+          ctx.stroke();
         });
 
         // Delicate outer ash smoke rim
@@ -8797,6 +9680,9 @@ export class GameRenderer {
       ctx.beginPath();
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.6;
+      ctx.stroke();
 
       ctx.fillStyle = isDeflected ? '#ffffff' : '#fef08a';
       ctx.beginPath();
@@ -9838,6 +10724,33 @@ export class GameRenderer {
       ctx.restore();
     }
 
+    // Draw Archaeology Brush sweeping smoothly when excavating a buried dig site!
+    if (player.isBrushing && (player.brushTimer ?? 0) > 0) {
+      const ctx = this.ctx;
+      const dir = player.facing === 'right' ? 1 : -1;
+      const sweepAngle = 0.55 + Math.sin(time * 28) * 0.48;
+      ctx.save();
+      ctx.translate(cx + dir * 11, renderCenterY + 5);
+      ctx.scale(dir, 1);
+      ctx.rotate(sweepAngle);
+      // Cedar wood handle
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(-2, -10, 4, 16);
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(-1, -9, 2, 14);
+      // Brass ferrule
+      ctx.fillStyle = '#ca8a04';
+      ctx.fillRect(-3, 4, 6, 4);
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(-2, 4.5, 2, 3);
+      // Bristle fan sweeping the sand
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(-4, 8, 8, 8);
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(-3, 13, 6, 3);
+      ctx.restore();
+    }
+
     this.ctx.restore();
 
     // Subtle crouch indicator dust puff & label when tucked low
@@ -9973,18 +10886,18 @@ export class GameRenderer {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.fillRect(left + 2, top + 2, badgeW, badgeH);
 
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(left - 2, top, badgeW + 4, badgeH);
-    ctx.fillRect(left, top - 2, badgeW, badgeH + 4);
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(left - 2.5, top - 0.5, badgeW + 5, badgeH + 1);
+    ctx.fillRect(left - 0.5, top - 2.5, badgeW + 1, badgeH + 5);
 
     // Cream pixel interior
     ctx.fillStyle = emote === 'angry_ruffle' ? '#fef2f2' : '#fffbeb';
     ctx.fillRect(left, top, badgeW, badgeH);
 
     // Crisp speech pointer triangle (pixel steps)
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(-4, top + badgeH + 1, 8, 2);
-    ctx.fillRect(-2, top + badgeH + 3, 4, 2);
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(-4.5, top + badgeH + 1, 9, 2.5);
+    ctx.fillRect(-2.5, top + badgeH + 3, 5, 2.5);
     ctx.fillStyle = emote === 'angry_ruffle' ? '#fef2f2' : '#fffbeb';
     ctx.fillRect(-2, top + badgeH, 4, 3);
 
@@ -10103,6 +11016,50 @@ export class GameRenderer {
    * Renders biologically authentic, artistic Rooster and Hen models across Baby, Juvenile, Teen, and Adult stages.
    */
   public renderCharacterModel(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    gender: ChickenGender,
+    stage: GrowthStage,
+    armor: ArmorType = 'none',
+    sword: SwordType = 'none',
+    options?: {
+      facing?: 'left' | 'right';
+      width?: number;
+      height?: number;
+      scale?: number;
+      time?: number;
+      isAttacking?: boolean;
+      isBlocking?: boolean;
+      hasCrown?: boolean;
+      isMoving?: boolean;
+      isJumping?: boolean;
+      isFalling?: boolean;
+      isBlinking?: boolean;
+      walkAnimTimer?: number;
+      invulnerable?: boolean;
+      skin?: string;
+      fireResistActive?: boolean;
+    }
+  ) {
+    const s = Math.max(0.65, Math.abs(options?.scale ?? 1));
+    const boxW = Math.ceil(156 * s);
+    const boxH = Math.ceil(156 * s);
+    ctx.save();
+    ctx.translate(cx, cy);
+    this.drawCartoonOutlined(
+      ctx,
+      boxW,
+      boxH,
+      Math.ceil(boxW / 2),
+      Math.ceil(boxH * 0.56),
+      (octx) => this._renderCharacterModel(octx, 0, 0, gender, stage, armor, sword, options),
+      Math.max(1.4, Math.min(2.4, 1.65 * Math.sqrt(s)))
+    );
+    ctx.restore();
+  }
+
+  private _renderCharacterModel(
     ctx: CanvasRenderingContext2D,
     cx: number,
     cy: number,
@@ -11601,9 +12558,15 @@ export class GameRenderer {
 
     // 8. EQUIPPED ARMOR ON THANKSGIVING ROAST
     if (armor !== 'none') {
+      const isNetherite = armor === 'netherite';
+      const isCoral = armor === 'coral';
       const isDiamond = armor === 'diamond';
       const isGold = armor === 'gold';
-      const armPal = isDiamond ? {
+      const armPal = isNetherite ? {
+        base: '#292524', bright: '#57534e', shine: '#c084fc', dark: '#0c0a09', trim: '#f59e0b'
+      } : isCoral ? {
+        base: '#f43f5e', bright: '#fb7185', shine: '#fef08a', dark: '#4c0519', trim: '#2dd4bf'
+      } : isDiamond ? {
         base: '#0284c7', bright: '#38bdf8', shine: '#e0f2fe', dark: '#082f49', trim: '#bae6fd'
       } : isGold ? {
         base: '#ca8a04', bright: '#facc15', shine: '#fef08a', dark: '#451a03', trim: '#fde047'
@@ -11893,12 +12856,33 @@ export class GameRenderer {
     time: number = 0
   ) {
     if (!armor || armor === 'none') return;
+    const isNetherite = armor === 'netherite';
+    const isCoral = armor === 'coral';
     const isDiamond = armor === 'diamond';
     const isGold = armor === 'gold';
-    const isIron = armor === 'iron';
 
-    // Palette setup
-    const pal = isDiamond ? {
+    // Palette setup (including Forged Obsidian Netherite & Vibrant Living-Reef Coral Armor!)
+    const pal = isNetherite ? {
+      base: '#292524',
+      bright: '#57534e',
+      shine: '#d6d3d1',
+      shadow: '#1c1917',
+      dark: '#09090b',
+      trim: '#c084fc',
+      gem: '#f59e0b',
+      quill: '#e879f9',
+      aura: 'rgba(168, 85, 247, 0.42)',
+    } : isCoral ? {
+      base: '#f43f5e',
+      bright: '#fb7185',
+      shine: '#ffe4e6',
+      shadow: '#be123c',
+      dark: '#4c0519',
+      trim: '#2dd4bf',
+      gem: '#fef08a',
+      quill: '#5eead4',
+      aura: 'rgba(45, 212, 191, 0.44)',
+    } : isDiamond ? {
       base: '#0284c7',
       bright: '#38bdf8',
       shine: '#e0f2fe',
@@ -12042,8 +13026,8 @@ export class GameRenderer {
       const bX = -bW / 2;
       const bY = 1.5 + walkBounce;
 
-      // Subtle glowing magical aura for diamond/gold or colorful skin
-      if (isDiamond || isGold || hasColorfulSkin) {
+      // Subtle glowing magical aura for netherite/coral/diamond/gold or colorful skin
+      if (isNetherite || isCoral || isDiamond || isGold || hasColorfulSkin) {
         ctx.fillStyle = auraGlow;
         ctx.beginPath();
         ctx.ellipse(0, walkBounce, bW * 0.9, bH * 0.9, 0, 0, Math.PI * 2);
@@ -12117,7 +13101,7 @@ export class GameRenderer {
     const cuirassY = (isJuvenile ? 2.5 : (isTeen ? 3 : 4)) + walkBounce;
 
     // A. Radiant Enchanted Aura
-    if (isDiamond || isGold || hasColorfulSkin) {
+    if (isNetherite || isCoral || isDiamond || isGold || hasColorfulSkin) {
       ctx.fillStyle = auraGlow;
       ctx.beginPath();
       ctx.ellipse(0, walkBounce, halfW * 0.95, halfH * 0.85, 0, 0, Math.PI * 2);
@@ -12302,6 +13286,41 @@ export class GameRenderer {
       ctx.fillRect(fx, fy, 2, 1.8);
       ctx.fillStyle = pal.quill;
       ctx.fillRect(fx + 2, fy + 0.5, fLen - 2, 0.8);
+    }
+
+    // 3B. SIGNATURE DETAILS FOR NETHERITE & CORAL ARMOR!
+    if (isNetherite) {
+      // Molten volcanic gold-amethyst forged shoulder ridge spikes & ember glint
+      const emberPulse = 0.65 + Math.sin(time * 7) * 0.35;
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(pwX + 2, pwY - 4, 3, 4);
+      ctx.fillRect(pwX + pW - 4, pwY - 3, 3, 3);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(pwX + 2.5, pwY - 3.5, 2, 3);
+      ctx.fillRect(pwX + pW - 3.5, pwY - 2.5, 2, 2);
+      // Glowing ancient-debris rune vein across chestplate
+      ctx.fillStyle = `rgba(192, 132, 252, ${emberPulse.toFixed(2)})`;
+      ctx.fillRect(cuirassX + 2, cuirassY + 4, cuirassW - 4, 1.4);
+      ctx.fillStyle = `rgba(245, 158, 11, ${emberPulse.toFixed(2)})`;
+      ctx.fillRect(cuirassX + cuirassW / 2 - 1, cuirassY + 2, 2, cuirassH - 3);
+    } else if (isCoral) {
+      // Vibrant branching staghorn-coral shoulder antlers, tangerine polyps & lustrous sea pearls!
+      ctx.fillStyle = '#fb7185';
+      ctx.fillRect(pwX + 1, pwY - 5, 2.5, 6);
+      ctx.fillRect(pwX - 1.5, pwY - 4, 3, 2);
+      ctx.fillStyle = '#fb923c';
+      ctx.fillRect(pwX + pW - 4, pwY - 6, 2.5, 7);
+      ctx.fillRect(pwX + pW - 1.5, pwY - 5, 2.5, 2);
+      // Iridescent sea-glass turquoise tips & shimmering reef pearls on cuirass
+      ctx.fillStyle = '#2dd4bf';
+      ctx.fillRect(pwX + 1, pwY - 6, 2.5, 2);
+      ctx.fillRect(pwX + pW - 4, pwY - 7, 2.5, 2);
+      ctx.fillStyle = '#fef9c3';
+      ctx.fillRect(cuirassX + 2, cuirassY + 2.5, 2, 2);
+      ctx.fillRect(cuirassX + cuirassW - 4, cuirassY + 2.5, 2, 2);
+      ctx.fillStyle = '#5eead4';
+      ctx.fillRect(hx + 2, hy - 3, 2, 3);
+      ctx.fillRect(hx + helmW - 4, hy - 3, 2, 3);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -13276,10 +14295,15 @@ export class GameRenderer {
       if (sx < -20 || sx > this.canvas.width + 20) return;
 
       const sz = Math.max(2, Math.round(p.size));
+      const px = Math.round(sx - sz / 2);
+      const py = Math.round(sy - sz / 2);
       ctx.save();
       ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.maxLife));
+      // Crisp 1px ink-black cartoon outline around every particle
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(px - 1, py - 1, sz + 2, sz + 2);
       ctx.fillStyle = p.color;
-      ctx.fillRect(Math.round(sx - sz / 2), Math.round(sy - sz / 2), sz, sz);
+      ctx.fillRect(px, py, sz, sz);
       ctx.restore();
     });
   }
@@ -13289,14 +14313,16 @@ export class GameRenderer {
     ctx.save();
     ctx.font = '700 12px "Silkscreen", monospace';
     ctx.textAlign = 'center';
+    ctx.lineJoin = 'round';
 
     texts.forEach(ft => {
       const sx = ft.x - camera.x;
       const sy = ft.y - camera.y;
       ctx.globalAlpha = Math.max(0, ft.life / ft.maxLife);
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 3.5;
+      ctx.strokeText(ft.text, sx, sy);
       ctx.fillStyle = ft.color;
-      ctx.shadowColor = '#000000';
-      ctx.shadowBlur = 4;
       ctx.fillText(ft.text, sx, sy);
     });
     ctx.restore();
@@ -13336,8 +14362,11 @@ export class GameRenderer {
     ctx.beginPath();
     ctx.arc(sunX, sunY, 32, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.6;
+    ctx.stroke();
 
-    // 3. Distant Ancient Pyramids & Red Sandstone Mesas (Parallax 0.12)
+    // 3. Distant Ancient Pyramids & Red Sandstone Mesas (Parallax 0.12) with crisp black cartoon outlines
     const p1 = -(camera.x * 0.12) % 900;
     for (let x = p1 - 900; x < w + 900; x += 900) {
       // Great Pyramid
@@ -13356,6 +14385,14 @@ export class GameRenderer {
       ctx.lineTo(x + 266, h - 130);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(x + 120, h - 130);
+      ctx.lineTo(x + 250, h - 295);
+      ctx.lineTo(x + 380, h - 130);
+      ctx.closePath();
+      ctx.stroke();
 
       // Smaller Companion Pyramid
       ctx.fillStyle = '#b45309';
@@ -13372,6 +14409,14 @@ export class GameRenderer {
       ctx.lineTo(x + 426, h - 130);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(x + 330, h - 130);
+      ctx.lineTo(x + 415, h - 235);
+      ctx.lineTo(x + 500, h - 130);
+      ctx.closePath();
+      ctx.stroke();
 
       // Flat-topped Desert Mesa Butte
       ctx.fillStyle = '#9a3412';
@@ -13384,9 +14429,18 @@ export class GameRenderer {
       ctx.fill();
       ctx.fillStyle = '#ea580c';
       ctx.fillRect(x + 638, h - 240, 144, 14);
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(x + 600, h - 130);
+      ctx.lineTo(x + 635, h - 240);
+      ctx.lineTo(x + 785, h - 240);
+      ctx.lineTo(x + 820, h - 130);
+      ctx.closePath();
+      ctx.stroke();
     }
 
-    // 4. Rolling Midground Golden Dunes (Parallax 0.28)
+    // 4. Rolling Midground Golden Dunes right below the Great Pyramids (Parallax 0.28)
     const p2 = -(camera.x * 0.28) % 640;
     ctx.fillStyle = '#d97706';
     ctx.beginPath();
@@ -13397,8 +14451,14 @@ export class GameRenderer {
     ctx.lineTo(w + 640, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
 
-    // 5. Foreground Warm Ochre Dunes & Saguaro Cacti (Parallax 0.45)
+    // Midground Background Sand Cats & Baby Kittens roaming the pyramid-base dunes!
+    this.renderDesertBackgroundSandCats(w, h, camera, time, 'mid');
+
+    // 5. Foreground Warm Ochre Dunes & Saguaro Silhouettes (Parallax 0.45)
     const p3 = -(camera.x * 0.45) % 520;
     ctx.fillStyle = '#b45309';
     ctx.beginPath();
@@ -13409,21 +14469,217 @@ export class GameRenderer {
     ctx.lineTo(w + 520, h);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
 
-    // Pixel Saguaro Cacti silhouettes along the ridge
-    for (let x = p3 - 520; x < w + 520; x += 260) {
+    // Distant Desert Cactuses & Desert Oasis Shrubs along the ochre ridge (exact Bestiary Log models!)
+    let duneIdx = 0;
+    for (let x = p3 - 520; x < w + 520; x += 520) {
       const cx = Math.round(x + 115);
-      const cy = Math.round(h - 122);
-      ctx.fillStyle = '#14532d';
-      ctx.fillRect(cx - 5, cy - 42, 10, 44);
-      ctx.fillRect(cx - 17, cy - 28, 12, 7);
-      ctx.fillRect(cx - 17, cy - 39, 7, 14);
-      ctx.fillRect(cx + 5, cy - 22, 12, 7);
-      ctx.fillRect(cx + 11, cy - 35, 7, 16);
-      ctx.fillStyle = '#16a34a';
-      ctx.fillRect(cx - 2, cy - 40, 3, 40);
-      ctx.fillRect(cx - 15, cy - 37, 2, 10);
-      ctx.fillRect(cx + 13, cy - 33, 2, 12);
+      const cy = Math.round(h - 118);
+      if (cx > -70 && cx < w + 70) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        this.drawPlantSprite(ctx, 'desert_cactus', time + duneIdx * 0.5, 0.85, duneIdx % 3, false);
+        ctx.restore();
+      }
+
+      const sx = Math.round(x + 365);
+      const sy = Math.round(h - 104);
+      if (sx > -70 && sx < w + 70) {
+        ctx.save();
+        ctx.translate(sx, sy);
+        this.drawPlantSprite(ctx, 'desert_oasis_shrub', time + duneIdx * 0.7, 0.96, duneIdx % 3, false);
+        ctx.restore();
+      }
+      duneIdx++;
+    }
+
+    // Foreground Background Sand Cats, Baby Kittens & Sun-Bleached Bones on the sunlit ochre dunes (just like Sheep, Monkeys & Snowshoe Hares!)
+    this.renderDesertBackgroundSandCats(w, h, camera, time, 'near');
+  }
+
+  private drawBackgroundDesertBonePile(ctx: CanvasRenderingContext2D, sx: number, sy: number, scale: number, hasMeat: boolean) {
+    const s = Math.max(0.65, Math.abs(scale));
+    ctx.save();
+    ctx.translate(sx, sy);
+    this.drawCartoonOutlined(
+      ctx,
+      Math.ceil(56 * s),
+      Math.ceil(36 * s),
+      Math.ceil(28 * s),
+      Math.ceil(24 * s),
+      (octx) => this._drawBackgroundDesertBonePile(octx, scale, hasMeat),
+      Math.max(1.2, Math.min(2.0, 1.35 * Math.sqrt(s)))
+    );
+    ctx.restore();
+  }
+
+  private _drawBackgroundDesertBonePile(ctx: CanvasRenderingContext2D, scale: number, hasMeat: boolean) {
+    ctx.save();
+    ctx.scale(scale, scale);
+
+    ctx.fillStyle = 'rgba(69, 26, 3, 0.24)';
+    ctx.beginPath();
+    ctx.ellipse(0, 1, 17, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Sun-bleached femur & rib bones
+    ctx.fillStyle = '#e7e0d4';
+    ctx.beginPath();
+    ctx.ellipse(-11, -3, 3.5, 2.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(11, -3, 3.5, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(-11, -5, 22, 3.5);
+
+    ctx.strokeStyle = '#f5f0e6';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(-7, -3); ctx.quadraticCurveTo(-9, -11, -1, -11);
+    ctx.moveTo(-1, -3); ctx.quadraticCurveTo(-2, -13, 5, -12);
+    ctx.moveTo(4, -3); ctx.quadraticCurveTo(4, -10, 10, -9);
+    ctx.stroke();
+
+    if (hasMeat) {
+      ctx.fillStyle = '#7f1d1d';
+      ctx.beginPath();
+      ctx.ellipse(-1, -5, 6.2, 3.1, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.ellipse(-1, -5.4, 4.4, 2.0, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fecaca';
+      ctx.fillRect(-2.5, -6.2, 2.5, 1.2);
+    }
+    ctx.restore();
+  }
+
+  // World 7 Background Wildlife: Autonomous Sahara Sand Cats & Baby Kittens roaming, resting & eating bone meat right on the desert pyramid dunes!
+  private renderDesertBackgroundSandCats(
+    w: number,
+    h: number,
+    camera: Camera,
+    time: number,
+    layer: 'mid' | 'near'
+  ) {
+    const ctx = this.ctx;
+    const isMid = layer === 'mid';
+    const parallax = isMid ? 0.28 : 0.45;
+    const catScale = isMid ? 0.68 : 0.94;
+    const count = isMid ? 3 : 4;
+    const spacing = isMid ? 360 : 285;
+    const span = count * spacing;
+
+    const getDuneY = (screenX: number) => {
+      if (isMid) {
+        const period = 320;
+        const p2 = -(camera.x * 0.28) % 640;
+        const local = (((screenX - p2) % period) + period) % period;
+        const u = local / period;
+        return (h - 135) - 140 * u * (1 - u) + 12;
+      } else {
+        const period = 260;
+        const p3 = -(camera.x * 0.45) % 520;
+        const local = (((screenX - p3) % period) + period) % period;
+        const u = local / period;
+        return (h - 98) - 100 * u * (1 - u) + 10;
+      }
+    };
+
+    for (let i = 0; i < count; i++) {
+      const cycle = 21.0;
+      const phase = (time + i * 5.8 + (isMid ? 3.1 : 0)) % cycle;
+      const roamDir: 1 | -1 = (i % 2 === 0) ? 1 : -1;
+      const roamDist = isMid ? 44 : 58;
+
+      let activity: 'walk' | 'eat' | 'rest' = 'walk';
+      let offsetX = 0;
+      let facingLeft = roamDir < 0;
+
+      if (phase < 5.5) {
+        // Padding smoothly across the warm sand toward the desert bone pile
+        const t = phase / 5.5;
+        offsetX = roamDir * roamDist * t;
+        activity = 'walk';
+        facingLeft = roamDir < 0;
+      } else if (phase < 11.2) {
+        // Eating leftover meat from sun-bleached desert bones
+        offsetX = roamDir * roamDist;
+        activity = 'eat';
+        facingLeft = roamDir < 0;
+      } else if (phase < 16.0) {
+        // Curled up resting peacefully in the desert sun
+        offsetX = roamDir * roamDist * 0.85;
+        activity = 'rest';
+        facingLeft = roamDir < 0;
+      } else {
+        // Strolling back along the dune crest
+        const t = (phase - 16.0) / 5.0;
+        offsetX = roamDir * roamDist * 0.85 * (1 - t);
+        activity = 'walk';
+        facingLeft = roamDir > 0;
+      }
+
+      const anchorWorldX = i * spacing + (isMid ? 175 : 140);
+      const rawBoneX = anchorWorldX + roamDir * (roamDist + (isMid ? 12 : 16)) - camera.x * parallax;
+      const boneX = (((rawBoneX % span) + span) % span) - 80;
+      if (boneX >= -70 && boneX <= w + 70) {
+        const boneY = getDuneY(boneX);
+        this.drawBackgroundDesertBonePile(ctx, boneX, boneY, catScale * 0.92, true);
+      }
+
+      const rawCatX = anchorWorldX + offsetX - camera.x * parallax;
+      const cx = (((rawCatX % span) + span) % span) - 80;
+      if (cx < -75 || cx > w + 75) continue;
+
+      const cy = getDuneY(cx);
+
+      // Subtle warm desert contact shadow beneath the sand cat
+      ctx.save();
+      ctx.fillStyle = 'rgba(69, 26, 3, 0.24)';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 1, 13 * catScale, 3 * catScale, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.translate(cx, cy);
+      this.drawSandCatSprite(
+        ctx,
+        time + i * 1.3,
+        catScale,
+        facingLeft,
+        (i + (isMid ? 2 : 0)) % 4,
+        false,
+        activity
+      );
+      ctx.restore();
+
+      // Accompanying Baby Sand Kitten staying close to parent Sand Cat!
+      if (i % 2 === 0) {
+        const babyOffset = activity === 'eat' ? (facingLeft ? -16 : 16) * catScale : (facingLeft ? 20 : -20) * catScale;
+        const bx = cx + babyOffset;
+        const by = getDuneY(bx) + 2;
+        const babyFacingLeft = activity === 'eat' ? !facingLeft : facingLeft;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(69, 26, 3, 0.2)';
+        ctx.beginPath();
+        ctx.ellipse(bx, by + 1, 9 * catScale, 2.2 * catScale, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.translate(bx, by);
+        this.drawSandCatSprite(
+          ctx,
+          time * 1.2 + i * 1.9 + 0.6,
+          catScale * 0.98,
+          babyFacingLeft,
+          (i + 1) % 4,
+          true,
+          activity
+        );
+        ctx.restore();
+      }
     }
   }
 
@@ -13437,91 +14693,230 @@ export class GameRenderer {
     variantIndex: number = 0,
     carryingShield: boolean = false
   ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(116 * s);
+    const bh = Math.ceil(96 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => this._drawFalconSprite(octx, _width, _height, flipLeft, animTime, scale, variantIndex, carryingShield),
+      Math.max(1.45, Math.min(2.4, 1.65 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawFalconSprite(
+    ctx: CanvasRenderingContext2D,
+    _width: number,
+    _height: number,
+    flipLeft: boolean,
+    animTime: number,
+    scale: number = 1,
+    variantIndex: number = 0,
+    carryingShield: boolean = false
+  ) {
+    // True-to-life real-world desert falcon plumage (Peregrine, Lanner, Barbary & Saker Falcons)
     const palettes = [
-      { body: '#78350f', wing: '#451a03', chest: '#fef3c7', tip: '#1c1917', eye: '#fbbf24' }, // Peregrine Amber
-      { body: '#475569', wing: '#1e293b', chest: '#f1f5f9', tip: '#0f172a', eye: '#facc15' }, // Slate Sky-Hawk
-      { body: '#9a3412', wing: '#5c1d0c', chest: '#fed7aa', tip: '#292524', eye: '#fde047' }, // Dune Kestrel
-      { body: '#854d0e', wing: '#422006', chest: '#fef9c3', tip: '#1c1917', eye: '#f59e0b' }, // Sun-Crest Falcon
+      { crown: '#3b3532', mantle: '#6b5344', covert: '#8c6b54', primary: '#1f1d1b', chest: '#f6ebd9', cheek: '#ffffff', spot: '#3e2d23', cere: '#eab308', iris: '#b45309' }, // Real Lanner Falcon
+      { crown: '#27303f', mantle: '#4b5a6e', covert: '#6b7d94', primary: '#161b24', chest: '#f4f1ea', cheek: '#ffffff', spot: '#262f3d', cere: '#facc15', iris: '#78350f' }, // Real Peregrine Falcon
+      { crown: '#7c3f23', mantle: '#8b5a3c', covert: '#b07b56', primary: '#231b16', chest: '#faebd7', cheek: '#fff7ed', spot: '#4a2c1a', cere: '#eab308', iris: '#92400e' }, // Real Barbary Desert Falcon
+      { crown: '#5c4632', mantle: '#7a5e44', covert: '#a18262', primary: '#241d17', chest: '#f7efe1', cheek: '#fffbeb', spot: '#423122', cere: '#f59e0b', iris: '#854d0e' }, // Real Saker Falcon
     ];
     const pal = palettes[Math.abs(variantIndex) % palettes.length];
-    const flap = Math.sin(animTime * 11) * 10;
+    const flap = Math.sin(animTime * 10.5) * 11;
 
     ctx.save();
     ctx.scale(flipLeft ? -scale : scale, scale);
 
-    // Back wing
-    ctx.fillStyle = pal.wing;
+    // 1. Far Sweeping Wing (layered dark primaries + scalloped coverts)
+    ctx.fillStyle = pal.primary;
     ctx.beginPath();
-    ctx.moveTo(-4, -3);
-    ctx.lineTo(-22, -16 - flap);
-    ctx.lineTo(-10, -2 - flap * 0.45);
+    ctx.moveTo(-2, -4);
+    ctx.quadraticCurveTo(-14, -14 - flap * 0.7, -26, -19 - flap);
+    ctx.lineTo(-22, -13 - flap * 0.85);
+    ctx.lineTo(-16, -9 - flap * 0.65);
+    ctx.lineTo(-6, -2);
     ctx.closePath();
     ctx.fill();
 
-    // Tail feathers
-    ctx.fillStyle = pal.tip;
-    ctx.fillRect(-24, -2, 11, 5);
-    ctx.fillStyle = pal.body;
-    ctx.fillRect(-22, -1, 8, 3);
-
-    // Sleek falcon torso
-    ctx.fillStyle = pal.body;
-    ctx.fillRect(-13, -7, 24, 13);
-    ctx.fillStyle = pal.chest;
-    ctx.fillRect(-7, -1, 16, 7);
-    // Speckled chest bars
-    ctx.fillStyle = pal.wing;
-    ctx.fillRect(-4, 1, 3, 2);
-    ctx.fillRect(2, 2, 3, 2);
-
-    // Head & fierce falcon crown
-    ctx.fillStyle = pal.wing;
-    ctx.fillRect(7, -11, 13, 10);
-    ctx.fillStyle = pal.chest;
-    ctx.fillRect(10, -6, 8, 5);
-    // Dark malar stripe
-    ctx.fillStyle = pal.tip;
-    ctx.fillRect(12, -5, 3, 4);
-
-    // Glowing predator eye
-    ctx.fillStyle = pal.eye;
-    ctx.fillRect(13, -9, 4, 3);
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(15, -8, 2, 2);
-
-    // Hooked golden raptor beak
-    ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(19, -8, 6, 4);
-    ctx.fillStyle = '#b45309';
-    ctx.fillRect(23, -5, 3, 4);
-
-    // Front wing (sweeping boldly)
-    ctx.fillStyle = pal.body;
+    ctx.fillStyle = pal.mantle;
     ctx.beginPath();
-    ctx.moveTo(-6, -2);
-    ctx.lineTo(-20, -20 + flap);
-    ctx.lineTo(6, -12 + flap * 0.6);
-    ctx.lineTo(4, 2);
+    ctx.moveTo(-2, -4);
+    ctx.quadraticCurveTo(-11, -11 - flap * 0.55, -18, -14 - flap * 0.72);
+    ctx.lineTo(-8, -3 - flap * 0.25);
     ctx.closePath();
     ctx.fill();
-    // Wing primary feather tips
-    ctx.fillStyle = pal.tip;
-    ctx.fillRect(-20, -20 + flap, 7, 4);
 
-    // Talons clutching beneath body
-    ctx.fillStyle = '#facc15';
-    ctx.fillRect(-2, 6, 3, 6);
-    ctx.fillRect(4, 6, 3, 6);
+    // 2. Barred Wedge Tail Feathers (realistic dark subterminal band + pale cream tip)
+    ctx.fillStyle = pal.mantle;
+    ctx.beginPath();
+    ctx.moveTo(-10, -2);
+    ctx.lineTo(-27, -5);
+    ctx.lineTo(-28, 3);
+    ctx.lineTo(-11, 4);
+    ctx.closePath();
+    ctx.fill();
+    // Fine dark tail bars
+    ctx.fillStyle = pal.primary;
+    ctx.fillRect(-17, -3.5, 2, 7);
+    ctx.fillRect(-22, -4, 2, 7.5);
+    ctx.fillRect(-26, -4.5, 2.5, 7.5);
+    ctx.fillStyle = pal.chest;
+    ctx.fillRect(-28, -4.5, 1.5, 7.5);
+
+    // 3. Aerodynamic Torso with warm speckled cream breast & feathered thighs
+    ctx.fillStyle = pal.mantle;
+    ctx.beginPath();
+    ctx.ellipse(0, -1, 14, 7.5, -0.08, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Creamy-buff breast & throat
+    ctx.fillStyle = pal.chest;
+    ctx.beginPath();
+    ctx.ellipse(3, 2, 11, 5.2, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Authentic dark teardrop speckles / chest barring
+    ctx.fillStyle = pal.spot;
+    for (let s = 0; s < 5; s++) {
+      const sx = -4 + s * 3.5;
+      const sy = 1.5 + (s % 2) * 1.8;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, 1.3, 0.85, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.ellipse(1, 4.5, 1.4, 0.8, 0.2, 0, Math.PI * 2);
+    ctx.ellipse(6, 4.2, 1.3, 0.8, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 4. Feathered Thighs + Scaled Golden-Yellow Raptor Legs & Curved Jet-Black Talons
+    ctx.fillStyle = pal.chest;
+    ctx.beginPath();
+    ctx.ellipse(-2, 6, 3.8, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(4.5, 6, 3.6, 2.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Scaled yellow legs & toes
+    ctx.fillStyle = '#eab308';
+    ctx.fillRect(-3.5, 7.5, 2.5, 5);
+    ctx.fillRect(3.2, 7.5, 2.5, 5);
+    ctx.fillStyle = '#ca8a04';
+    ctx.fillRect(-3.5, 9, 2.5, 1);
+    ctx.fillRect(3.2, 9, 2.5, 1);
+    // Razor-curved black talons
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-4, 12); ctx.quadraticCurveTo(-5.5, 14.5, -3, 15.2);
+    ctx.moveTo(-1, 12); ctx.quadraticCurveTo(0.5, 14.5, -1.5, 15.2);
+    ctx.moveTo(2.5, 12); ctx.quadraticCurveTo(1, 14.5, 3.5, 15.2);
+    ctx.moveTo(5.8, 12); ctx.quadraticCurveTo(7.2, 14.5, 5, 15.2);
+    ctx.stroke();
+
+    // 5. Realistic Raptor Head: dark hood, crisp white cheek, signature Peregrine malar moustache!
+    ctx.fillStyle = pal.crown;
+    ctx.beginPath();
+    ctx.ellipse(14, -6.5, 7.2, 5.8, 0.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Crisp white throat & auricular cheek patch
+    ctx.fillStyle = pal.cheek;
+    ctx.beginPath();
+    ctx.ellipse(13.5, -3.5, 5.2, 3.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Iconic dark malar "moustache" teardrop stripe descending below the eye
+    ctx.fillStyle = pal.primary;
+    ctx.beginPath();
+    ctx.moveTo(15.2, -6.5);
+    ctx.lineTo(17.5, -6.2);
+    ctx.lineTo(15.6, -1.2);
+    ctx.lineTo(13.8, -1.8);
+    ctx.closePath();
+    ctx.fill();
+
+    // Bright yellow waxy cere at base of beak + curved slate-horn hooked raptor beak (tomium tooth!)
+    ctx.fillStyle = pal.cere;
+    ctx.beginPath();
+    ctx.ellipse(20.2, -6.6, 2.2, 1.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#334155';
+    ctx.beginPath();
+    ctx.moveTo(21, -8);
+    ctx.quadraticCurveTo(26.5, -7.8, 26.2, -2.6);
+    ctx.quadraticCurveTo(24.2, -4.6, 21, -4.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(21.5, -7.2, 2.5, 1.2);
+
+    // Fierce raptor eye: golden orbital ring, deep dark iris & sharp white sky glint + brow ridge
+    ctx.fillStyle = pal.cere;
+    ctx.beginPath();
+    ctx.arc(16.8, -7.4, 2.1, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = '#0f172a';
-    ctx.fillRect(-3, 11, 2, 3);
-    ctx.fillRect(0, 11, 2, 3);
-    ctx.fillRect(3, 11, 2, 3);
-    ctx.fillRect(6, 11, 2, 3);
+    ctx.beginPath();
+    ctx.arc(17, -7.4, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(16.4, -8.2, 1, 1);
+    // Sharp supraorbital raptor brow ridge
+    ctx.strokeStyle = pal.crown;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(14.5, -9.2);
+    ctx.lineTo(19.2, -8.5);
+    ctx.stroke();
 
-    // Stolen Royal Shield clutched in talons during the cutscene!
+    // 6. Near Scalloped Wing (layered tawny coverts, barred secondaries & splayed dark primary fingers!)
+    ctx.fillStyle = pal.primary;
+    ctx.beginPath();
+    ctx.moveTo(-4, -2);
+    ctx.quadraticCurveTo(-12, -16 + flap * 0.75, -26, -21 + flap);
+    // Individually splayed primary wingtip feathers
+    ctx.lineTo(-21, -15 + flap * 0.85);
+    ctx.lineTo(-24, -14 + flap * 0.8);
+    ctx.lineTo(-17, -10 + flap * 0.6);
+    ctx.lineTo(4, -8 + flap * 0.35);
+    ctx.lineTo(6, 1);
+    ctx.closePath();
+    ctx.fill();
+
+    // Warm tawny-brown upper wing coverts with scalloped feather edge highlights
+    ctx.fillStyle = pal.mantle;
+    ctx.beginPath();
+    ctx.moveTo(-3, -2);
+    ctx.quadraticCurveTo(-8, -13 + flap * 0.55, -18, -16 + flap * 0.75);
+    ctx.lineTo(4, -7 + flap * 0.32);
+    ctx.lineTo(5, 0.5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = pal.covert;
+    ctx.beginPath();
+    ctx.moveTo(-1, -1.5);
+    ctx.quadraticCurveTo(-6, -9 + flap * 0.4, -13, -11 + flap * 0.55);
+    ctx.lineTo(3, -5 + flap * 0.22);
+    ctx.closePath();
+    ctx.fill();
+
+    // Fine feather barb lines across covert edge
+    ctx.strokeStyle = pal.chest;
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(-14, -13 + flap * 0.65);
+    ctx.quadraticCurveTo(-6, -8 + flap * 0.35, 3, -5 + flap * 0.22);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // 7. Stolen Royal Shield clutched in talons during the cutscene!
     if (carryingShield) {
       ctx.save();
-      ctx.translate(3, 18);
+      ctx.translate(2, 20);
       ctx.rotate(Math.sin(animTime * 8) * 0.14);
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(-10, -9, 20, 21);
@@ -13587,7 +14982,7 @@ export class GameRenderer {
         f.height,
         f.facing === 'left',
         f.wingPhase,
-        1.12,
+        1.15,
         f.variantIndex,
         false
       );
@@ -13639,31 +15034,61 @@ export class GameRenderer {
     bones.forEach(b => {
       const sx = Math.round(b.x - camera.x);
       const sy = Math.round(b.y - camera.y);
-      if (sx < -60 || sx > this.canvas.width + 60) return;
+      if (sx < -70 || sx > this.canvas.width + 70) return;
 
       ctx.save();
-      // Bleached desert ribs & femur bones resting on sand
-      ctx.fillStyle = '#e7e5e4';
-      ctx.fillRect(sx - 16, sy - 6, 30, 5);
-      ctx.fillRect(sx - 18, sy - 8, 5, 8);
-      ctx.fillRect(sx + 12, sy - 8, 5, 8);
-      // Curved ribs sticking up
-      ctx.fillStyle = '#f5f5f4';
-      ctx.fillRect(sx - 10, sy - 16, 4, 11);
-      ctx.fillRect(sx - 2, sy - 18, 4, 13);
-      ctx.fillRect(sx + 6, sy - 15, 4, 10);
-      ctx.fillStyle = '#d6d3d1';
-      ctx.fillRect(sx - 10, sy - 16, 8, 3);
-      ctx.fillRect(sx - 2, sy - 18, 8, 3);
+      // Background sand dune mound resting cleanly behind foreground platforms
+      ctx.fillStyle = '#c26d18';
+      ctx.beginPath();
+      ctx.ellipse(sx, sy + 2, 34, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(69, 26, 3, 0.25)';
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, 20, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
 
-      // Leftover meat scraps for Sand Cats to nibble!
+      // Sun-bleached realistic ribs & femur bones with crisp black cartoon outlines
+      ctx.fillStyle = '#09090b';
+      ctx.beginPath();
+      ctx.ellipse(sx - 13, sy - 4, 5.5, 4.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(sx + 13, sy - 4, 5.5, 4.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(sx - 14, sy - 7.5, 28, 7);
+
+      ctx.fillStyle = '#e7e0d4';
+      ctx.beginPath();
+      ctx.ellipse(sx - 13, sy - 4, 4, 3, 0, 0, Math.PI * 2);
+      ctx.ellipse(sx + 13, sy - 4, 4, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(sx - 13, sy - 6, 26, 4);
+
+      // Curved ivory ribs with black cartoon outline
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 5.2;
+      ctx.beginPath();
+      ctx.moveTo(sx - 9, sy - 4); ctx.quadraticCurveTo(sx - 11, sy - 14, sx - 2, sy - 14);
+      ctx.moveTo(sx - 2, sy - 4); ctx.quadraticCurveTo(sx - 3, sy - 16, sx + 6, sy - 15);
+      ctx.moveTo(sx + 5, sy - 4); ctx.quadraticCurveTo(sx + 5, sy - 13, sx + 12, sy - 11);
+      ctx.stroke();
+      ctx.strokeStyle = '#f5f0e6';
+      ctx.lineWidth = 2.6;
+      ctx.stroke();
+
+      // Leftover meat scraps for Background Sand Cats & Kittens to eat!
       if (b.meatRemaining > 0) {
-        ctx.fillStyle = '#991b1b';
-        ctx.fillRect(sx - 7, sy - 10, 12, 6);
-        ctx.fillStyle = '#ef4444';
-        ctx.fillRect(sx - 5, sy - 9, 8, 4);
+        ctx.fillStyle = '#7f1d1d';
+        ctx.beginPath();
+        ctx.ellipse(sx - 1, sy - 6, 7.5, 3.8, -0.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+        ctx.fillStyle = '#dc2626';
+        ctx.beginPath();
+        ctx.ellipse(sx - 1, sy - 6.5, 5.5, 2.5, -0.1, 0, Math.PI * 2);
+        ctx.fill();
         ctx.fillStyle = '#fecaca';
-        ctx.fillRect(sx - 3, sy - 8, 3, 2);
+        ctx.fillRect(sx - 3, sy - 7.5, 3, 1.5);
       }
       ctx.restore();
     });
@@ -13678,11 +15103,35 @@ export class GameRenderer {
     isBaby: boolean = false,
     activity: 'walk' | 'rest' | 'eat' = 'walk'
   ) {
+    const s = Math.max(0.65, Math.abs(scale));
+    const bw = Math.ceil(96 * s);
+    const bh = Math.ceil(78 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh * 0.68),
+      (octx) => this._drawSandCatSprite(octx, animTime, scale, flipLeft, variantIndex, isBaby, activity),
+      Math.max(1.3, Math.min(2.2, 1.5 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawSandCatSprite(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    flipLeft: boolean = false,
+    variantIndex: number = 0,
+    isBaby: boolean = false,
+    activity: 'walk' | 'rest' | 'eat' = 'walk'
+  ) {
+    // True-to-life Felis margarita (Sahara & Arabian Sand Cat) natural sandy-ochre pelts
     const palettes = [
-      { fur: '#e7c28e', belly: '#fef3c7', stripe: '#b45309', ear: '#fda4af', nose: '#78350f' }, // Sahara Sand
-      { fur: '#d6b48c', belly: '#faf5eb', stripe: '#92400e', ear: '#fbcfe8', nose: '#57534e' }, // Pale Dune
-      { fur: '#eab676', belly: '#fffbeb', stripe: '#9a3412', ear: '#fecdd3', nose: '#7c2d12' }, // Golden Ochre
-      { fur: '#cbd5e1', belly: '#f8fafc', stripe: '#64748b', ear: '#fbcfe8', nose: '#334155' }, // Silver Mirage
+      { coat: '#d9bc92', back: '#be9869', belly: '#faf2e1', bar: '#7c4d2b', earBack: '#a87e52', earInner: '#f3d5c5', cheekLine: '#9a4626', nose: '#b96f66', eye: '#a3e635' }, // Classic Sahara Sand Cat
+      { coat: '#cfb38c', back: '#b08f66', belly: '#f7f1e3', bar: '#6e472b', earBack: '#94704a', earInner: '#eed0c2', cheekLine: '#8b3e22', nose: '#a6625a', eye: '#bef264' }, // Pale Erg Sand Cat
+      { coat: '#e0b77e', back: '#c49252', belly: '#fcf5e6', bar: '#854d27', earBack: '#ad7a42', earInner: '#f5d2be', cheekLine: '#9c4121', nose: '#bd7268', eye: '#d9f99d' }, // Golden Arabian Sand Cat
+      { coat: '#cbbba3', back: '#a8967c', belly: '#f6f3ed', bar: '#5c4b3c', earBack: '#8c7a63', earInner: '#ebd5cb', cheekLine: '#7d4431', nose: '#9c6860', eye: '#a3e635' }, // Silver Dune Sand Cat
     ];
     const pal = palettes[Math.abs(variantIndex) % palettes.length];
     const effScale = isBaby ? scale * 0.72 : scale;
@@ -13690,84 +15139,225 @@ export class GameRenderer {
     ctx.save();
     ctx.scale(flipLeft ? -effScale : effScale, effScale);
 
-    if (activity === 'rest') {
-      // Curled up sleeping sand cat with bobbing "Zzz" breathing
-      const breathe = Math.sin(animTime * 2.5) * 0.8;
-      ctx.fillStyle = pal.fur;
-      ctx.fillRect(-13, -9 - breathe, 24, 10 + breathe);
+    // Helper: realistic Felis margarita broad head with low-set extra-wide triangular ears & reddish cheek tear streaks!
+    const drawSandCatHead = (hx: number, hy: number, sleeping: boolean) => {
+      const earScale = isBaby ? 1.18 : 1.0;
+
+      // Iconic oversized low-set wide triangular Sand Cat ears (black tips, tawny backs, fluffy pale inner tufts)
+      // Left/back ear
+      ctx.fillStyle = pal.earBack;
+      ctx.beginPath();
+      ctx.moveTo(hx - 1.5, hy - 2.5);
+      ctx.lineTo(hx - 7.5 * earScale, hy - 10.5 * earScale);
+      ctx.lineTo(hx + 2.8, hy - 5.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#1c1917';
+      ctx.beginPath();
+      ctx.moveTo(hx - 6.0 * earScale, hy - 8.5 * earScale);
+      ctx.lineTo(hx - 7.5 * earScale, hy - 10.5 * earScale);
+      ctx.lineTo(hx - 4.2 * earScale, hy - 9.0 * earScale);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = pal.earInner;
+      ctx.beginPath();
+      ctx.moveTo(hx - 1.2, hy - 3.3);
+      ctx.lineTo(hx - 5.2 * earScale, hy - 8.5 * earScale);
+      ctx.lineTo(hx + 1.5, hy - 5.3);
+      ctx.closePath();
+      ctx.fill();
+
+      // Right/front ear
+      ctx.fillStyle = pal.earBack;
+      ctx.beginPath();
+      ctx.moveTo(hx + 5.2, hy - 5.2);
+      ctx.lineTo(hx + 12.5 * earScale, hy - 10.0 * earScale);
+      ctx.lineTo(hx + 9.2, hy - 1.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#1c1917';
+      ctx.beginPath();
+      ctx.moveTo(hx + 10.4 * earScale, hy - 8.5 * earScale);
+      ctx.lineTo(hx + 12.5 * earScale, hy - 10.0 * earScale);
+      ctx.lineTo(hx + 11.2 * earScale, hy - 7.2 * earScale);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = pal.earInner;
+      ctx.beginPath();
+      ctx.moveTo(hx + 5.8, hy - 4.6);
+      ctx.lineTo(hx + 10.4 * earScale, hy - 8.0 * earScale);
+      ctx.lineTo(hx + 8.3, hy - 2.3);
+      ctx.closePath();
+      ctx.fill();
+
+      // Broad sandy feline skull & fluffy cheeks
+      ctx.fillStyle = pal.coat;
+      ctx.beginPath();
+      ctx.ellipse(hx + 4.2, hy - 1.2, 6.8, 5.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Subtle tawny forehead shading
+      ctx.fillStyle = pal.back;
+      ctx.beginPath();
+      ctx.ellipse(hx + 3.5, hy - 4.5, 4.4, 1.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Creamy-white chin & whisker muzzle pads
       ctx.fillStyle = pal.belly;
-      ctx.fillRect(-9, -4, 14, 5);
-      // Curled striped tail
-      ctx.fillStyle = pal.stripe;
-      ctx.fillRect(-15, -4, 8, 4);
-      ctx.fillStyle = '#1c1917';
-      ctx.fillRect(-16, -4, 3, 4);
-      // Resting head with iconic oversized wide-set sand cat ears!
-      ctx.fillStyle = pal.fur;
-      ctx.fillRect(5, -12 - breathe, 11, 9);
-      // Big triangular ears
-      ctx.fillStyle = pal.fur;
-      ctx.fillRect(3, -17 - breathe, 5, 6);
-      ctx.fillRect(12, -17 - breathe, 5, 6);
-      ctx.fillStyle = pal.ear;
-      ctx.fillRect(4, -15 - breathe, 3, 3);
-      ctx.fillRect(13, -15 - breathe, 3, 3);
-      // Closed sleepy eyes
-      ctx.fillStyle = '#1c1917';
-      ctx.fillRect(8, -8 - breathe, 3, 1.5);
-      ctx.fillRect(12, -8 - breathe, 3, 1.5);
-    } else {
-      const legStride = activity === 'walk' ? Math.sin(animTime * 9) * 3 : 0;
-      const headDip = activity === 'eat' ? 4 + Math.abs(Math.sin(animTime * 8)) * 3 : 0;
+      ctx.beginPath();
+      ctx.ellipse(hx + 7.2, hy + 1.4, 3.8, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
 
-      // Tail wagging gently
-      const tailWag = Math.sin(animTime * 4.5) * 3;
-      ctx.fillStyle = pal.fur;
-      ctx.fillRect(-19, -12 + tailWag * 0.5, 9, 4);
-      ctx.fillStyle = '#1c1917';
-      ctx.fillRect(-21, -12 + tailWag * 0.5, 3, 4);
+      // Signature reddish-brown cheek tear streak sweeping down-back from outer eye corner!
+      ctx.strokeStyle = pal.cheekLine;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(hx + 5.0, hy - 0.6);
+      ctx.lineTo(hx + 1.2, hy + 1.8);
+      ctx.stroke();
 
-      // Legs
-      ctx.fillStyle = pal.fur;
-      ctx.fillRect(-10 + legStride, -5, 4, 6);
-      ctx.fillRect(-4 - legStride, -5, 4, 6);
-      ctx.fillRect(4 + legStride, -5, 4, 6);
-      ctx.fillRect(9 - legStride, -5, 4, 6);
-      // Dark paw bars (signature real sand cat markings)
-      ctx.fillStyle = pal.stripe;
-      ctx.fillRect(-10 + legStride, -3, 4, 2);
-      ctx.fillRect(4 + legStride, -3, 4, 2);
+      // Luminous large yellow-green feline eyes (or peaceful curved closed lids when resting)
+      if (sleeping) {
+        ctx.strokeStyle = '#292524';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(hx + 6.4, hy - 1.4, 1.8, 0.15 * Math.PI, 0.85 * Math.PI);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = '#292524';
+        ctx.beginPath();
+        ctx.ellipse(hx + 6.6, hy - 1.8, 2.2, 2.0, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = pal.eye;
+        ctx.beginPath();
+        ctx.ellipse(hx + 6.6, hy - 1.8, 1.75, 1.65, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Vertical slit pupil + white eye shine
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(hx + 6.3, hy - 3.1, 0.9, 2.6);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(hx + 5.7, hy - 2.7, 0.8, 0.8);
+      }
 
-      // Slender desert cat torso
-      ctx.fillStyle = pal.fur;
-      ctx.fillRect(-11, -13, 22, 9);
-      ctx.fillStyle = pal.belly;
-      ctx.fillRect(-7, -7, 14, 4);
-      ctx.fillStyle = pal.stripe;
-      ctx.fillRect(-6, -12, 3, 4);
-      ctx.fillRect(0, -12, 3, 4);
-
-      // Head (dips down toward bones when eating!)
-      const hx = 8;
-      const hy = -18 + headDip;
-      ctx.fillStyle = pal.fur;
-      ctx.fillRect(hx, hy, 11, 10);
-      // Signature big wide sand-cat ears
-      ctx.fillRect(hx - 2, hy - 5, 5, 6);
-      ctx.fillRect(hx + 8, hy - 5, 5, 6);
-      ctx.fillStyle = pal.ear;
-      ctx.fillRect(hx - 1, hy - 3, 3, 3);
-      ctx.fillRect(hx + 9, hy - 3, 3, 3);
-      // Bright amber-green feline eyes
-      ctx.fillStyle = '#bef264';
-      ctx.fillRect(hx + 6, hy + 2, 3, 3);
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(hx + 7, hy + 2, 1.5, 3);
-      // Cheek tear stripe & pink nose
-      ctx.fillStyle = pal.stripe;
-      ctx.fillRect(hx + 4, hy + 5, 3, 2);
+      // Soft pink-brown feline nose leather & delicate white whiskers
       ctx.fillStyle = pal.nose;
-      ctx.fillRect(hx + 10, hy + 5, 2, 2);
+      ctx.beginPath();
+      ctx.moveTo(hx + 9.2, hy - 0.1);
+      ctx.lineTo(hx + 11.0, hy - 0.1);
+      ctx.lineTo(hx + 10.1, hy + 1.1);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.72)';
+      ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      ctx.moveTo(hx + 9.4, hy + 1.2); ctx.lineTo(hx + 13.8, hy + 0.5);
+      ctx.moveTo(hx + 9.2, hy + 1.9); ctx.lineTo(hx + 13.5, hy + 2.4);
+      ctx.stroke();
+    };
+
+    if (activity === 'rest') {
+      // Curled up sleeping sand cat with gentle breathing & ringed tail wrapped around paws
+      const breathe = Math.sin(animTime * 2.4) * 0.7;
+      // Soft curled torso
+      ctx.fillStyle = pal.coat;
+      ctx.beginPath();
+      ctx.ellipse(-2, -5.2 - breathe * 0.4, 12.5, 5.8 + breathe * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Tawny dorsal ridge shading
+      ctx.fillStyle = pal.back;
+      ctx.beginPath();
+      ctx.ellipse(-3, -8.5 - breathe * 0.5, 9.5, 2.4, -0.05, 0, Math.PI * 2);
+      ctx.fill();
+      // Creamy belly tuft
+      ctx.fillStyle = pal.belly;
+      ctx.beginPath();
+      ctx.ellipse(0, -1.8, 8.5, 2.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Curled ringed tail with jet-black tip
+      ctx.strokeStyle = pal.coat;
+      ctx.lineWidth = 3.4;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-12, -3.5);
+      ctx.quadraticCurveTo(-17, -1, -9, -0.5);
+      ctx.stroke();
+      ctx.fillStyle = pal.bar;
+      ctx.fillRect(-15.5, -3.5, 2, 3);
+      ctx.fillStyle = '#1c1917';
+      ctx.beginPath();
+      ctx.arc(-9, -0.6, 1.9, 0, Math.PI * 2);
+      ctx.fill();
+
+      drawSandCatHead(5.5, -7.2 - breathe * 0.4, true);
+    } else {
+      const legStride = activity === 'walk' ? Math.sin(animTime * 8.5) * 3.2 : 0;
+      const headDip = activity === 'eat' ? 5.5 + Math.abs(Math.sin(animTime * 7.5)) * 2.5 : 0;
+      const tailWag = Math.sin(animTime * 4.2) * 2.6;
+
+      // 1. Slender curved tail with 3 authentic dark rings & jet-black tip
+      ctx.strokeStyle = pal.coat;
+      ctx.lineWidth = 3.2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-10.5, -9.5);
+      ctx.quadraticCurveTo(-17.5, -13.5 + tailWag * 0.4, -22, -9.5 + tailWag);
+      ctx.stroke();
+      // Dark tail rings + black tip
+      ctx.fillStyle = pal.bar;
+      ctx.fillRect(-15.5, -12.6 + tailWag * 0.3, 1.8, 3.2);
+      ctx.fillRect(-19, -12.0 + tailWag * 0.65, 1.8, 3.2);
+      ctx.fillStyle = '#1c1917';
+      ctx.beginPath();
+      ctx.arc(-22, -9.5 + tailWag, 2.0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 2. Back legs (slightly darker for depth) + furred sand paws
+      ctx.fillStyle = pal.back;
+      ctx.fillRect(-9.5 - legStride * 0.8, -6.5, 3.4, 7.2);
+      ctx.fillRect(4.5 - legStride * 0.8, -6.5, 3.4, 7.2);
+      ctx.fillStyle = pal.belly;
+      ctx.fillRect(-9.5 - legStride * 0.8, -0.5, 4.2, 1.8);
+      ctx.fillRect(4.5 - legStride * 0.8, -0.5, 4.2, 1.8);
+
+      // 3. Sculpted slender desert cat torso with warm dorsal tone & creamy underbelly
+      ctx.fillStyle = pal.coat;
+      ctx.beginPath();
+      ctx.ellipse(-0.5, -9.2, 12.2, 5.2, 0.04, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = pal.back;
+      ctx.beginPath();
+      ctx.ellipse(-1.5, -12.4, 9.5, 2.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = pal.belly;
+      ctx.beginPath();
+      ctx.ellipse(0, -5.8, 8.8, 2.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Faint natural russet flank markings
+      ctx.fillStyle = pal.bar;
+      ctx.globalAlpha = 0.42;
+      ctx.fillRect(-6, -12.2, 2.2, 4.8);
+      ctx.fillRect(-1.5, -12.4, 2.2, 5.0);
+      ctx.fillRect(3, -12.0, 2.0, 4.5);
+      ctx.globalAlpha = 1;
+
+      // 4. Near legs with signature dark horizontal foreleg bars & furred paws!
+      ctx.fillStyle = pal.coat;
+      ctx.fillRect(-7.5 + legStride, -6.5, 3.6, 7.2);
+      ctx.fillRect(6.5 + legStride, -6.5, 3.6, 7.2);
+      // Characteristic dark horizontal bars on upper legs of Felis margarita
+      ctx.fillStyle = pal.bar;
+      ctx.fillRect(-7.5 + legStride, -5.2, 3.6, 1.3);
+      ctx.fillRect(-7.5 + legStride, -3.1, 3.6, 1.2);
+      ctx.fillRect(6.5 + legStride, -5.2, 3.6, 1.3);
+      ctx.fillRect(6.5 + legStride, -3.1, 3.6, 1.2);
+      // Thickly furred creamy desert paws
+      ctx.fillStyle = pal.belly;
+      ctx.fillRect(-7.5 + legStride, -0.4, 4.5, 1.9);
+      ctx.fillRect(6.5 + legStride, -0.4, 4.5, 1.9);
+
+      // 5. Realistic Sand Cat Head (dips down gracefully toward leftover meat on bones when eating!)
+      drawSandCatHead(7.5, -12.8 + headDip, false);
     }
 
     ctx.restore();
@@ -13778,29 +15368,37 @@ export class GameRenderer {
     cats.forEach(cat => {
       const sx = cat.x - camera.x;
       const sy = cat.y - camera.y;
-      if (sx < -60 || sx > this.canvas.width + 60) return;
+      if (sx < -70 || sx > this.canvas.width + 70) return;
 
       ctx.save();
       ctx.translate(sx, sy);
+
+      // Soft warm sand shadow grounding the Sand Cat on the background dune shelf
+      ctx.fillStyle = 'rgba(120, 53, 15, 0.28)';
+      ctx.beginPath();
+      ctx.ellipse(0, 1.5, cat.isBaby ? 11 : 16, 3.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Slightly scaled back for natural background depth behind foreground platforms
       this.drawSandCatSprite(
         ctx,
         cat.animTimer,
-        1.15,
+        0.92,
         cat.facing === 'left',
         cat.variantIndex,
         cat.isBaby,
         cat.state
       );
 
-      // Tiny floating Zzz when resting or crumb heart when eating
+      // Gentle Zzz when resting on background dunes or subtle crumb when eating
       if (cat.state === 'rest') {
-        const floatY = (time * 12) % 14;
-        ctx.fillStyle = 'rgba(254, 240, 138, 0.85)';
-        ctx.font = '700 8px "Silkscreen", monospace';
-        ctx.fillText('z', 10, -18 - floatY);
+        const floatY = (time * 10) % 12;
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.8)';
+        ctx.font = '700 7px "Silkscreen", monospace';
+        ctx.fillText('z', 9, -15 - floatY);
       } else if (cat.state === 'eat' && Math.floor(time * 4) % 2 === 0) {
         ctx.fillStyle = '#fca5a5';
-        ctx.fillRect(cat.facing === 'right' ? 14 : -18, -6, 3, 3);
+        ctx.fillRect(cat.facing === 'right' ? 12 : -15, -5, 2.5, 2.5);
       }
       ctx.restore();
     });
@@ -13814,86 +15412,44 @@ export class GameRenderer {
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
+    // Spacious wide sea horizon starting at y = 240 so the boat has over 2x vertical steering room!
+    const seaTopY = Math.round(240 - camera.y);
 
-    // 1. Crisp Tropical Coastal Azure Sky
-    const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
+    // 1. Clean Open Coastal Azure Sky (background islands, cliffs & lighthouse removed)
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, Math.max(1, seaTopY));
     skyGrad.addColorStop(0, '#0369a1');
-    skyGrad.addColorStop(0.38, '#38bdf8');
-    skyGrad.addColorStop(0.72, '#bae6fd');
-    skyGrad.addColorStop(1, '#fef9c3');
+    skyGrad.addColorStop(0.52, '#38bdf8');
+    skyGrad.addColorStop(1, '#bae6fd');
     ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, w, seaTopY + 4);
 
-    // 2. Bright Coastal Sun
-    const sunX = w * 0.22;
-    const sunY = 78;
-    ctx.fillStyle = 'rgba(254, 249, 195, 0.3)';
-    ctx.beginPath();
-    ctx.arc(sunX, sunY, 64 + Math.sin(time * 1.8) * 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fde047';
-    ctx.beginPath();
-    ctx.arc(sunX, sunY, 30, 0, Math.PI * 2);
-    ctx.fill();
+    // 2. Identical Sea-Like Ocean Texture Seamlessly Extending Underneath!
+    const seaGrad = ctx.createLinearGradient(0, seaTopY, 0, h);
+    seaGrad.addColorStop(0, '#0ea5e9');
+    seaGrad.addColorStop(0.28, '#0284c7');
+    seaGrad.addColorStop(0.7, '#0369a1');
+    seaGrad.addColorStop(1, '#0c4a6e');
+    ctx.fillStyle = seaGrad;
+    ctx.fillRect(0, seaTopY, w, Math.max(0, h - seaTopY + 40));
 
-    // 3. Fluffy Puffy Coastal Clouds (Parallax 0.1)
-    const cp = -(camera.x * 0.1 + time * 8) % 600;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-    for (let x = cp - 600; x < w + 600; x += 300) {
-      ctx.fillRect(Math.round(x + 60), 66, 68, 16);
-      ctx.fillRect(Math.round(x + 74), 54, 38, 14);
-      ctx.fillRect(Math.round(x + 190), 104, 52, 14);
-      ctx.fillRect(Math.round(x + 202), 94, 28, 12);
+    // Exact same animated whitecap wave crest ribbon along water surface with crisp black cartoon outline
+    for (let x = 0; x < w; x += 22) {
+      const waveY = Math.sin((x + camera.x) * 0.045 + time * 4.2) * 3.5;
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(Math.round(x) - 1, Math.round(seaTopY + waveY - 3), 18, 6);
+      ctx.fillStyle = '#e0f2fe';
+      ctx.fillRect(Math.round(x), Math.round(seaTopY + waveY - 2), 16, 4);
     }
 
-    // 4. Distant Sea Horizon, Islands & Coastal Lighthouse (Parallax 0.16)
-    const horizonY = h - 185;
-    const ip = -(camera.x * 0.16) % 860;
-    for (let x = ip - 860; x < w + 860; x += 860) {
-      // Distant volcanic island silhouette
-      ctx.fillStyle = '#0e7490';
-      ctx.beginPath();
-      ctx.moveTo(x + 100, horizonY);
-      ctx.quadraticCurveTo(x + 220, horizonY - 68, x + 360, horizonY);
-      ctx.closePath();
-      ctx.fill();
-
-      // Lighthouse island
-      ctx.fillStyle = '#0f766e';
-      ctx.beginPath();
-      ctx.moveTo(x + 560, horizonY);
-      ctx.quadraticCurveTo(x + 640, horizonY - 36, x + 730, horizonY);
-      ctx.closePath();
-      ctx.fill();
-
-      // Red & white striped lighthouse
-      const lx = Math.round(x + 635);
-      const ly = Math.round(horizonY - 28);
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillRect(lx, ly - 38, 14, 38);
-      ctx.fillStyle = '#dc2626';
-      ctx.fillRect(lx, ly - 30, 14, 8);
-      ctx.fillRect(lx, ly - 14, 14, 8);
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(lx - 2, ly - 44, 18, 6);
-      // Rotating golden lighthouse beam
-      const beamPulse = 0.22 + 0.18 * Math.sin(time * 2.4);
-      ctx.fillStyle = `rgba(254, 240, 138, ${beamPulse.toFixed(2)})`;
-      ctx.beginPath();
-      ctx.moveTo(lx + 7, ly - 41);
-      ctx.lineTo(lx + 115, ly - 65);
-      ctx.lineTo(lx + 115, ly - 24);
-      ctx.closePath();
-      ctx.fill();
+    // Exact same glistening horizontal wave bands scrolling smoothly across the expanded sea
+    for (let row = 0; row < 7; row++) {
+      const rowY = seaTopY + 28 + row * 38;
+      ctx.fillStyle = row % 2 === 1 ? 'rgba(125, 211, 252, 0.24)' : 'rgba(186, 230, 253, 0.16)';
+      const offset = (camera.x + time * (26 + (row % 4) * 9)) % 76;
+      for (let x = -offset - 76; x < w + 76; x += 76) {
+        ctx.fillRect(Math.round(x), Math.round(rowY + Math.sin(time * 3 + (x + camera.x) * 0.02) * 2), 30, 3);
+      }
     }
-
-    // Distant ocean horizon sheen
-    const seaBack = ctx.createLinearGradient(0, horizonY, 0, h);
-    seaBack.addColorStop(0, '#0284c7');
-    seaBack.addColorStop(0.5, '#0369a1');
-    seaBack.addColorStop(1, '#0c4a6e');
-    ctx.fillStyle = seaBack;
-    ctx.fillRect(0, horizonY, w, h - horizonY);
   }
 
   public renderCoastalWater(
@@ -13908,7 +15464,8 @@ export class GameRenderer {
     const endSX = Math.min(this.canvas.width, worldWidth - camera.x);
     if (endSX <= startSX) return;
 
-    const topY = waterLevelY - camera.y;
+    // Wide open sea top surface sits 145px above the center sailing lane (y = 240 for waterLevelY = 385)
+    const topY = (waterLevelY - 145) - camera.y;
     const waterH = Math.max(0, this.canvas.height - topY + 40);
 
     ctx.save();
@@ -13921,22 +15478,38 @@ export class GameRenderer {
     ctx.fillStyle = grad;
     ctx.fillRect(startSX, topY, endSX - startSX, waterH);
 
-    // Animated whitecap wave crest ribbon along water surface
-    ctx.fillStyle = '#e0f2fe';
+    // Animated whitecap wave crest ribbon along water surface with crisp black cartoon outline
     for (let x = startSX; x < endSX; x += 22) {
       const waveY = Math.sin((x + camera.x) * 0.045 + time * 4.2) * 3.5;
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(Math.round(x) - 1, Math.round(topY + waveY - 3), 18, 6);
+      ctx.fillStyle = '#e0f2fe';
       ctx.fillRect(Math.round(x), Math.round(topY + waveY - 2), 16, 4);
     }
 
-    // Mid-depth glistening wave bands (visual cues for raft steering lanes!)
-    for (let row = 0; row < 3; row++) {
-      const rowY = topY + 26 + row * 28;
-      ctx.fillStyle = row === 1 ? 'rgba(125, 211, 252, 0.25)' : 'rgba(186, 230, 253, 0.18)';
-      for (let x = startSX - ((time * (28 + row * 10)) % 72); x < endSX; x += 72) {
+    // Mid-depth glistening wave bands (visual cues across all wide raft steering lanes!)
+    for (let row = 0; row < 6; row++) {
+      const rowY = topY + 28 + row * 38;
+      ctx.fillStyle = row % 2 === 1 ? 'rgba(125, 211, 252, 0.24)' : 'rgba(186, 230, 253, 0.16)';
+      for (let x = startSX - ((time * (26 + (row % 4) * 9)) % 76); x < endSX; x += 76) {
         if (x + 30 < startSX) continue;
         const dx = Math.max(startSX, x);
         ctx.fillRect(Math.round(dx), Math.round(rowY + Math.sin(time * 3 + x * 0.02) * 2), 30, 3);
       }
+    }
+
+    // Swaying underwater Sea Kelp & Reef Coral along the ocean floor (exact 1:1 Bestiary Log plant!)
+    const kelpStride = 155;
+    const firstK = Math.floor((startSX + camera.x) / kelpStride);
+    const lastK = Math.ceil((endSX + camera.x) / kelpStride);
+    const floorY = this.canvas.height - 2;
+    for (let k = firstK; k <= lastK; k++) {
+      const kx = k * kelpStride + 55 - camera.x;
+      if (kx < startSX - 35 || kx > endSX + 35) continue;
+      ctx.save();
+      ctx.translate(kx, floorY);
+      this.drawPlantSprite(ctx, 'sea_kelp_coral', time + k * 0.65, 1.32, Math.abs(k) % 3, false);
+      ctx.restore();
     }
     ctx.restore();
   }
@@ -13948,6 +15521,10 @@ export class GameRenderer {
     if (sx < -80 || sx > this.canvas.width + 80) return;
 
     ctx.save();
+    // Crisp black cartoon outline around wooden tree stump
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(sx - 22, sy - 28, 44, 29);
+    ctx.fillRect(sx - 27, sy - 8, 54, 9);
     // Wooden tree stump firmly rooted in beach sand
     ctx.fillStyle = '#451a03';
     ctx.fillRect(sx - 20, sy - 24, 40, 24);
@@ -13966,11 +15543,15 @@ export class GameRenderer {
     ctx.fillStyle = '#d97706';
     ctx.fillRect(sx - 12, sy - 25, 24, 2);
 
-    // Embedded Woodcutter's Axe waiting to be picked up!
+    // Embedded Woodcutter's Axe waiting to be picked up with crisp black cartoon outline!
     if (!stump.axeTaken) {
       ctx.save();
       ctx.translate(sx + 2, sy - 25);
       ctx.rotate(-0.42);
+      // Black cartoon outline behind blade & wooden handle
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(-12, -10, 18, 15);
+      ctx.fillRect(-4, -34, 9, 34);
       // Steel blade stuck into stump
       ctx.fillStyle = '#334155';
       ctx.fillRect(-10, -8, 14, 11);
@@ -14008,7 +15589,9 @@ export class GameRenderer {
       if (sx < -160 || sx > this.canvas.width + 160) return;
 
       ctx.save();
-      // Always draw the remaining cut base stump
+      // Always draw the remaining cut base stump with black cartoon outline
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(sx - 13, sy - 17, 26, 18);
       ctx.fillStyle = '#451a03';
       ctx.fillRect(sx - 11, sy - 14, 22, 14);
       ctx.fillStyle = '#78350f';
@@ -14023,62 +15606,23 @@ export class GameRenderer {
       // Shake offset when struck by the axe
       const shakeX = tree.shakeTimer > 0 ? Math.sin(time * 55) * 4 : 0;
 
-      // Pivot at trunk cut point so the entire tree falls realistically!
+      // Pivot at trunk cut point so the exact Bestiary Peckerin Coastal Tree falls realistically!
       ctx.translate(sx + shakeX, sy - 12);
       ctx.rotate(tree.fallAngle);
 
-      const trunkH = tree.height;
-      if (tree.variant === 'palm') {
-        // Segmented tropical palm trunk
-        for (let seg = 0; seg < trunkH; seg += 12) {
-          const curveX = Math.sin((seg / trunkH) * 1.4) * 8;
-          ctx.fillStyle = seg % 24 === 0 ? '#78350f' : '#92400e';
-          ctx.fillRect(Math.round(curveX - 7), -seg - 12, 14, 12);
-          ctx.fillStyle = '#b45309';
-          ctx.fillRect(Math.round(curveX - 4), -seg - 11, 5, 10);
-        }
-        const topX = Math.round(Math.sin(1.4) * 8);
-        const topY = -trunkH;
-        // Coconuts under crown
-        ctx.fillStyle = '#451a03';
-        ctx.fillRect(topX - 8, topY + 2, 7, 7);
-        ctx.fillRect(topX + 1, topY + 3, 7, 7);
-        // Lush sweeping palm fronds
-        const frondAngles = [-2.5, -1.9, -1.2, -0.5, 0.25, 0.85];
-        frondAngles.forEach((ang, idx) => {
-          ctx.save();
-          ctx.translate(topX, topY);
-          ctx.rotate(ang + Math.sin(time * 2.2 + idx) * 0.04);
-          ctx.fillStyle = idx % 2 === 0 ? '#15803d' : '#16a34a';
-          ctx.fillRect(0, -5, 42, 10);
-          ctx.fillStyle = '#4ade80';
-          ctx.fillRect(4, -3, 30, 4);
-          ctx.restore();
-        });
-      } else {
-        // Coastal Pine trunk & layered evergreen boughs
-        ctx.fillStyle = '#5c2d0c';
-        ctx.fillRect(-8, -trunkH, 16, trunkH);
-        ctx.fillStyle = '#78350f';
-        ctx.fillRect(-5, -trunkH, 6, trunkH);
-
-        const tiers = [
-          { y: -trunkH + 46, w: 68, h: 28, c: '#14532d' },
-          { y: -trunkH + 22, w: 54, h: 26, c: '#166534' },
-          { y: -trunkH - 2, w: 38, h: 24, c: '#15803d' },
-        ];
-        tiers.forEach(t => {
-          ctx.fillStyle = t.c;
-          ctx.beginPath();
-          ctx.moveTo(0, t.y - t.h);
-          ctx.lineTo(-t.w / 2, t.y);
-          ctx.lineTo(t.w / 2, t.y);
-          ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = '#22c55e';
-          ctx.fillRect(-t.w * 0.25, t.y - t.h * 0.45, t.w * 0.5, 4);
-        });
-      }
+      const treeScale = Math.max(2.3, tree.height / 42);
+      const variantIdx = tree.variant === 'palm' ? 0 : 1;
+      const bw = Math.ceil(98 * treeScale);
+      const bh = Math.ceil(116 * treeScale);
+      this.drawCartoonOutlined(
+        ctx,
+        bw,
+        bh,
+        Math.ceil(bw / 2),
+        Math.ceil(bh - 16 * treeScale),
+        (octx) => this._drawPlantSprite(octx, 'coastal_tree', time, treeScale, variantIdx),
+        2.1
+      );
 
       ctx.restore();
 
@@ -14110,7 +15654,9 @@ export class GameRenderer {
       ctx.arc(sx, sy - 6, 16, 0, Math.PI * 2);
       ctx.fill();
 
-      // Bundled wooden log sprite
+      // Bundled wooden log sprite with crisp black cartoon outline
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(sx - 15, sy - 13, 30, 15);
       ctx.fillStyle = '#451a03';
       ctx.fillRect(sx - 13, sy - 11, 26, 11);
       ctx.fillStyle = '#92400e';
@@ -14169,11 +15715,14 @@ export class GameRenderer {
     }
 
     if (raft.state === 'building') {
-      // Partially assembled logs & construction progress bar
+      // Partially assembled logs & construction progress bar with crisp black cartoon outline
       const planks = Math.max(1, Math.ceil(raft.buildProgress * 5));
       for (let i = 0; i < planks; i++) {
         ctx.fillStyle = i % 2 === 0 ? '#78350f' : '#92400e';
         ctx.fillRect(sx + i * (raft.width / 5), sy + 2, raft.width / 5 - 1, raft.height - 2);
+        ctx.strokeStyle = '#09090b';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(sx + i * (raft.width / 5), sy + 2, raft.width / 5 - 1, raft.height - 2);
       }
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(sx + 6, sy - 24, raft.width - 12, 10);
@@ -14196,9 +15745,12 @@ export class GameRenderer {
       ctx.filter = 'brightness(1.9)';
     }
 
-    // Wooden mast & billowing cream sail
+    // Wooden mast & billowing cream sail with crisp black cartoon outline
     ctx.fillStyle = '#451a03';
     ctx.fillRect(sx + raft.width * 0.48, ry - 52, 6, 54);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx + raft.width * 0.48, ry - 52, 6, 54);
     ctx.fillStyle = '#fef3c7';
     ctx.beginPath();
     ctx.moveTo(sx + raft.width * 0.54, ry - 48);
@@ -14210,14 +15762,19 @@ export class GameRenderer {
     );
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = '#d97706';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.4;
     ctx.stroke();
     // Little crimson pennant flag at mast peak
     ctx.fillStyle = '#ef4444';
     ctx.fillRect(sx + raft.width * 0.48 - 12, ry - 52, 12, 6);
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 1.8;
+    ctx.strokeRect(sx + raft.width * 0.48 - 12, ry - 52, 12, 6);
 
-    // Lashed wooden log deck
+    // Lashed wooden log deck with bold ink-black cartoon outline
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(sx - 4, ry - 3, raft.width + 8, raft.height + 8);
     ctx.fillStyle = '#451a03';
     ctx.fillRect(sx - 2, ry - 1, raft.width + 4, raft.height + 4);
     const logCount = 6;
@@ -14298,7 +15855,10 @@ export class GameRenderer {
       if (sx + rock.width < -60 || sx > this.canvas.width + 60) return;
 
       ctx.save();
-      // Jagged dark coastal reef silhouette
+      // Jagged dark coastal reef silhouette with crisp black cartoon outline
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 4;
+      ctx.lineJoin = 'round';
       ctx.fillStyle = '#1e293b';
       ctx.beginPath();
       ctx.moveTo(sx, sy + rock.height);
@@ -14307,6 +15867,7 @@ export class GameRenderer {
       ctx.lineTo(sx + rock.width * 0.82, sy + rock.height * 0.28);
       ctx.lineTo(sx + rock.width, sy + rock.height);
       ctx.closePath();
+      ctx.stroke();
       ctx.fill();
 
       // Sunlit slate rock facet
@@ -14336,6 +15897,78 @@ export class GameRenderer {
     });
   }
 
+  private getSharkPalette(variantIndex: number) {
+    const palettes = [
+      { top: '#475569', mid: '#64748b', belly: '#f8fafc', fin: '#334155', finTip: '#0f172a' }, // Real Great White Shark
+      { top: '#4b5563', mid: '#71717a', belly: '#f4f4f5', fin: '#3f3f46', finTip: '#18181b' }, // Real Blacktip Reef Shark
+      { top: '#1e3a5f', mid: '#3b6796', belly: '#f0f9ff', fin: '#172c4a', finTip: '#0c192c' }, // Real Shortfin Mako Shark
+      { top: '#3d4c53', mid: '#5b6d75', belly: '#f1f5f9', fin: '#2b373d', finTip: '#11181c' }, // Real Blue-Grey Coastal Shark
+    ];
+    return palettes[Math.abs(variantIndex) % palettes.length];
+  }
+
+  // Identical anatomically realistic swept-back Shark Dorsal Fin (used for prowling, telegraphing, lunging, and Bestiary!)
+  private drawSharkDorsalFin(
+    ctx: CanvasRenderingContext2D,
+    pal: { top: string; mid: string; belly: string; fin: string; finTip: string },
+    baseX: number,
+    baseY: number,
+    finScale: number = 1
+  ) {
+    const s = Math.max(0.75, Math.abs(finScale));
+    ctx.save();
+    ctx.translate(baseX, baseY);
+    this.drawCartoonOutlined(
+      ctx,
+      Math.ceil(36 * s),
+      Math.ceil(34 * s),
+      Math.ceil(18 * s),
+      Math.ceil(26 * s),
+      (octx) => this._drawSharkDorsalFin(octx, pal, finScale),
+      Math.max(1.4, Math.min(2.2, 1.55 * Math.sqrt(s)))
+    );
+    ctx.restore();
+  }
+
+  private _drawSharkDorsalFin(
+    ctx: CanvasRenderingContext2D,
+    pal: { top: string; mid: string; belly: string; fin: string; finTip: string },
+    finScale: number = 1
+  ) {
+    ctx.save();
+    ctx.scale(finScale, finScale);
+
+    // Swept-back triangular dorsal fin (convex leading edge on +x side toward nose, concave trailing edge on -x side toward tail)
+    ctx.fillStyle = pal.fin;
+    ctx.beginPath();
+    ctx.moveTo(9.5, 0); // Front base (toward nose)
+    ctx.quadraticCurveTo(3.5, -11.5, -4.5, -17.5); // Sleek curved leading edge sweeping backward to sharp apex
+    ctx.quadraticCurveTo(-2.2, -9.5, -6.5, -1.5); // Concave trailing edge
+    ctx.lineTo(-9.0, 0); // Free rear tip
+    ctx.closePath();
+    ctx.fill();
+
+    // Sunlit leading-edge ridge sheen (matches shark mid-flank)
+    ctx.fillStyle = pal.mid;
+    ctx.beginPath();
+    ctx.moveTo(7.8, 0);
+    ctx.quadraticCurveTo(2.8, -10.0, -4.0, -16.2);
+    ctx.quadraticCurveTo(-0.5, -8.5, 1.8, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // Realistic darker dorsal apex tip
+    ctx.fillStyle = pal.finTip;
+    ctx.beginPath();
+    ctx.moveTo(-0.5, -12.8);
+    ctx.quadraticCurveTo(-2.5, -15.5, -4.5, -17.5);
+    ctx.quadraticCurveTo(-3.4, -14.2, -3.1, -11.8);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+
   public drawSharkSprite(
     ctx: CanvasRenderingContext2D,
     animTime: number,
@@ -14344,85 +15977,170 @@ export class GameRenderer {
     variantIndex: number = 0,
     isLunging: boolean = false
   ) {
-    const palettes = [
-      { top: '#334155', mid: '#64748b', belly: '#f1f5f9', fin: '#1e293b' }, // Great Reef Grey
-      { top: '#1e3a8a', mid: '#3b82f6', belly: '#eff6ff', fin: '#172554' }, // Azure Mako
-      { top: '#3f3f46', mid: '#71717a', belly: '#e4e4e7', fin: '#18181b' }, // Tiger Steel
-      { top: '#0f172a', mid: '#334155', belly: '#e2e8f0', fin: '#020617' }, // Deep Trench Slate
-    ];
-    const pal = palettes[Math.abs(variantIndex) % palettes.length];
-    const tailSwish = Math.sin(animTime * (isLunging ? 15 : 6.5)) * 4;
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(110 * s);
+    const bh = Math.ceil(86 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh * 0.56),
+      (octx) => this._drawSharkSprite(octx, animTime, scale, flipLeft, variantIndex, isLunging),
+      Math.max(1.5, Math.min(2.5, 1.7 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawSharkSprite(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    flipLeft: boolean = false,
+    variantIndex: number = 0,
+    isLunging: boolean = false
+  ) {
+    // True-to-life oceanic shark countershading (Great White, Grey Reef, Shortfin Mako & Tiger Shark)
+    const pal = this.getSharkPalette(variantIndex);
+    const tailSwish = Math.sin(animTime * (isLunging ? 15 : 6.2)) * 4.5;
 
     ctx.save();
     ctx.scale(flipLeft ? -scale : scale, scale);
 
-    // Sweeping shark caudal tail fin
+    // 1. Realistic Notched Crescent Heterocercal Caudal Fin (longer upper lobe with subterminal notch)
     ctx.fillStyle = pal.fin;
     ctx.beginPath();
-    ctx.moveTo(-18, 0);
-    ctx.lineTo(-32, -13 + tailSwish);
-    ctx.lineTo(-26, 0);
-    ctx.lineTo(-30, 11 + tailSwish);
+    ctx.moveTo(-18, -1.5);
+    ctx.quadraticCurveTo(-26, -6, -34, -15 + tailSwish);
+    ctx.quadraticCurveTo(-30, -8 + tailSwish * 0.7, -26, -1.5 + tailSwish * 0.35);
+    ctx.quadraticCurveTo(-29, 5 + tailSwish * 0.65, -31, 11 + tailSwish * 0.8);
+    ctx.quadraticCurveTo(-24, 5, -18, 2.5);
     ctx.closePath();
     ctx.fill();
 
-    // Sleek torpedo shark body
+    // 2. Second Dorsal Fin & Pelvic Fin (anatomical realism, also swept backward toward tail!)
+    ctx.fillStyle = pal.fin;
+    ctx.beginPath();
+    ctx.moveTo(-9.5, -6);
+    ctx.lineTo(-14.5, -11);
+    ctx.lineTo(-15.5, -5.5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(-7, 6.5);
+    ctx.lineTo(-15, 10.5);
+    ctx.lineTo(-11, 5.5);
+    ctx.closePath();
+    ctx.fill();
+
+    // 3. Tall Swept-Back Primary Dorsal Fin (100% identical to the surface fin!)
+    this.drawSharkDorsalFin(ctx, pal, 2.5, -8.5, 1.0);
+
+    // 4. Hydrodynamic Torpedo Body (curved dorsal slate back + smooth countershaded snowy-white belly)
     ctx.fillStyle = pal.top;
-    ctx.fillRect(-20, -10, 38, 12);
+    ctx.beginPath();
+    ctx.moveTo(-20, -1);
+    ctx.quadraticCurveTo(-8, -12, 12, -10.5);
+    ctx.quadraticCurveTo(25, -8.5, 32, -2.5);
+    ctx.quadraticCurveTo(25, 2, 14, 3);
+    ctx.quadraticCurveTo(-5, 3, -20, 2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Mid-flank sheen gradient highlight
     ctx.fillStyle = pal.mid;
-    ctx.fillRect(-16, -6, 36, 9);
-    // White underbelly
+    ctx.beginPath();
+    ctx.moveTo(-17, -1);
+    ctx.quadraticCurveTo(-5, -7.5, 14, -6.5);
+    ctx.quadraticCurveTo(24, -5, 29, -2.2);
+    ctx.quadraticCurveTo(18, 1.5, -17, 1);
+    ctx.closePath();
+    ctx.fill();
+
+    // Bright Snowy-White Countershaded Belly (natural wavy lateral seam!)
     ctx.fillStyle = pal.belly;
-    ctx.fillRect(-14, 1, 32, 7);
+    ctx.beginPath();
+    ctx.moveTo(-18, 1.5);
+    ctx.quadraticCurveTo(-6, -0.5, 6, 0.5);
+    ctx.quadraticCurveTo(15, 1.2, 23, 0.5);
+    ctx.quadraticCurveTo(16, 8.8, 2, 9);
+    ctx.quadraticCurveTo(-10, 8.5, -18, 2.5);
+    ctx.closePath();
+    ctx.fill();
 
-    // Iconic tall dorsal fin!
+    // 5. Sweeping Falcate Pectoral Fin with realistic black tip
     ctx.fillStyle = pal.fin;
     ctx.beginPath();
-    ctx.moveTo(-4, -10);
-    ctx.lineTo(3, -24);
-    ctx.lineTo(10, -10);
+    ctx.moveTo(4, 3.5);
+    ctx.quadraticCurveTo(-2, 11, -10, 17);
+    ctx.quadraticCurveTo(-3, 14, 10, 6.5);
     ctx.closePath();
     ctx.fill();
-
-    // Pectoral side fin
-    ctx.fillStyle = pal.fin;
+    ctx.fillStyle = pal.finTip;
     ctx.beginPath();
-    ctx.moveTo(0, 4);
-    ctx.lineTo(-8, 15);
-    ctx.lineTo(8, 7);
+    ctx.moveTo(-5.5, 12.5);
+    ctx.lineTo(-10, 17);
+    ctx.lineTo(-4.5, 14.5);
     ctx.closePath();
     ctx.fill();
 
-    // Pointed snout & snapping toothed jaws
-    ctx.fillStyle = pal.top;
+    // 6. Five Fine Recessed Curved Gill Slits
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1.0;
+    for (let g = 0; g < 5; g++) {
+      const gx = 5.5 + g * 2.1;
+      ctx.beginPath();
+      ctx.moveTo(gx, -3.5);
+      ctx.quadraticCurveTo(gx - 0.8, 0.2, gx, 3.6);
+      ctx.stroke();
+    }
+
+    // 7. Nostril Pore + Deep Glossy Obsidian Shark Eye
+    ctx.fillStyle = '#0f172a';
     ctx.beginPath();
-    ctx.moveTo(16, -10);
-    ctx.lineTo(30, -2);
-    ctx.lineTo(16, 2);
-    ctx.closePath();
+    ctx.arc(26.5, -2.2, 0.9, 0, Math.PI * 2);
     ctx.fill();
 
-    // Gill slits
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(6, -4, 1.5, 6);
-    ctx.fillRect(9, -4, 1.5, 6);
-    ctx.fillRect(12, -4, 1.5, 6);
+    ctx.fillStyle = '#020617';
+    ctx.beginPath();
+    ctx.arc(20.5, -4.4, 2.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#cbd5e1';
+    ctx.beginPath();
+    ctx.arc(19.9, -5.0, 0.7, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Fierce predator eye
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(17, -6, 4, 4);
-    ctx.fillStyle = isLunging ? '#ef4444' : '#fde047';
-    ctx.fillRect(18, -5, 2, 2);
-
-    // Open crimson mouth & jagged white teeth when lunging!
-    const jawDrop = isLunging ? 8 : 3;
+    // 8. Underslung Shark Jaw with Pale Pink Gums & Serrated Triangular White Teeth!
+    const jawDrop = isLunging ? 8.5 : 3.2;
     ctx.fillStyle = '#7f1d1d';
-    ctx.fillRect(14, 1, 13, jawDrop);
+    ctx.beginPath();
+    ctx.moveTo(14.5, 1.2);
+    ctx.quadraticCurveTo(21, 0.2, 26.8, 0.8);
+    ctx.quadraticCurveTo(24.5, 2 + jawDrop, 15.5, 2 + jawDrop * 0.75);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#fda4af';
+    ctx.fillRect(15.5, 1.0, 10.5, 1.4);
+
     ctx.fillStyle = '#ffffff';
-    for (let t = 0; t < 4; t++) {
-      ctx.fillRect(15 + t * 3, 1, 2, 3);
+    for (let t = 0; t < 5; t++) {
+      const tx = 16 + t * 2.1;
+      ctx.beginPath();
+      ctx.moveTo(tx, 1.8);
+      ctx.lineTo(tx + 1.0, 4.7);
+      ctx.lineTo(tx + 2.0, 1.8);
+      ctx.closePath();
+      ctx.fill();
+
       if (isLunging) {
-        ctx.fillRect(16 + t * 3, 1 + jawDrop - 3, 2, 3);
+        const by = 1.6 + jawDrop * 0.82;
+        ctx.beginPath();
+        ctx.moveTo(tx + 0.3, by);
+        ctx.lineTo(tx + 1.2, by - 2.8);
+        ctx.lineTo(tx + 2.1, by);
+        ctx.closePath();
+        ctx.fill();
       }
     }
 
@@ -14437,71 +16155,72 @@ export class GameRenderer {
       const sy = Math.round(s.y - camera.y);
       if (sx < -100 || sx > this.canvas.width + 100) return;
 
+      const pal = this.getSharkPalette(s.variantIndex);
+      const dir = s.facing === 'right' ? 1 : -1;
+
       ctx.save();
       if (s.hurtTimer > 0 && Math.floor(time * 24) % 2 === 0) {
         ctx.filter = 'brightness(2.2)';
       }
 
       if (s.state === 'stalking' || s.state === 'submerging') {
-        // Watching in the water: menacing dorsal fin slicing waves + glowing eyes under surface!
-        const dir = s.facing === 'right' ? 1 : -1;
+        // True-to-life shark patrolling right below ocean surface with IDENTICAL dorsal fin + tail fin tip!
+        const tailWave = Math.sin(s.animTimer * 6) * 2.5;
         ctx.save();
         ctx.translate(sx, sy);
         ctx.scale(dir, 1);
 
-        // Submerged shadowy body under the surface
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.42)';
-        ctx.fillRect(-24, 4, 48, 12);
-        // Tall dorsal fin above water
-        ctx.fillStyle = '#1e293b';
+        // Submerged countershaded silhouette gliding beneath waves
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.34)';
         ctx.beginPath();
-        ctx.moveTo(-9, 4);
-        ctx.lineTo(-1, -18);
-        ctx.lineTo(10, 4);
+        ctx.ellipse(0, 8, 28, 6.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Trailing upper caudal tail fin tip slicing the water behind dorsal
+        ctx.fillStyle = pal.fin;
+        ctx.beginPath();
+        ctx.moveTo(-25, 4);
+        ctx.quadraticCurveTo(-29, -4 + tailWave * 0.4, -32, -9 + tailWave * 0.5);
+        ctx.lineTo(-22, 4);
         ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = '#475569';
+
+        // Identical swept-back Shark Dorsal Fin breaking the ocean surface!
+        this.drawSharkDorsalFin(ctx, pal, 1.5, 4.5, 1.08);
+
+        // Crisp white surface wake V-ripple around fin
+        ctx.strokeStyle = 'rgba(224, 242, 254, 0.88)';
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(-1, -18);
-        ctx.lineTo(5, 4);
-        ctx.lineTo(10, 4);
-        ctx.closePath();
-        ctx.fill();
-        // Watching amber eye glint beneath wave
-        ctx.fillStyle = '#fde047';
-        ctx.fillRect(14, 6, 3, 2);
-        // Water ripple foam around fin
-        ctx.fillStyle = 'rgba(224, 242, 254, 0.85)';
-        ctx.fillRect(-16, 3, 30, 3);
+        ctx.moveTo(-18, 4.5);
+        ctx.quadraticCurveTo(0, 2.5, 14, 4.5);
+        ctx.stroke();
         ctx.restore();
       } else if (s.state === 'telegraph') {
-        // Red bubbling warning ring right before shark bursts upward!
+        // Churning whitewater & red warning ring right before Shark breaches, using IDENTICAL dorsal fin!
         const pulse = 0.55 + 0.45 * Math.sin(time * 24);
         ctx.strokeStyle = `rgba(239, 68, 68, ${pulse.toFixed(2)})`;
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.ellipse(sx, sy + 2, 28, 9, 0, 0, Math.PI * 2);
+        ctx.ellipse(sx, sy + 2, 30, 9.5, 0, 0, Math.PI * 2);
         ctx.stroke();
 
-        // Fin shaking intensely
-        ctx.fillStyle = '#dc2626';
-        ctx.beginPath();
-        ctx.moveTo(sx - 9, sy + 4);
-        ctx.lineTo(sx, sy - 20);
-        ctx.lineTo(sx + 9, sy + 4);
-        ctx.closePath();
-        ctx.fill();
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.scale(dir, 1);
+        this.drawSharkDorsalFin(ctx, pal, 1.5, 4.5, 1.15);
+        ctx.restore();
 
         ctx.fillStyle = '#fef08a';
         ctx.font = '700 9px "Silkscreen", monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('! SHARK !', sx, sy - 26);
+        ctx.fillText('! SHARK !', sx, sy - 27);
       } else if (s.state === 'lunging') {
-        // Full ferocious shark breaching up out of the ocean!
+        // Full realistic Shark breaching dramatically out of the ocean!
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(s.facing === 'right' ? -0.42 : 0.42);
-        this.drawSharkSprite(ctx, s.animTimer, 1.05, s.facing === 'left', s.variantIndex, true);
+        this.drawSharkSprite(ctx, s.animTimer, 1.08, s.facing === 'left', s.variantIndex, true);
         ctx.restore();
       }
 
@@ -14516,13 +16235,39 @@ export class GameRenderer {
     flipLeft: boolean = false,
     variantIndex: number = 0,
     activity: CoastalSeagull['state'] = 'flying',
-    hasFish: boolean = false
+    hasFish: boolean = false,
+    caughtFishSpecies: SeaFishSpecies = 'silver_mackerel'
   ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(108 * s);
+    const bh = Math.ceil(84 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh * 0.56),
+      (octx) => this._drawSeagullSprite(octx, animTime, scale, flipLeft, variantIndex, activity, hasFish, caughtFishSpecies),
+      Math.max(1.35, Math.min(2.3, 1.55 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawSeagullSprite(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    flipLeft: boolean = false,
+    variantIndex: number = 0,
+    activity: CoastalSeagull['state'] = 'flying',
+    hasFish: boolean = false,
+    caughtFishSpecies: SeaFishSpecies = 'silver_mackerel'
+  ) {
+    // True-to-life Herring Gull, Western Gull, California Gull & Ring-Billed Coastal Gull
     const palettes = [
-      { wing: '#cbd5e1', tip: '#1e293b', body: '#ffffff', beak: '#f59e0b' }, // Herring Pearl
-      { wing: '#94a3b8', tip: '#0f172a', body: '#f8fafc', beak: '#fb923c' }, // Harbor Slate
-      { wing: '#e2e8f0', tip: '#334155', body: '#ffffff', beak: '#facc15' }, // Snow Gull
-      { wing: '#a8a29e', tip: '#1c1917', body: '#fafaf9', beak: '#f97316' }, // Driftwood Gull
+      { mantle: '#94a3b8', mantleLight: '#cbd5e1', primary: '#0f172a', body: '#ffffff', shade: '#e2e8f0', beak: '#facc15', legs: '#f59e0b' }, // Real Herring Gull
+      { mantle: '#64748b', mantleLight: '#94a3b8', primary: '#09090b', body: '#ffffff', shade: '#e2e8f0', beak: '#fbbf24', legs: '#fb923c' }, // Real Western Gull
+      { mantle: '#a8b8c8', mantleLight: '#d4dee8', primary: '#1e293b', body: '#ffffff', shade: '#f1f5f9', beak: '#facc15', legs: '#eab308' }, // Real California Gull
+      { mantle: '#7c8b99', mantleLight: '#b0becb', primary: '#0f172a', body: '#fcfcfc', shade: '#e5e7eb', beak: '#f59e0b', legs: '#f97316' }, // Real Harbor Gull
     ];
     const pal = palettes[Math.abs(variantIndex) % palettes.length];
     const isPerched = activity === 'resting_on_raft';
@@ -14531,78 +16276,214 @@ export class GameRenderer {
     ctx.scale(flipLeft ? -scale : scale, scale);
 
     if (isPerched) {
-      // Cute resting seagull perched with folded wings on the raft!
-      const headBob = Math.sin(animTime * 3) * 1;
-      // Thin orange seabird legs
-      ctx.fillStyle = '#f97316';
-      ctx.fillRect(-3, 2, 2, 7);
-      ctx.fillRect(2, 2, 2, 7);
-      ctx.fillRect(-4, 8, 4, 2);
-      ctx.fillRect(1, 8, 4, 2);
-      // Plump white body
-      ctx.fillStyle = pal.body;
-      ctx.fillRect(-10, -5, 18, 9);
-      // Folded grey wing with black tips
-      ctx.fillStyle = pal.wing;
-      ctx.fillRect(-9, -4, 13, 6);
-      ctx.fillStyle = pal.tip;
-      ctx.fillRect(-13, -3, 5, 4);
-      // Head & bright curious eye
-      ctx.fillStyle = pal.body;
-      ctx.fillRect(4, -12 + headBob, 9, 8);
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(9, -10 + headBob, 2, 2);
-      // Golden beak
-      ctx.fillStyle = pal.beak;
-      ctx.fillRect(12, -9 + headBob, 6, 3);
-      ctx.fillStyle = '#dc2626';
-      ctx.fillRect(15, -7 + headBob, 2, 1.5);
-    } else {
-      const flap = Math.sin(animTime * 9.5) * 9;
-      // Far wing
-      ctx.fillStyle = pal.wing;
+      // Realistic Herring Gull perched peacefully with folded silver-grey wings & webbed orange feet!
+      const headBob = Math.sin(animTime * 2.8) * 0.9;
+      // Slender orange-pink seabird legs + realistic webbed feet
+      ctx.strokeStyle = pal.legs;
+      ctx.lineWidth = 1.6;
       ctx.beginPath();
-      ctx.moveTo(-2, -3);
-      ctx.lineTo(-14, -13 - flap * 0.8);
-      ctx.lineTo(4, -5 - flap * 0.3);
+      ctx.moveTo(-2.5, 2.5); ctx.lineTo(-3, 9.2);
+      ctx.moveTo(2.5, 2.5); ctx.lineTo(2.8, 9.2);
+      ctx.stroke();
+      ctx.fillStyle = pal.legs;
+      ctx.beginPath();
+      ctx.moveTo(-5.5, 9.5); ctx.lineTo(-3, 8.4); ctx.lineTo(0.2, 9.5); ctx.closePath();
+      ctx.moveTo(0.5, 9.5); ctx.lineTo(2.8, 8.4); ctx.lineTo(6.0, 9.5); ctx.closePath();
+      ctx.fill();
+
+      // Smooth rounded pure-white gull chest & belly
+      ctx.fillStyle = pal.body;
+      ctx.beginPath();
+      ctx.ellipse(-1, -1.5, 10.5, 5.5, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = pal.shade;
+      ctx.beginPath();
+      ctx.ellipse(-1.5, 1.5, 8.2, 2.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Folded silver-pearl grey mantle wing + white tertial crescent + jet-black primaries with white mirrors!
+      ctx.fillStyle = pal.mantle;
+      ctx.beginPath();
+      ctx.ellipse(-2.5, -2.8, 8.5, 3.6, -0.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = pal.body;
+      ctx.fillRect(-10.5, -3.5, 2.5, 3.2);
+      // Folded jet-black primary wingtips extending past white tail
+      ctx.fillStyle = pal.primary;
+      ctx.beginPath();
+      ctx.moveTo(-9, -3.5);
+      ctx.lineTo(-16.5, -1.2);
+      ctx.lineTo(-15.5, 1.4);
+      ctx.lineTo(-8, 0.2);
+      ctx.closePath();
+      ctx.fill();
+      // Authentic tiny white mirror spots on black primary tips!
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-14.5, -1.1, 1.6, 1.1);
+      ctx.fillRect(-12.2, -1.6, 1.4, 1.0);
+
+      // Graceful curved white neck & rounded gull head
+      ctx.fillStyle = pal.body;
+      ctx.beginPath();
+      ctx.ellipse(6.5, -6.5 + headBob * 0.5, 3.8, 4.8, 0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(8.2, -10.5 + headBob, 4.8, 4.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pale yellow eye with real-life red orbital ring & dark pupil
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(9.8, -11.0 + headBob, 1.65, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(9.8, -11.0 + headBob, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(10.0, -11.0 + headBob, 0.75, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bright golden-yellow hooked gull bill with unmistakable crimson gonys spot!
+      ctx.fillStyle = pal.beak;
+      ctx.beginPath();
+      ctx.moveTo(12.2, -11.4 + headBob);
+      ctx.quadraticCurveTo(17.5, -11.4 + headBob, 19.2, -9.2 + headBob);
+      ctx.lineTo(12.2, -8.5 + headBob);
+      ctx.closePath();
+      ctx.fill();
+      // Signature red gonys spot on lower mandible
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.arc(16.2, -9.1 + headBob, 1.15, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      const flap = Math.sin(animTime * 9.0) * 9.5;
+
+      // 1. Far Graceful Angled Gull Wing (silver-grey coverts + jet-black wingtip + white mirror)
+      ctx.fillStyle = pal.mantle;
+      ctx.beginPath();
+      ctx.moveTo(-1, -2.5);
+      ctx.quadraticCurveTo(-7, -11 - flap * 0.55, -17, -14 - flap * 0.85);
+      ctx.lineTo(-10, -8 - flap * 0.45);
+      ctx.lineTo(4, -4 - flap * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = pal.primary;
+      ctx.beginPath();
+      ctx.moveTo(-12.5, -11.2 - flap * 0.65);
+      ctx.lineTo(-18.5, -14.8 - flap * 0.9);
+      ctx.lineTo(-14.5, -9.8 - flap * 0.58);
       ctx.closePath();
       ctx.fill();
 
-      // Tail
+      // 2. Crisp Pure-White Fan Tail
       ctx.fillStyle = pal.body;
-      ctx.fillRect(-17, -2, 7, 4);
-      // Torso
-      ctx.fillStyle = pal.body;
-      ctx.fillRect(-11, -5, 20, 8);
-      // Head
-      ctx.fillStyle = pal.body;
-      ctx.fillRect(6, -8, 8, 7);
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(10, -6, 2, 2);
-      // Beak
-      ctx.fillStyle = pal.beak;
-      ctx.fillRect(14, -6, 6, 3);
+      ctx.beginPath();
+      ctx.moveTo(-9, -2.5);
+      ctx.lineTo(-19.5, -4.5);
+      ctx.lineTo(-19.5, 2.2);
+      ctx.lineTo(-9, 1.8);
+      ctx.closePath();
+      ctx.fill();
 
-      // Shimmering silver fish caught in beak!
+      // 3. Tucked orange feet beneath tail during flight
+      ctx.fillStyle = pal.legs;
+      ctx.fillRect(-10, 2.2, 5.5, 1.8);
+
+      // 4. Smooth Pearlescent White Gull Torso & Head
+      ctx.fillStyle = pal.body;
+      ctx.beginPath();
+      ctx.ellipse(-0.5, -1.2, 11, 4.4, -0.04, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = pal.shade;
+      ctx.beginPath();
+      ctx.ellipse(-1, 1.2, 8.5, 1.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Streamlined gull head
+      ctx.fillStyle = pal.body;
+      ctx.beginPath();
+      ctx.ellipse(10.2, -3.5, 4.8, 3.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eye with red orbital ring & pale yellow iris
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(11.6, -4.1, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(11.6, -4.1, 1.15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(11.8, -4.1, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Golden yellow gull bill with crimson gonys spot
+      ctx.fillStyle = pal.beak;
+      ctx.beginPath();
+      ctx.moveTo(14.2, -4.4);
+      ctx.quadraticCurveTo(19.2, -4.3, 21.0, -2.3);
+      ctx.lineTo(14.2, -1.9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.arc(18.0, -2.4, 1.0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 5. Exact Caught Sea Fish Species wiggling inside the Seagull's Beak!
       if (hasFish) {
-        ctx.fillStyle = '#38bdf8';
-        ctx.fillRect(16, -3, 9, 4);
-        ctx.fillStyle = '#e0f2fe';
-        ctx.fillRect(18, -2, 5, 2);
-        ctx.fillStyle = '#0284c7';
-        ctx.fillRect(24, -4, 3, 6);
+        ctx.save();
+        ctx.translate(19.5, -1.0);
+        ctx.rotate(0.28 + Math.sin(animTime * 15) * 0.14);
+        // Flip horizontally so fish head sits near beak and colorful tail wiggles outward
+        ctx.scale(-0.78, 0.78);
+        this._drawSeaFishBody(ctx, caughtFishSpecies, animTime * 2.2);
+        ctx.restore();
       }
 
-      // Near graceful gull wing
-      ctx.fillStyle = pal.wing;
+      // 6. Near Graceful Herring Gull Wing (silver-grey mantle, crisp white trailing edge & jet-black wingtips with white mirrors!)
+      ctx.fillStyle = pal.mantle;
       ctx.beginPath();
-      ctx.moveTo(-4, -2);
-      ctx.lineTo(-15, -14 + flap);
-      ctx.lineTo(5, -6 + flap * 0.5);
+      ctx.moveTo(-2, -1.8);
+      ctx.quadraticCurveTo(-8, -12 + flap * 0.6, -19, -15.5 + flap);
+      ctx.lineTo(-10, -7.5 + flap * 0.45);
+      ctx.lineTo(5, -4.2 + flap * 0.25);
+      ctx.lineTo(4, 0.5);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = pal.tip;
-      ctx.fillRect(-15, -14 + flap, 5, 3);
+
+      // Sunlit pearl-silver wing covert sheen
+      ctx.fillStyle = pal.mantleLight;
+      ctx.beginPath();
+      ctx.moveTo(-1, -1.8);
+      ctx.quadraticCurveTo(-6, -8.5 + flap * 0.45, -13, -11.5 + flap * 0.72);
+      ctx.lineTo(3.5, -3.5 + flap * 0.2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Crisp white trailing feather border
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-11, -8 + flap * 0.48);
+      ctx.lineTo(3, -3.5 + flap * 0.22);
+      ctx.stroke();
+
+      // Jet-black outer primary tips + signature white mirror dot!
+      ctx.fillStyle = pal.primary;
+      ctx.beginPath();
+      ctx.moveTo(-13, -11.8 + flap * 0.75);
+      ctx.lineTo(-20.5, -16.2 + flap * 1.04);
+      ctx.lineTo(-15.5, -10.5 + flap * 0.68);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-17.8, -13.6 + flap * 0.88, 1.6, 1.2);
     }
 
     ctx.restore();
@@ -14627,10 +16508,1189 @@ export class GameRenderer {
         g.facing === 'left',
         g.variantIndex,
         g.state,
-        g.hasFish
+        g.hasFish,
+        g.caughtFishSpecies || 'silver_mackerel'
       );
       ctx.restore();
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // VIBRANT MULTI-SPECIES OCEAN FISH (PECKERIN COAST)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private _drawSeaFishBody(
+    ctx: CanvasRenderingContext2D,
+    species: SeaFishSpecies,
+    animTime: number
+  ) {
+    const tailWag = Math.sin(animTime * 9.5) * 2.2;
+    const finFlutter = Math.sin(animTime * 7.5) * 0.22;
+
+    if (species === 'clownfish') {
+      // Vibrant Orange Reef Clownfish with 3 black-trimmed crisp white bands!
+      // Rounded caudal tail fin
+      ctx.fillStyle = '#ea580c';
+      ctx.beginPath();
+      ctx.moveTo(-7, 0);
+      ctx.quadraticCurveTo(-13.5, -5.5 + tailWag * 0.6, -14.5, tailWag * 0.4);
+      ctx.quadraticCurveTo(-13.5, 5.5 + tailWag * 0.6, -7, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
+
+      // Scalloped dorsal & anal fins
+      ctx.fillStyle = '#f97316';
+      ctx.beginPath();
+      ctx.ellipse(-1, -5.2, 6, 2.8, -0.1, 0, Math.PI * 2);
+      ctx.ellipse(-2, 5.0, 4.5, 2.2, 0.1, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Plump bright orange torso
+      ctx.fillStyle = '#fb923c';
+      ctx.beginPath();
+      ctx.ellipse(0.5, 0, 9.2, 5.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ea580c';
+      ctx.beginPath();
+      ctx.ellipse(0.5, -2.2, 8.2, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 3 iconic black-bordered white clownfish vertical bands
+      const stripes = [
+        { x: 4.2, w: 2.0, h: 8.6 },
+        { x: -0.6, w: 2.3, h: 10.0 },
+        { x: -5.8, w: 1.7, h: 6.4 },
+      ];
+      stripes.forEach(st => {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(st.x - st.w / 2 - 0.6, -st.h / 2, st.w + 1.2, st.h);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(st.x - st.w / 2, -st.h / 2 + 0.5, st.w, st.h - 1);
+      });
+
+      // Fluttering orange pectoral fin with black rim
+      ctx.save();
+      ctx.translate(1.5, 1.4);
+      ctx.rotate(finFlutter);
+      ctx.fillStyle = '#fb923c';
+      ctx.beginPath();
+      ctx.ellipse(-1.5, 1.8, 3.2, 1.8, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Glossy eye
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(6.6, -1.2, 1.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#09090b';
+      ctx.beginPath();
+      ctx.arc(7.0, -1.2, 1.0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(6.5, -1.9, 0.8, 0.8);
+    } else if (species === 'blue_tang') {
+      // Royal Blue Reef Tang with jet-black palette swoosh & glowing yellow tail!
+      // Bright sunshine-yellow wedge tail fin
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.moveTo(-7.5, 0);
+      ctx.lineTo(-14.5, -5.2 + tailWag * 0.7);
+      ctx.lineTo(-13.2, tailWag * 0.3);
+      ctx.lineTo(-14.5, 5.2 + tailWag * 0.7);
+      ctx.closePath();
+      ctx.fill();
+
+      // Royal cobalt-blue oval body
+      ctx.fillStyle = '#1d4ed8';
+      ctx.beginPath();
+      ctx.ellipse(0.5, 0, 9.8, 6.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#3b82f6';
+      ctx.beginPath();
+      ctx.ellipse(1.5, 1.2, 7.6, 4.0, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Iconic jet-black painter's palette marking along upper flank
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.moveTo(6.2, -2.6);
+      ctx.quadraticCurveTo(0, -5.6, -7.8, -1.6);
+      ctx.quadraticCurveTo(-2, -0.4, 2.5, -2.2);
+      ctx.closePath();
+      ctx.fill();
+      // Small bright blue oval inside black palette loop
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.ellipse(-1.2, -2.3, 2.8, 1.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Yellow-tipped pectoral fin
+      ctx.save();
+      ctx.translate(1.2, 1.8);
+      ctx.rotate(finFlutter);
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.ellipse(-1.5, 1.4, 3.0, 1.5, 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Bright eye
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(6.8, -1.0, 1.65, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#09090b';
+      ctx.beginPath();
+      ctx.arc(7.1, -1.0, 1.0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(6.6, -1.7, 0.8, 0.8);
+    } else if (species === 'red_snapper') {
+      // Glossy Crimson-Red Coastal Snapper with pearl belly & forked ruby tail!
+      // Deeply forked crimson tail
+      ctx.fillStyle = '#e11d48';
+      ctx.beginPath();
+      ctx.moveTo(-7.5, 0);
+      ctx.lineTo(-15.5, -5.8 + tailWag * 0.7);
+      ctx.lineTo(-11.8, tailWag * 0.3);
+      ctx.lineTo(-15.5, 5.8 + tailWag * 0.7);
+      ctx.closePath();
+      ctx.fill();
+
+      // Spiny dorsal crest
+      ctx.fillStyle = '#be123c';
+      ctx.beginPath();
+      ctx.moveTo(4.5, -4.4);
+      ctx.lineTo(1.5, -8.2);
+      ctx.lineTo(-1.2, -6.5);
+      ctx.lineTo(-3.8, -7.8);
+      ctx.lineTo(-6.5, -4.0);
+      ctx.closePath();
+      ctx.fill();
+
+      // Streamlined snapper torso
+      ctx.fillStyle = '#f43f5e';
+      ctx.beginPath();
+      ctx.ellipse(0.8, 0, 10.2, 5.0, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Pearlescent rose-silver belly
+      ctx.fillStyle = '#ffe4e6';
+      ctx.beginPath();
+      ctx.ellipse(1.2, 2.3, 8.2, 2.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Subtle shimmering scales
+      ctx.fillStyle = '#fda4af';
+      ctx.fillRect(-3.5, -1.6, 2.2, 1.2);
+      ctx.fillRect(0.2, -2.0, 2.2, 1.2);
+      ctx.fillRect(-1.6, 0.1, 2.2, 1.2);
+
+      // Gill curve & rosy pectoral fin
+      ctx.strokeStyle = '#9f1239';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(4.2, 0, 3.2, 1.0, 2.3);
+      ctx.stroke();
+
+      // Golden snapper eye
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(7.3, -1.1, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#09090b';
+      ctx.beginPath();
+      ctx.arc(7.6, -1.1, 1.05, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(7.1, -1.8, 0.8, 0.8);
+    } else if (species === 'golden_angelfish') {
+      // Regal Tall Diamond Golden Angelfish with Turquoise Vertical Bands & Trailing Fins!
+      // Delicate translucent tail fin
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.moveTo(-6.5, 0);
+      ctx.lineTo(-13.5, -4.8 + tailWag * 0.7);
+      ctx.lineTo(-12.2, tailWag * 0.3);
+      ctx.lineTo(-13.5, 4.8 + tailWag * 0.7);
+      ctx.closePath();
+      ctx.fill();
+
+      // Tall sweeping dorsal & ventral ribbon fins
+      ctx.fillStyle = '#0ea5e9';
+      ctx.beginPath();
+      ctx.moveTo(4.5, -4.5);
+      ctx.quadraticCurveTo(-2, -13.5, -10.5, -11.5 + tailWag * 0.35);
+      ctx.lineTo(-6.5, -3.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(4.0, 4.5);
+      ctx.quadraticCurveTo(-2, 13.0, -10.0, 11.2 + tailWag * 0.35);
+      ctx.lineTo(-6.5, 3.5);
+      ctx.closePath();
+      ctx.fill();
+
+      // Radiant golden diamond torso
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.moveTo(9.2, 0);
+      ctx.quadraticCurveTo(2.5, -8.5, -7.5, -3.2);
+      ctx.lineTo(-7.5, 3.2);
+      ctx.quadraticCurveTo(2.5, 8.5, 9.2, 0);
+      ctx.closePath();
+      ctx.fill();
+
+      // Deep ocean-navy & turquoise vertical reef bars
+      ctx.fillStyle = '#0369a1';
+      ctx.fillRect(-0.8, -6.2, 2.3, 12.4);
+      ctx.fillRect(-5.0, -4.8, 2.0, 9.6);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(-0.2, -5.8, 0.9, 11.6);
+
+      // Regal eye
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(5.4, -1.2, 1.65, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#09090b';
+      ctx.beginPath();
+      ctx.arc(5.7, -1.2, 1.0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // 'silver_mackerel': Sleek Metallic Teal-Blue & Chrome Silver Coastal Mackerel!
+      // Sharp crescent forked tail
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.moveTo(-8.5, 0);
+      ctx.lineTo(-16.0, -5.5 + tailWag * 0.75);
+      ctx.lineTo(-12.2, tailWag * 0.3);
+      ctx.lineTo(-16.0, 5.5 + tailWag * 0.75);
+      ctx.closePath();
+      ctx.fill();
+
+      // Sleek silver-chrome torpedo torso
+      ctx.fillStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.ellipse(0.5, 0, 10.6, 4.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Iridescent ocean-teal upper back
+      ctx.fillStyle = '#0ea5e9';
+      ctx.beginPath();
+      ctx.ellipse(0.5, -1.5, 9.8, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Signature wavy dark blue mackerel tiger-stripes on back
+      ctx.strokeStyle = '#0c4a6e';
+      ctx.lineWidth = 1.25;
+      for (let sx = -5.5; sx <= 3.5; sx += 2.8) {
+        ctx.beginPath();
+        ctx.moveTo(sx, -3.5);
+        ctx.quadraticCurveTo(sx + 0.8, -1.8, sx - 0.5, -0.4);
+        ctx.stroke();
+      }
+
+      // Small dorsal & ventral fins
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.moveTo(1.5, -3.8);
+      ctx.lineTo(-2.5, -6.8);
+      ctx.lineTo(-3.5, -3.5);
+      ctx.closePath();
+      ctx.fill();
+
+      // Crisp metallic eye
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(7.5, -0.7, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#09090b';
+      ctx.beginPath();
+      ctx.arc(7.8, -0.7, 0.95, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  public drawSeaFishSprite(
+    ctx: CanvasRenderingContext2D,
+    species: SeaFishSpecies,
+    animTime: number,
+    scale: number = 1,
+    flipLeft: boolean = false
+  ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(52 * s);
+    const bh = Math.ceil(42 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => {
+        octx.save();
+        octx.scale(flipLeft ? -scale : scale, scale);
+        this._drawSeaFishBody(octx, species, animTime);
+        octx.restore();
+      },
+      Math.max(1.25, Math.min(2.2, 1.45 * Math.sqrt(s)))
+    );
+  }
+
+  public renderSeaFish(fishList: SeaFish[], camera: Camera, time: number) {
+    const ctx = this.ctx;
+    fishList.forEach(fish => {
+      if (fish.caught) return;
+      const sx = Math.round(fish.x - camera.x);
+      const sy = Math.round(fish.y - camera.y);
+      if (sx < -60 || sx > this.canvas.width + 60) return;
+
+      ctx.save();
+      // Subtle underwater shimmer trail bubbles behind swimming fish
+      const bubbleX = sx + (fish.facing === 'right' ? -15 : 15);
+      const bubbleBob = Math.sin(time * 5 + fish.swimPhase) * 3;
+      ctx.fillStyle = 'rgba(224, 242, 254, 0.55)';
+      ctx.beginPath();
+      ctx.arc(bubbleX, sy - 2 + bubbleBob, 2.0, 0, Math.PI * 2);
+      ctx.arc(bubbleX + (fish.facing === 'right' ? -6 : 6), sy - 6 - bubbleBob * 0.5, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.translate(sx, sy);
+      this.drawSeaFishSprite(ctx, fish.species, time + fish.swimPhase, fish.size, fish.facing === 'left');
+      ctx.restore();
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PRICKLY DESERT CACTUSES & BOTANICAL BESTIARY PLANT SPRITES
+  // ═══════════════════════════════════════════════════════════════════════
+
+  public drawCactusSprite(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    variant: 0 | 1 | 2 = 0,
+    hasFlower: boolean = true
+  ) {
+    // Grounded desert sand contact shadow drawn softly BEFORE the crisp black outline
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = 'rgba(69, 26, 3, 0.28)';
+    ctx.beginPath();
+    ctx.ellipse(0, 1, 14, 3.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(74 * s);
+    const bh = Math.ceil(96 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh - 14 * s),
+      (octx) => this._drawCactusSprite(octx, animTime, scale, variant, hasFlower),
+      Math.max(1.45, Math.min(2.4, 1.65 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawCactusSprite(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    variant: 0 | 1 | 2 = 0,
+    hasFlower: boolean = true
+  ) {
+    ctx.save();
+    ctx.scale(scale, scale);
+    const sway = Math.sin(animTime * 1.8) * 0.6;
+
+    if (variant === 0) {
+      // Variant 0: Real-life Saguaro Giant Cactus (ribbed olive-emerald column, curved arms, ivory needle clusters & crown blossoms)
+      const dark = '#14532d';
+      const mid = '#15803d';
+      const light = '#22c55e';
+      const rib = '#052e16';
+
+      // Left arm
+      ctx.fillStyle = dark;
+      ctx.beginPath();
+      ctx.roundRect(-15, -34, 8, 16, 4);
+      ctx.fill();
+      ctx.fillRect(-11, -24, 9, 6);
+      ctx.fillStyle = mid;
+      ctx.beginPath();
+      ctx.roundRect(-13.5, -33, 4.5, 14, 2);
+      ctx.fill();
+
+      // Right arm
+      ctx.fillStyle = dark;
+      ctx.beginPath();
+      ctx.roundRect(7, -28, 8, 15, 4);
+      ctx.fill();
+      ctx.fillRect(3, -19, 8, 6);
+      ctx.fillStyle = mid;
+      ctx.beginPath();
+      ctx.roundRect(8.5, -27, 4.5, 13, 2);
+      ctx.fill();
+
+      // Main central Saguaro column
+      ctx.fillStyle = dark;
+      ctx.beginPath();
+      ctx.roundRect(-6.5, -48, 13, 48, 6);
+      ctx.fill();
+      ctx.fillStyle = mid;
+      ctx.beginPath();
+      ctx.roundRect(-4.5, -46.5, 9, 46, 4);
+      ctx.fill();
+      ctx.fillStyle = light;
+      ctx.fillRect(-1.5, -45, 2.2, 43);
+
+      // Vertical pleated cactus ribs
+      ctx.strokeStyle = rib;
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(-3, -45); ctx.lineTo(-3, -2);
+      ctx.moveTo(2.6, -45); ctx.lineTo(2.6, -2);
+      ctx.stroke();
+
+      // Crisp ivory-white needle spines sticking out along ribs & arms!
+      ctx.strokeStyle = '#fef9c3';
+      ctx.lineWidth = 1.05;
+      const spinePts: Array<[number, number, number]> = [
+        [-6.5, -40, -1], [-6.5, -30, -1], [-6.5, -14, -1],
+        [6.5, -42, 1], [6.5, -32, 1], [6.5, -10, 1],
+        [-15, -31, -1], [-15, -23, -1],
+        [15, -25, 1], [15, -17, 1],
+      ];
+      spinePts.forEach(([px, py, dir]) => {
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + dir * 3.8, py - 1.8);
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + dir * 3.4, py + 1.5);
+        ctx.stroke();
+      });
+
+      // Creamy white Saguaro desert flower crown
+      if (hasFlower) {
+        ctx.fillStyle = '#fef3c7';
+        ctx.beginPath();
+        ctx.arc(-2 + sway * 0.4, -48, 3.2, 0, Math.PI * 2);
+        ctx.arc(2.5 + sway * 0.4, -47.5, 2.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#facc15';
+        ctx.beginPath();
+        ctx.arc(0.3 + sway * 0.4, -48, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (variant === 1) {
+      // Variant 1: Real-life Prickly Pear Cactus (overlapping emerald cladode paddles, golden glochid needles, ruby prickly pears & yellow blooms!)
+      const drawPaddle = (px: number, py: number, rx: number, ry: number, rot: number) => {
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(rot);
+        ctx.fillStyle = '#14532d';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rx + 1.1, ry + 1.1, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#16a34a';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#4ade80';
+        ctx.beginPath();
+        ctx.ellipse(-rx * 0.22, -ry * 0.15, rx * 0.42, ry * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Dotted areoles & crisp golden-ivory prickles
+        ctx.strokeStyle = '#fef08a';
+        ctx.lineWidth = 0.9;
+        for (let a = -1; a <= 1; a++) {
+          const ax = a * (rx * 0.48);
+          const ay = (a === 0 ? -ry * 0.3 : ry * 0.15);
+          ctx.fillStyle = '#78350f';
+          ctx.fillRect(ax - 0.8, ay - 0.8, 1.6, 1.6);
+          ctx.beginPath();
+          ctx.moveTo(ax, ay); ctx.lineTo(ax - 2.6, ay - 2.2);
+          ctx.moveTo(ax, ay); ctx.lineTo(ax + 2.6, ay - 2.2);
+          ctx.stroke();
+        }
+        // Perimeter edge needles
+        ctx.beginPath();
+        ctx.moveTo(-rx, 0); ctx.lineTo(-rx - 3.2, -1.5);
+        ctx.moveTo(rx, 0); ctx.lineTo(rx + 3.2, -1.5);
+        ctx.moveTo(0, -ry); ctx.lineTo(0, -ry - 3.4);
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      drawPaddle(0, -9, 9.5, 9.5, 0);
+      drawPaddle(-9.5, -20, 7.2, 9.2, -0.32);
+      drawPaddle(9.5, -19, 7.2, 8.8, 0.34);
+      drawPaddle(0, -24, 7.0, 8.5, 0.05);
+
+      if (hasFlower) {
+        // Ruby-magenta prickly pear fruit & sunny yellow blossom
+        ctx.fillStyle = '#be123c';
+        ctx.beginPath();
+        ctx.ellipse(-10.5, -29, 3.2, 4.2, -0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fb7185';
+        ctx.fillRect(-11.8, -31, 1.6, 2.2);
+
+        ctx.fillStyle = '#facc15';
+        ctx.beginPath();
+        ctx.arc(0.5 + sway * 0.3, -33.5, 3.4, 0, Math.PI * 2);
+        ctx.arc(9.8, -28.5, 2.7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ea580c';
+        ctx.beginPath();
+        ctx.arc(0.5 + sway * 0.3, -33.5, 1.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      // Variant 2: Real-life Golden Barrel Cactus (Echinocactus grusonii — squat ribbed globe ringed in glowing amber-gold needles!)
+      ctx.fillStyle = '#14532d';
+      ctx.beginPath();
+      ctx.ellipse(0, -11.5, 13.5, 12.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#4d7c0f';
+      ctx.beginPath();
+      ctx.ellipse(0, -11.5, 12.2, 11.0, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#84cc16';
+      ctx.beginPath();
+      ctx.ellipse(-2.5, -13, 6.5, 8.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Deep vertical ribs
+      ctx.strokeStyle = '#1a2e05';
+      ctx.lineWidth = 1.0;
+      for (const rx of [-7.5, -3.5, 0, 3.5, 7.5]) {
+        ctx.beginPath();
+        ctx.moveTo(rx * 0.5, -22);
+        ctx.quadraticCurveTo(rx * 1.25, -11.5, rx * 0.6, -1.5);
+        ctx.stroke();
+      }
+
+      // Radiant golden needle spikes fanning around entire circumference!
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 1.1;
+      for (let i = 0; i < 11; i++) {
+        const ang = Math.PI + (i / 10) * Math.PI;
+        const bx = Math.cos(ang) * 12.2;
+        const by = -11.5 + Math.sin(ang) * 11.0;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + Math.cos(ang) * 4.5, by + Math.sin(ang) * 4.5);
+        ctx.stroke();
+      }
+
+      // Sunny yellow barrel crown flowers
+      if (hasFlower) {
+        ctx.fillStyle = '#facc15';
+        ctx.beginPath();
+        ctx.arc(-3.5, -22.5, 2.8, 0, Math.PI * 2);
+        ctx.arc(0, -23.5, 3.1, 0, Math.PI * 2);
+        ctx.arc(3.5, -22.5, 2.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ca8a04';
+        ctx.fillRect(-1.5, -24.2, 3, 2);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  public renderDesertCacti(cacti: DesertCactus[], camera: Camera, time: number) {
+    const ctx = this.ctx;
+    cacti.forEach(c => {
+      const cx = Math.round(c.x + c.width / 2 - camera.x);
+      const cy = Math.round(c.y - camera.y);
+      if (cx < -60 || cx > this.canvas.width + 60) return;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (c.hitCooldown && c.hitCooldown > 0.55) {
+        const shake = Math.sin(time * 55) * 2.5;
+        ctx.translate(shake, 0);
+      }
+      this.drawCactusSprite(ctx, time + c.x * 0.01, 1.04, c.variant, c.hasFlower ?? true);
+      ctx.restore();
+    });
+  }
+
+  public drawPlantSprite(
+    ctx: CanvasRenderingContext2D,
+    plantId:
+      | 'desert_cactus'
+      | 'grass_wildflower'
+      | 'meadow_sunflower'
+      | 'meadow_oak_tree'
+      | 'jungle_palm'
+      | 'jungle_fern'
+      | 'pine_evergreen'
+      | 'volcanic_ember_bush'
+      | 'desert_oasis_shrub'
+      | 'coastal_tree'
+      | 'sea_kelp_coral',
+    animTime: number,
+    scale: number = 1,
+    variantIndex: number = 0,
+    showShadow: boolean = true
+  ) {
+    if (plantId === 'desert_cactus') {
+      const variant = (Math.abs(variantIndex) % 3) as 0 | 1 | 2;
+      this.drawCactusSprite(ctx, animTime, scale * 0.95, variant, true);
+      return;
+    }
+
+    // Soft ground contact shadow drawn outside black cartoon outline
+    if (showShadow) {
+      ctx.save();
+      ctx.scale(scale, scale);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+      ctx.beginPath();
+      ctx.ellipse(0, 1.5, 14, 3.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(98 * s);
+    const bh = Math.ceil(116 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh - 16 * s),
+      (octx) => this._drawPlantSprite(octx, plantId, animTime, scale, variantIndex),
+      Math.max(1.5, Math.min(2.5, 1.65 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawPlantSprite(
+    ctx: CanvasRenderingContext2D,
+    plantId:
+      | 'grass_wildflower'
+      | 'meadow_sunflower'
+      | 'meadow_oak_tree'
+      | 'jungle_palm'
+      | 'jungle_fern'
+      | 'pine_evergreen'
+      | 'volcanic_ember_bush'
+      | 'desert_oasis_shrub'
+      | 'coastal_tree'
+      | 'sea_kelp_coral',
+    animTime: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    ctx.save();
+    ctx.scale(scale, scale);
+    const sway = Math.sin(animTime * 2.2) * 2.2;
+    const v = Math.abs(variantIndex);
+
+    if (plantId === 'grass_wildflower') {
+      // Grass Wildflower Cluster from Levels 1-30 grassy platforms & meadow hills!
+      const colorSets = [
+        ['#f43f5e', '#facc15', '#38bdf8'], // Classic Meadow Trio (Poppy, Buttercup, Bluebell)
+        ['#ec4899', '#c084fc', '#fb7185'], // Berry Clover Cluster
+        ['#facc15', '#fb923c', '#fde047'], // Sunburst Daisy Patch
+      ];
+      const set = colorSets[v % colorSets.length];
+
+      // Lush grassy blades anchoring the wildflower patch
+      ctx.fillStyle = '#15803d';
+      for (let b = -12; b <= 12; b += 4) {
+        ctx.beginPath();
+        ctx.moveTo(b - 2, 1);
+        ctx.lineTo(b + sway * 0.25, -10 - (Math.abs(b) % 5));
+        ctx.lineTo(b + 2.5, 1);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      const blooms = [
+        { ox: -10, h: 20, r: 5.5, col: set[0], phase: 0 },
+        { ox: 0, h: 28, r: 6.8, col: set[1], phase: 0.7 },
+        { ox: 10, h: 22, r: 5.8, col: set[2], phase: 1.4 },
+      ];
+      blooms.forEach(bl => {
+        const bSway = Math.sin(animTime * 2.5 + bl.phase) * 2.2;
+        ctx.strokeStyle = '#16a34a';
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        ctx.moveTo(bl.ox, 0);
+        ctx.quadraticCurveTo(bl.ox + bSway * 0.4, -bl.h * 0.5, bl.ox + bSway, -bl.h);
+        ctx.stroke();
+
+        // Small paired stem leaves
+        ctx.fillStyle = '#22c55e';
+        ctx.beginPath();
+        ctx.ellipse(bl.ox - 3.5 + bSway * 0.3, -bl.h * 0.45, 4.2, 2.1, -0.5, 0, Math.PI * 2);
+        ctx.ellipse(bl.ox + 3.5 + bSway * 0.35, -bl.h * 0.55, 4.0, 2.0, 0.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 5 rounded petals + sunny center
+        ctx.save();
+        ctx.translate(bl.ox + bSway, -bl.h);
+        ctx.fillStyle = bl.col;
+        for (let p = 0; p < 5; p++) {
+          const ang = (p / 5) * Math.PI * 2 + animTime * 0.2;
+          ctx.beginPath();
+          ctx.arc(Math.cos(ang) * (bl.r * 0.62), Math.sin(ang) * (bl.r * 0.62), bl.r * 0.54, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.arc(0, 0, bl.r * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-1, -1.5, 2, 2);
+        ctx.restore();
+      });
+    } else if (plantId === 'meadow_sunflower') {
+      // Sanctuary Sunflower (Golden Giant, Autumn Rust, Lemon Sun)
+      const petals = ['#facc15', '#ea580c', '#fde047'][v % 3];
+      const petalOuter = ['#ca8a04', '#9a3412', '#eab308'][v % 3];
+
+      // Sturdy green stem swaying gently
+      ctx.strokeStyle = '#15803d';
+      ctx.lineWidth = 3.6;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(sway * 0.4, -18, sway, -34);
+      ctx.stroke();
+
+      // Broad heart-shaped sunflower leaves
+      ctx.fillStyle = '#16a34a';
+      ctx.beginPath();
+      ctx.ellipse(-7 + sway * 0.25, -14, 7.5, 3.8, -0.45, 0, Math.PI * 2);
+      ctx.ellipse(7.5 + sway * 0.35, -20, 7.2, 3.6, 0.45, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Radiant sunflower head
+      ctx.save();
+      ctx.translate(sway, -35);
+      for (let i = 0; i < 12; i++) {
+        const ang = (i / 12) * Math.PI * 2 + animTime * 0.15;
+        ctx.save();
+        ctx.rotate(ang);
+        ctx.fillStyle = petalOuter;
+        ctx.beginPath();
+        ctx.ellipse(0, -10, 2.8, 5.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = petals;
+        ctx.beginPath();
+        ctx.ellipse(0, -9.5, 2.1, 4.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      // Roasted dark seed center
+      ctx.fillStyle = '#451a03';
+      ctx.beginPath();
+      ctx.arc(0, 0, 6.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#78350f';
+      ctx.beginPath();
+      ctx.arc(-1, -1, 4.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else if (plantId === 'meadow_oak_tree') {
+      // Rolling Meadow Oak Tree (Levels 1-10 & Sanctuary): Summer Oak, Autumn Maple, Spring Blossom
+      const canopies = [
+        { dark: '#14532d', mid: '#15803d', hi: '#22c55e', accent: '#facc15' },
+        { dark: '#9a3412', mid: '#ea580c', hi: '#f59e0b', accent: '#fde047' },
+        { dark: '#be185d', mid: '#ec4899', hi: '#f9a8d4', accent: '#ffffff' },
+      ];
+      const pal = canopies[v % canopies.length];
+
+      // Flared Oak Trunk & Roots
+      ctx.fillStyle = '#5c2d0c';
+      ctx.beginPath();
+      ctx.moveTo(-8, 1);
+      ctx.quadraticCurveTo(-5, -8, -4.5, -24);
+      ctx.lineTo(4.5, -24);
+      ctx.quadraticCurveTo(5, -8, 8, 1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(-2.5, -22, 3.5, 21);
+
+      // Multi-lobed leafy oak canopy swaying softly
+      const cx = sway * 0.45;
+      ctx.fillStyle = pal.dark;
+      ctx.beginPath();
+      ctx.arc(cx, -33, 18, 0, Math.PI * 2);
+      ctx.arc(cx - 12, -26, 13, 0, Math.PI * 2);
+      ctx.arc(cx + 12, -26, 13, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = pal.mid;
+      ctx.beginPath();
+      ctx.arc(cx, -35, 15, 0, Math.PI * 2);
+      ctx.arc(cx - 10, -28, 10.5, 0, Math.PI * 2);
+      ctx.arc(cx + 10, -28, 10.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = pal.hi;
+      ctx.beginPath();
+      ctx.arc(cx - 4, -39, 9, 0, Math.PI * 2);
+      ctx.arc(cx + 6, -34, 6.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Tiny apples / blossoms tucked into the leaves
+      ctx.fillStyle = pal.accent;
+      ctx.beginPath();
+      ctx.arc(cx - 9, -28, 2.2, 0, Math.PI * 2);
+      ctx.arc(cx + 7, -30, 2.2, 0, Math.PI * 2);
+      ctx.arc(cx + 1, -41, 2.0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (plantId === 'jungle_palm') {
+      // Canopy Jungle Palm (Coconut Palm, Emerald Fern, Orchid Crown)
+      const frondColor = ['#15803d', '#059669', '#166534'][v % 3];
+      const frondLight = ['#22c55e', '#34d399', '#4ade80'][v % 3];
+
+      // Ringed curved palm trunk
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 6.2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-5, -19, sway * 0.8, -36);
+      ctx.stroke();
+      ctx.strokeStyle = '#92400e';
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(1, 0);
+      ctx.quadraticCurveTo(-3.5, -19, sway * 0.8 + 1, -36);
+      ctx.stroke();
+
+      // Arching tropical palm fronds
+      ctx.save();
+      ctx.translate(sway * 0.8, -36);
+      const frondAngles = [-2.55, -2.0, -1.2, -0.55, 0.05];
+      frondAngles.forEach((ang, idx) => {
+        const wave = Math.sin(animTime * 2.6 + idx) * 0.08;
+        ctx.save();
+        ctx.rotate(ang + wave);
+        ctx.fillStyle = frondColor;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(10, -7, 21, -2);
+        ctx.quadraticCurveTo(11, 2, 0, 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = frondLight;
+        ctx.beginPath();
+        ctx.moveTo(2, -1);
+        ctx.quadraticCurveTo(10, -5, 18, -2);
+        ctx.lineTo(4, 0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Coconuts or orchid accent
+      if (v % 3 === 2) {
+        ctx.fillStyle = '#c084fc';
+        ctx.beginPath();
+        ctx.arc(-3, 2, 3.2, 0, Math.PI * 2);
+        ctx.arc(3.5, 2.5, 2.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(-1, 1.5, 2.2, 2.2);
+      } else {
+        ctx.fillStyle = '#451a03';
+        ctx.beginPath();
+        ctx.arc(-2.5, 2.5, 2.8, 0, Math.PI * 2);
+        ctx.arc(2.8, 3, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    } else if (plantId === 'jungle_fern') {
+      // Tropical Emerald Jungle Fern (World 4 rainforest floor)
+      const fernCols = [
+        { dark: '#065f46', mid: '#16a34a', light: '#4ade80' },
+        { dark: '#0f766e', mid: '#10b981', light: '#6ee7b7' },
+        { dark: '#3f6212', mid: '#65a30d', light: '#bef264' },
+      ];
+      const fc = fernCols[v % fernCols.length];
+
+      const fronds = [
+        { ang: -1.15, len: 28 },
+        { ang: -0.6, len: 34 },
+        { ang: 0.0, len: 36 },
+        { ang: 0.6, len: 34 },
+        { ang: 1.15, len: 28 },
+      ];
+      fronds.forEach((f, idx) => {
+        const wave = Math.sin(animTime * 2.4 + idx * 0.7) * 0.07;
+        ctx.save();
+        ctx.rotate(f.ang + wave);
+        ctx.fillStyle = idx % 2 === 0 ? fc.dark : fc.mid;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(-7, -f.len * 0.45, 0, -f.len);
+        ctx.quadraticCurveTo(7, -f.len * 0.45, 0, 0);
+        ctx.closePath();
+        ctx.fill();
+        // Leaflets & central vein
+        ctx.fillStyle = fc.light;
+        ctx.fillRect(-0.8, -f.len + 4, 1.6, f.len - 6);
+        for (let y = -8; y > -f.len + 6; y -= 6) {
+          ctx.fillRect(-4.5, y, 3.5, 1.8);
+          ctx.fillRect(1, y, 3.5, 1.8);
+        }
+        ctx.restore();
+      });
+
+      // Curled fiddlehead shoot in center
+      ctx.strokeStyle = fc.light;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(2, -12, -1, -16);
+      ctx.arc(-2.5, -16, 2.2, 0, Math.PI * 1.6);
+      ctx.stroke();
+    } else if (plantId === 'pine_evergreen') {
+      // Snow-Dusted Alpine Evergreen Pine (World 5 Snowy Mountains)
+      const pineCols = [
+        { dark: '#0f766e', mid: '#0d9488', snow: '#f8fafc' },
+        { dark: '#14532d', mid: '#15803d', snow: '#f1f5f9' },
+        { dark: '#1e3a8a', mid: '#0284c7', snow: '#e0f2fe' },
+      ];
+      const pc = pineCols[v % pineCols.length];
+
+      // Timber trunk
+      ctx.fillStyle = '#5c2d0c';
+      ctx.fillRect(-4, -14, 8, 15);
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-2, -13, 3, 13);
+
+      // 3 crisp evergreen conifer bough tiers + snow caps
+      const tiers = [
+        { y: -11, w: 20, h: 17, c: pc.dark },
+        { y: -23, w: 16, h: 15, c: pc.mid },
+        { y: -34, w: 12, h: 14, c: pc.mid },
+      ];
+      tiers.forEach((t, idx) => {
+        const sOff = sway * (0.18 + idx * 0.14);
+        ctx.fillStyle = t.c;
+        ctx.beginPath();
+        ctx.moveTo(sOff, t.y - t.h);
+        ctx.lineTo(-t.w + sOff * 0.5, t.y);
+        ctx.lineTo(t.w + sOff * 0.5, t.y);
+        ctx.closePath();
+        ctx.fill();
+
+        // Heavy snow blanket on top edge of each tier
+        ctx.fillStyle = pc.snow;
+        ctx.beginPath();
+        ctx.moveTo(sOff, t.y - t.h);
+        ctx.lineTo(-t.w * 0.58 + sOff * 0.65, t.y - t.h * 0.42);
+        ctx.lineTo(0 + sOff * 0.65, t.y - t.h * 0.52);
+        ctx.lineTo(t.w * 0.58 + sOff * 0.65, t.y - t.h * 0.42);
+        ctx.closePath();
+        ctx.fill();
+      });
+    } else if (plantId === 'volcanic_ember_bush') {
+      // Scorched Ember Bush (World 6: the Boss - Cockatrice Lair)
+      const emberCols = [
+        { glow: '#ef4444', core: '#fef08a', branch: '#290c10' },
+        { glow: '#f97316', core: '#fde047', branch: '#1c1917' },
+        { glow: '#dc2626', core: '#fca5a5', branch: '#3b0712' },
+      ];
+      const ec = emberCols[v % emberCols.length];
+
+      // Twisted obsidian thorn branches
+      ctx.strokeStyle = ec.branch;
+      ctx.lineWidth = 4.2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-6, -14, -14 + sway * 0.4, -27);
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(2, -16, sway * 0.6, -34);
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(7, -13, 15 + sway * 0.4, -24);
+      ctx.stroke();
+
+      // Jagged charcoal thorns
+      ctx.fillStyle = '#450a0a';
+      ctx.beginPath();
+      ctx.moveTo(-10, -16); ctx.lineTo(-17, -19); ctx.lineTo(-9, -12); ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(9, -14); ctx.lineTo(17, -16); ctx.lineTo(8, -10); ctx.closePath(); ctx.fill();
+
+      // Glowing ember blossoms pulsing gently
+      const pulse = 0.85 + Math.sin(animTime * 5.2) * 0.2;
+      const buds = [
+        { x: -14 + sway * 0.4, y: -27, r: 5.2 * pulse },
+        { x: sway * 0.6, y: -34, r: 6.2 * pulse },
+        { x: 15 + sway * 0.4, y: -24, r: 4.8 * pulse },
+      ];
+      buds.forEach(b => {
+        ctx.fillStyle = ec.glow;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = ec.core;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r * 0.48, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    } else if (plantId === 'desert_oasis_shrub') {
+      // Desert Oasis Shrub / Arid Sagebrush (World 7: the Desert lands)
+      const shrubCols = [
+        { dark: '#3f6212', mid: '#65a30d', hi: '#a3e635', bloom: '#facc15' },
+        { dark: '#365314', mid: '#4d7c0f', hi: '#84cc16', bloom: '#fb923c' },
+        { dark: '#115e59', mid: '#0d9488', hi: '#5eead4', bloom: '#fde047' },
+      ];
+      const sc = shrubCols[v % shrubCols.length];
+
+      // Woody gnarled desert root stems
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(0, 1); ctx.lineTo(-8, -11);
+      ctx.moveTo(0, 1); ctx.lineTo(0, -14);
+      ctx.moveTo(0, 1); ctx.lineTo(9, -10);
+      ctx.stroke();
+
+      // Clumped silvery-sage desert foliage puffs
+      const cx = sway * 0.35;
+      ctx.fillStyle = sc.dark;
+      ctx.beginPath();
+      ctx.arc(cx - 10, -12, 9, 0, Math.PI * 2);
+      ctx.arc(cx + 10, -11, 9, 0, Math.PI * 2);
+      ctx.arc(cx, -18, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = sc.mid;
+      ctx.beginPath();
+      ctx.arc(cx - 9, -14, 7, 0, Math.PI * 2);
+      ctx.arc(cx + 9, -13, 7, 0, Math.PI * 2);
+      ctx.arc(cx, -20, 9.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = sc.hi;
+      ctx.beginPath();
+      ctx.arc(cx - 2, -23, 5.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Golden desert marigold specks
+      ctx.fillStyle = sc.bloom;
+      ctx.beginPath();
+      ctx.arc(cx - 9, -15, 2.3, 0, Math.PI * 2);
+      ctx.arc(cx + 8, -15, 2.3, 0, Math.PI * 2);
+      ctx.arc(cx + 1, -24, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (plantId === 'coastal_tree') {
+      // Peckerin Coastal Tree (Driftwood Palm vs Sea Breeze Pine)
+      if (v % 2 === 0) {
+        // Driftwood Shoreline Palm
+        ctx.strokeStyle = '#92400e';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(6, -18, 2 + sway, -36);
+        ctx.stroke();
+        ctx.save();
+        ctx.translate(2 + sway, -36);
+        [-2.6, -1.9, -1.1, -0.4, 0.25].forEach((ang, idx) => {
+          ctx.save();
+          ctx.rotate(ang + Math.sin(animTime * 3 + idx) * 0.08);
+          ctx.fillStyle = '#15803d';
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.quadraticCurveTo(10, -7, 20, -1);
+          ctx.quadraticCurveTo(9, 2, 0, 2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        });
+        ctx.restore();
+      } else {
+        // Sea Breeze Coastal Pine
+        ctx.fillStyle = '#78350f';
+        ctx.fillRect(-3.5, -18, 7, 18);
+        const tiers = [
+          { y: -16, w: 18, h: 14, c: '#0f766e' },
+          { y: -26, w: 15, h: 13, c: '#0d9488' },
+          { y: -35, w: 11, h: 12, c: '#14b8a6' },
+        ];
+        tiers.forEach(t => {
+          ctx.fillStyle = t.c;
+          ctx.beginPath();
+          ctx.moveTo(sway * 0.4, t.y - t.h);
+          ctx.lineTo(-t.w + sway * 0.2, t.y);
+          ctx.lineTo(t.w + sway * 0.2, t.y);
+          ctx.closePath();
+          ctx.fill();
+        });
+      }
+    } else if (plantId === 'sea_kelp_coral') {
+      // Sea Kelp & Reef Coral (World 8: Peckerin Coast ocean floor)
+      const reefSets = [
+        { kelp: '#10b981', kelpHi: '#6ee7b7', coral: '#fb7185', coralHi: '#fda4af' },
+        { kelp: '#14b8a6', kelpHi: '#5eead4', coral: '#f97316', coralHi: '#fdba74' },
+        { kelp: '#84cc16', kelpHi: '#d9f99d', coral: '#c084fc', coralHi: '#e9d5ff' },
+      ];
+      const rs = reefSets[v % reefSets.length];
+
+      // Two gently undulating tall Sea Kelp stalks
+      for (const kx of [-9, -2]) {
+        const wave = Math.sin(animTime * 2.8 + kx) * 4;
+        ctx.strokeStyle = rs.kelp;
+        ctx.lineWidth = 4.5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(kx, 0);
+        ctx.quadraticCurveTo(kx + wave, -18, kx - wave * 0.5, -36);
+        ctx.stroke();
+
+        // Kelp leaf blades & air bladders
+        ctx.fillStyle = rs.kelpHi;
+        for (let ly = -9; ly >= -31; ly -= 9) {
+          ctx.beginPath();
+          ctx.ellipse(kx + wave * 0.35 + 4, ly, 4.5, 2.2, -0.35, 0, Math.PI * 2);
+          ctx.ellipse(kx + wave * 0.35 - 4, ly - 3, 4.5, 2.2, 0.35, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Vibrant branching Staghorn Reef Coral beside the kelp
+      ctx.strokeStyle = rs.coral;
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(9, -15);
+      ctx.moveTo(9, -10);
+      ctx.lineTo(2, -20);
+      ctx.moveTo(9, -12);
+      ctx.lineTo(16, -22);
+      ctx.moveTo(13, -17);
+      ctx.lineTo(19, -15);
+      ctx.stroke();
+
+      // Coral polyp tips
+      ctx.fillStyle = rs.coralHi;
+      ctx.beginPath();
+      ctx.arc(2, -20, 2.4, 0, Math.PI * 2);
+      ctx.arc(9, -16, 2.2, 0, Math.PI * 2);
+      ctx.arc(16, -22, 2.4, 0, Math.PI * 2);
+      ctx.arc(19, -15, 2.0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
   }
 }
 

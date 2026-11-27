@@ -3113,6 +3113,153 @@ class AudioManager {
     }
   }
 
+  public playBrushSweep() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const dur = 0.14;
+    const bufferSize = Math.floor(this.ctx.sampleRate * dur);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      const env = Math.sin((i / bufferSize) * Math.PI);
+      data[i] = (Math.random() * 2 - 1) * env * 0.65;
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1600, now);
+    filter.frequency.linearRampToValueAtTime(3400, now + dur * 0.65);
+    filter.frequency.linearRampToValueAtTime(2100, now + dur);
+    filter.Q.setValueAtTime(1.8, now);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.28, now + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+
+    noise.start(now);
+    noise.stop(now + dur + 0.01);
+  }
+
+  public playDigDiscover() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    notes.forEach((freq, i) => {
+      if (!this.ctx || !this.sfxGain) return;
+      const t = now + i * 0.065;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.26, t + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(t);
+      osc.stop(t + 0.26);
+    });
+  }
+
+  public playCactusPrick() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    // Crisp needle-poke snap + quick prickly pinch ping
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(1420, now);
+    osc.frequency.exponentialRampToValueAtTime(340, now + 0.085);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.32, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.095);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.1);
+
+    // Secondary sharp spine prick click
+    const osc2 = this.ctx.createOscillator();
+    const gain2 = this.ctx.createGain();
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(2150, now + 0.025);
+    osc2.frequency.exponentialRampToValueAtTime(620, now + 0.085);
+    gain2.gain.setValueAtTime(0.2, now + 0.025);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+    osc2.connect(gain2);
+    gain2.connect(this.sfxGain);
+    osc2.start(now + 0.025);
+    osc2.stop(now + 0.095);
+  }
+
+  public playPlantRustle() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const dur = 0.22;
+    const bufferSize = Math.floor(this.ctx.sampleRate * dur);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      const env = Math.sin((i / bufferSize) * Math.PI);
+      data[i] = (Math.random() * 2 - 1) * env * 0.48;
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1250, now);
+    filter.frequency.linearRampToValueAtTime(2400, now + dur * 0.55);
+    filter.frequency.linearRampToValueAtTime(1400, now + dur);
+    filter.Q.setValueAtTime(2.2, now);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.005, now);
+    gain.gain.linearRampToValueAtTime(0.22, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+    noise.start(now);
+    noise.stop(now + dur + 0.01);
+
+    // Soft botanical dew chime
+    const chime = this.ctx.createOscillator();
+    const cGain = this.ctx.createGain();
+    chime.type = 'sine';
+    chime.frequency.setValueAtTime(659.25, now + 0.04);
+    chime.frequency.exponentialRampToValueAtTime(880, now + 0.2);
+    cGain.gain.setValueAtTime(0.001, now + 0.04);
+    cGain.gain.linearRampToValueAtTime(0.11, now + 0.07);
+    cGain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+    chime.connect(cGain);
+    cGain.connect(this.sfxGain);
+    chime.start(now + 0.04);
+    chime.stop(now + 0.25);
+  }
+
   public stopMusic(fadeDuration = 0.28, preserveTheme = false) {
     if (!preserveTheme) {
       this.currentMusicTheme = null;

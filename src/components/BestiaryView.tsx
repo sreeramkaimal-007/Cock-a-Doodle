@@ -33,6 +33,7 @@ import {
   Camera,
   CockatriceBoss,
   SaveData,
+  SeaFishSpecies,
   ThundercloudHazard,
   VolcanoHazard,
 } from '../game/types';
@@ -350,9 +351,46 @@ const BestiarySpriteCanvas: React.FC<{
         ctx.restore();
       } else if (entryId === 'seagull') {
         const scale = variant === 'hero' ? 3.2 : 1.0;
+        const previewSpecies: SeaFishSpecies[] = ['clownfish', 'blue_tang', 'red_snapper', 'golden_angelfish', 'silver_mackerel'];
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 8 : 2));
-        renderer.drawSeagullSprite(ctx, time * 1.15, scale, flipped, colorVariantIndex, 'carrying_fish', true);
+        renderer.drawSeagullSprite(
+          ctx,
+          time * 1.15,
+          scale,
+          flipped,
+          colorVariantIndex,
+          'carrying_fish',
+          true,
+          previewSpecies[Math.abs(colorVariantIndex) % previewSpecies.length]
+        );
+        ctx.restore();
+      } else if (entryId === 'sea_fish') {
+        const scale = variant === 'hero' ? 4.2 : 1.32;
+        const speciesList: SeaFishSpecies[] = ['clownfish', 'blue_tang', 'red_snapper', 'golden_angelfish', 'silver_mackerel'];
+        const sp = speciesList[Math.abs(colorVariantIndex) % speciesList.length];
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 4 : 2));
+        renderer.drawSeaFishSprite(ctx, sp, time * 1.1, scale, flipped);
+        ctx.restore();
+      } else if (
+        entryId === 'desert_cactus' ||
+        entryId === 'grass_wildflower' ||
+        entryId === 'meadow_sunflower' ||
+        entryId === 'meadow_oak_tree' ||
+        entryId === 'jungle_palm' ||
+        entryId === 'jungle_fern' ||
+        entryId === 'pine_evergreen' ||
+        entryId === 'volcanic_ember_bush' ||
+        entryId === 'desert_oasis_shrub' ||
+        entryId === 'coastal_tree' ||
+        entryId === 'sea_kelp_coral'
+      ) {
+        const scale = variant === 'hero' ? 2.45 : 0.78;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 56 : 18));
+        if (flipped) ctx.scale(-1, 1);
+        renderer.drawPlantSprite(ctx, entryId, time, scale, colorVariantIndex);
         ctx.restore();
       }
 
@@ -480,6 +518,8 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
 
   const isSelectedUnlocked = discoveredSet.has(selectedEntry.id);
   const isWildlife = selectedEntry.category === 'wildlife';
+  const isPlant = selectedEntry.category === 'plant';
+  const isPeacefulEntry = isWildlife || (isPlant && selectedEntry.dangerRating === 0);
   const selectedIndex = BESTIARY_ENTRIES.findIndex(e => e.id === selectedEntry.id) + 1;
   const defeatCount = saveData.enemyDefeatCounts?.[selectedEntry.id] || 0;
   const hasStepSound = selectedEntry.category === 'creature' || selectedEntry.category === 'boss';
@@ -541,6 +581,24 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
       case 'seagull':
         audio.playWildlifeChime('seagull');
         break;
+      case 'sea_fish':
+        audio.playWildlifeChime('seagull');
+        break;
+      case 'desert_cactus':
+        audio.playCactusPrick();
+        break;
+      case 'grass_wildflower':
+      case 'meadow_sunflower':
+      case 'meadow_oak_tree':
+      case 'jungle_palm':
+      case 'jungle_fern':
+      case 'pine_evergreen':
+      case 'volcanic_ember_bush':
+      case 'desert_oasis_shrub':
+      case 'coastal_tree':
+      case 'sea_kelp_coral':
+        audio.playPlantRustle();
+        break;
       default:
         audio.playWildlifeChime('insect');
         break;
@@ -567,6 +625,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
       boss: BESTIARY_ENTRIES.filter(e => e.category === 'boss').length,
       hazard: BESTIARY_ENTRIES.filter(e => e.category === 'hazard').length,
       wildlife: BESTIARY_ENTRIES.filter(e => e.category === 'wildlife').length,
+      plant: BESTIARY_ENTRIES.filter(e => e.category === 'plant').length,
     }),
     []
   );
@@ -583,6 +642,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
     if (cat === 'boss') return 'Boss';
     if (cat === 'hazard') return 'Hazard';
     if (cat === 'wildlife') return 'Wildlife';
+    if (cat === 'plant') return 'Plant';
     return 'Creature';
   };
 
@@ -637,6 +697,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                 { id: 'boss', label: `BOSS (${filterCounts.boss})` },
                 { id: 'hazard', label: `HAZARDS (${filterCounts.hazard})` },
                 { id: 'wildlife', label: `WILDLIFE (${filterCounts.wildlife})` },
+                { id: 'plant', label: `PLANTS (${filterCounts.plant})` },
               ] as { id: FilterTab; label: string }[]
             ).map(tab => {
               const active = activeFilter === tab.id;
@@ -789,7 +850,15 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                   className="min-h-[34px] px-3 py-1 bg-amber-500/15 hover:bg-amber-500/25 active:translate-y-0.5 text-yellow-300 border-2 border-amber-500/70 font-pixel-arcade text-[8px] sm:text-[9px] flex items-center gap-1.5 cursor-pointer transition-all"
                 >
                   <Volume2 className="w-3.5 h-3.5" />
-                  <span>{selectedEntry.category === 'hazard' ? 'HAZARD SFX' : 'PLAY VOICE'}</span>
+                  <span>
+                    {selectedEntry.category === 'hazard'
+                      ? 'HAZARD SFX'
+                      : isPlant
+                        ? selectedEntry.id === 'desert_cactus'
+                          ? 'PRICK SFX'
+                          : 'FLORA SFX'
+                        : 'PLAY VOICE'}
+                  </span>
                 </button>
 
                 {hasStepSound && (
@@ -901,7 +970,9 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                 <div className="font-pixel-arcade text-[8px] text-slate-400 mb-2 tracking-wider">
                   {selectedEntry.category === 'hazard'
                     ? 'HAZARD STYLE & PALETTE VARIANTS'
-                    : 'NATURAL COAT & SPECIES VARIATIONS'}
+                    : isPlant
+                      ? 'BOTANICAL SPECIES & VARIATIONS'
+                      : 'NATURAL COAT & SPECIES VARIATIONS'}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {selectedEntry.colorVariants.map((morph, idx) => {
@@ -936,9 +1007,11 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                   <h3 className="font-pixel-arcade text-base sm:text-lg text-yellow-300 tracking-wide">
                     {isSelectedUnlocked
                       ? selectedEntry.name
-                      : isWildlife
-                        ? 'UNDISCOVERED WILDLIFE'
-                        : 'UNDISCOVERED FOE'}
+                      : isPlant
+                        ? 'UNDISCOVERED PLANT'
+                        : isWildlife
+                          ? 'UNDISCOVERED WILDLIFE'
+                          : 'UNDISCOVERED FOE'}
                   </h3>
                   {isSelectedUnlocked && (
                     <span className="text-xs italic text-amber-300/80 font-body">
@@ -953,21 +1026,23 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
               <p className="text-xs sm:text-sm text-slate-400 font-body mt-0.5">
                 {isSelectedUnlocked
                   ? selectedEntry.subtitle
-                  : isWildlife
-                    ? 'Explore its biome during your journey to log this background animal in your field journal.'
-                    : 'Cross paths with this enemy during your journey to record its pixel portrait and lore.'}
+                  : isPlant
+                    ? 'Explore its native biome during your journey to log this plant in your botanical field journal.'
+                    : isWildlife
+                      ? 'Explore its biome during your journey to log this background animal in your field journal.'
+                      : 'Cross paths with this enemy during your journey to record its pixel portrait and lore.'}
               </p>
             </div>
 
-            {/* Combat / Wildlife Telemetry Grid */}
+            {/* Combat / Wildlife / Plant Telemetry Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
               <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
                 <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">
-                  {isWildlife ? 'NATURE' : 'HEALTH'}
+                  {isPlant ? 'FLORA TYPE' : isWildlife ? 'NATURE' : 'HEALTH'}
                 </div>
                 <div
                   className={`font-pixel-arcade text-[10px] sm:text-[11px] tabular-nums ${
-                    isWildlife ? 'text-emerald-300' : 'text-slate-100'
+                    isPeacefulEntry ? 'text-emerald-300' : isPlant ? 'text-lime-300' : 'text-slate-100'
                   }`}
                 >
                   {isSelectedUnlocked ? selectedEntry.hpLabel : '???'}
@@ -975,11 +1050,11 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
               </div>
               <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
                 <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">
-                  {isWildlife ? 'DANGER' : 'DAMAGE'}
+                  {isPlant ? 'THORNS' : isWildlife ? 'DANGER' : 'DAMAGE'}
                 </div>
                 <div
                   className={`font-pixel-arcade text-[10px] sm:text-[11px] tabular-nums ${
-                    isWildlife ? 'text-slate-200' : 'text-rose-300'
+                    isPeacefulEntry ? 'text-slate-200' : 'text-rose-300'
                   }`}
                 >
                   {isSelectedUnlocked ? selectedEntry.damageLabel : '???'}
@@ -987,7 +1062,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
               </div>
               <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
                 <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">
-                  {isWildlife ? 'HABIT' : 'TEMPO'}
+                  {isPlant ? 'GROWTH' : isWildlife ? 'HABIT' : 'TEMPO'}
                 </div>
                 <div className="font-pixel-arcade text-[10px] sm:text-[11px] text-sky-300">
                   {isSelectedUnlocked ? selectedEntry.speedLabel : '???'}
@@ -995,16 +1070,20 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
               </div>
               <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
                 <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">
-                  {selectedEntry.trackDefeats ? 'DEFEATED' : isWildlife ? 'STATUS' : 'TYPE'}
+                  {selectedEntry.trackDefeats ? 'DEFEATED' : isPlant || isWildlife ? 'STATUS' : 'TYPE'}
                 </div>
                 <div className="font-pixel-arcade text-[10px] sm:text-[11px] text-amber-300 tabular-nums">
                   {!isSelectedUnlocked
                     ? '—'
                     : selectedEntry.trackDefeats
                       ? `${defeatCount}`
-                      : isWildlife
-                        ? 'FRIENDLY'
-                        : 'STAGE TRAP'}
+                      : isPlant
+                        ? selectedEntry.dangerRating > 0
+                          ? 'PRICKLY'
+                          : 'BOTANICAL'
+                        : isWildlife
+                          ? 'FRIENDLY'
+                          : 'STAGE TRAP'}
                 </div>
               </div>
             </div>
@@ -1072,7 +1151,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                     <div>
                       <div className="flex items-center gap-1.5 font-pixel-arcade text-[8px] text-emerald-300 mb-1">
                         <Crosshair className="w-3 h-3" />
-                        <span>{isWildlife ? 'FIELD OBSERVATION' : 'WEAKNESS & COUNTER'}</span>
+                        <span>{isPeacefulEntry ? 'FIELD OBSERVATION' : 'WEAKNESS & COUNTER'}</span>
                       </div>
                       <p className="text-slate-300 leading-snug">{selectedEntry.weakness}</p>
                     </div>
@@ -1080,7 +1159,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                     <div>
                       <div className="flex items-center gap-1.5 font-pixel-arcade text-[8px] text-violet-300 mb-1">
                         <Footprints className="w-3 h-3" />
-                        <span>MOVEMENT &amp; BEHAVIOR</span>
+                        <span>{isPlant ? 'GROWTH & HABITAT' : 'MOVEMENT & BEHAVIOR'}</span>
                       </div>
                       <p className="text-slate-300 leading-snug">{selectedEntry.behavior}</p>
                     </div>
@@ -1089,12 +1168,12 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
 
                 <div>
                   <div className="flex items-center gap-2 font-pixel-arcade text-[10px] text-yellow-300 mb-1.5">
-                    {isWildlife ? (
+                    {isWildlife || isPlant ? (
                       <Leaf className="w-3.5 h-3.5 text-emerald-400" />
                     ) : (
                       <Skull className="w-3.5 h-3.5 text-yellow-400" />
                     )}
-                    <span>FIELD LORE</span>
+                    <span>{isPlant ? 'BOTANICAL LORE' : 'FIELD LORE'}</span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-200 font-body leading-relaxed">
                     {selectedEntry.lore}
@@ -1125,7 +1204,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                   <div className="flex items-center gap-2 font-pixel-arcade text-[10px] text-emerald-300 mb-1.5">
                     <Shield className="w-3.5 h-3.5 text-emerald-400" />
                     <span>
-                      {isWildlife ? "SILKIE SAM'S FIELD NOTE" : "SILKIE SAM'S BATTLE NOTE"}
+                      {isPeacefulEntry ? "SILKIE SAM'S FIELD NOTE" : "SILKIE SAM'S BATTLE NOTE"}
                     </span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-300 font-body leading-relaxed">
@@ -1145,7 +1224,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                 <div className="flex items-center gap-2 text-[11px] text-slate-400 font-body pt-1">
                   <Compass className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                   <span>
-                    Current frontier: Stage {saveData.unlockedLevel || 1} of 30
+                    Current frontier: Stage {saveData.unlockedLevel || 1} of 40
                   </span>
                 </div>
               </div>

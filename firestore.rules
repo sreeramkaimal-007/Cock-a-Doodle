@@ -47,7 +47,7 @@ service cloud.firestore {
         && (!('unlockedLevel' in data) || (data.unlockedLevel is number && data.unlockedLevel >= 1 && data.unlockedLevel <= 40))
         && (!('totalCoins' in data) || (data.totalCoins is number && data.totalCoins >= 0))
         && (!('gender' in data) || (data.gender is string && (data.gender == 'rooster' || data.gender == 'hen')))
-        && (!('armor' in data) || (data.armor is string && (data.armor == 'none' || data.armor == 'iron' || data.armor == 'gold' || data.armor == 'diamond')))
+        && (!('armor' in data) || (data.armor is string && (data.armor == 'none' || data.armor == 'iron' || data.armor == 'gold' || data.armor == 'diamond' || data.armor == 'netherite' || data.armor == 'coral')))
         && (!('sword' in data) || (data.sword is string && (data.sword == 'none' || data.sword == 'iron' || data.sword == 'gold' || data.sword == 'diamond' || data.sword == 'netherite')))
         && (!('hasShield' in data) || data.hasShield is bool)
         && (!('hasCompletedGame' in data) || data.hasCompletedGame is bool);

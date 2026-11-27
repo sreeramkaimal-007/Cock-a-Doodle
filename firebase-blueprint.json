@@ -31,7 +31,7 @@
         },
         "armor": {
           "type": "string",
-          "description": "Equipped armor type."
+          "description": "Equipped armor type (none, iron, gold, diamond, netherite, coral)."
         },
         "sword": {
           "type": "string",

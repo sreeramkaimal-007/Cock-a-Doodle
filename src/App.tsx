@@ -587,11 +587,10 @@ export default function App() {
             hasCompletedGame: true,
           }));
           setCoinsEarned(earnedCoins);
-          if (levelId === 30) {
-            endingProgressRef.current = 0;
-            setScreen('ENDING_CINEMATIC');
-          } else {
+          if (levelId >= 40) {
             setScreen('VICTORY');
+          } else {
+            setScreen('LEVEL_CLEAR');
           }
         },
         onActionStat: (statType) => {
@@ -869,6 +868,7 @@ export default function App() {
       let nextSword = prev.sword;
       let nextShield = prev.hasShield;
 
+      let nextUnlockedArmors = prev.unlockedArmors || [];
       if (itemType === 'heart') {
         nextUpgrades.extraHearts = (nextUpgrades.extraHearts || 0) + 1;
       } else if (itemType === 'speed') {
@@ -889,6 +889,7 @@ export default function App() {
         nextUpgrades.goldenPlumage = true;
       } else if (itemType === 'armor' && tierValue) {
         nextArmor = tierValue as any;
+        nextUnlockedArmors = Array.from(new Set([...nextUnlockedArmors, tierValue as any]));
       } else if (itemType === 'sword' && tierValue) {
         nextSword = tierValue as any;
       } else if (itemType === 'shield') {
@@ -896,8 +897,8 @@ export default function App() {
       }
 
       const prevPurchases = prev.stats?.shopPurchases || 0;
-      const nextPurchases = prevPurchases + 1;
-      const newlyUnlocked = getNewlyUnlockedEmotes(prevPurchases, nextPurchases);
+      const nextPurchases = cost > 0 ? prevPurchases + 1 : prevPurchases;
+      const newlyUnlocked = cost > 0 ? getNewlyUnlockedEmotes(prevPurchases, nextPurchases) : [];
       const nextUnlockedEmotes = Array.from(
         new Set([...(prev.unlockedEmotes || ['squawk']), ...newlyUnlocked.map(e => e.id)])
       ) as EmoteId[];
@@ -910,6 +911,7 @@ export default function App() {
         totalCoins: nextCoins,
         upgrades: nextUpgrades,
         armor: nextArmor,
+        unlockedArmors: nextUnlockedArmors,
         sword: nextSword,
         hasShield: nextShield,
         unlockedEmotes: nextUnlockedEmotes,
@@ -1353,11 +1355,25 @@ export default function App() {
           renderer.renderSpikes(engine.level.spikes, engine.camera);
         }
 
+        // World 7 Prickly Desert Cactuses (Saguaro, Prickly Pear & Golden Barrel)
+        if (engine.level.cacti) {
+          renderer.renderDesertCacti(engine.level.cacti, engine.camera, engine.time);
+        }
+
         // Checkpoints: firmly planted on the floating land (never floating in air!)
         engine.level.checkpoints.forEach(cp => renderer.renderCheckpoint(cp, engine.camera, engine.time, engine.level.platforms));
 
-        // Treasure Chests
-        engine.level.chests.forEach(chest => renderer.renderChest(chest, engine.camera, engine.time));
+        // Level 1 Archaeology Digging Brush Pickup
+        if (engine.level.brushPickup) {
+          renderer.renderBrushPickup(engine.level.brushPickup, engine.camera, engine.time);
+        }
+
+        // Treasure Chests & Buried Dig Mounds (non-rock chests rendered here)
+        engine.level.chests.forEach(chest => {
+          if (!chest.isRockChest) {
+            renderer.renderChest(chest, engine.camera, engine.time, engine.level.theme);
+          }
+        });
 
         // Hazards
         if (engine.level.volcanoes) {
@@ -1378,7 +1394,7 @@ export default function App() {
           engine.level.enemies.forEach(e => renderer.renderEnemy(e, engine.camera, engine.level.theme, engine.level.id));
         }
 
-        // World 8: Peckerin Coast Ocean Water (rendered before sea rocks, sharks, raft & player)
+        // World 8: Peckerin Coast Ocean Water & Swimming Multi-Species Sea Fish (rendered before sea rocks, sharks, raft & player)
         if (engine.level.theme === 'coast' && engine.level.waterStartX !== undefined && engine.level.waterLevelY !== undefined) {
           renderer.renderCoastalWater(
             engine.level.waterStartX,
@@ -1387,6 +1403,9 @@ export default function App() {
             engine.camera,
             engine.time
           );
+          if (engine.level.seaFish) {
+            renderer.renderSeaFish(engine.level.seaFish, engine.camera, engine.time);
+          }
         }
 
         // World 8: Coastal Axe Stump, Choppable Trees, Wood Logs, Sea Rocks, Sharks & Wooden Raft
@@ -1402,6 +1421,12 @@ export default function App() {
         if (engine.level.seaRocks && engine.level.waterLevelY !== undefined) {
           renderer.renderSeaRocks(engine.level.seaRocks, engine.level.waterLevelY, engine.camera, engine.time);
         }
+        // Peckerin Coast Sea Rock Chests perched directly on top of jagged sea rocks!
+        engine.level.chests.forEach(chest => {
+          if (chest.isRockChest) {
+            renderer.renderChest(chest, engine.camera, engine.time, engine.level.theme);
+          }
+        });
         if (engine.level.sharks) {
           renderer.renderSeaSharks(engine.level.sharks, engine.camera, engine.time);
         }
@@ -1413,14 +1438,6 @@ export default function App() {
             engine.camera,
             engine.time
           );
-        }
-
-        // World 7: Desert Bones with leftover meat & Peaceful Sand Cats (Adults & Kittens)
-        if (engine.level.desertBones) {
-          renderer.renderDesertBones(engine.level.desertBones, engine.camera);
-        }
-        if (engine.level.sandCats) {
-          renderer.renderSandCats(engine.level.sandCats, engine.camera, engine.time);
         }
 
         // Mini-Boss: Old Farmer Jed (Level 1 baby peck encounter & adult rematch)

@@ -1860,7 +1860,7 @@ export const GameModals: React.FC<ModalProps> = ({
       { id: 3, name: 'World 3: The Heat Up', levels: [10], badge: 'Juvenile', biome: 'juvenile' },
       { id: 4, name: 'World 4: the Jungle lands', levels: [11, 12, 13, 14, 15, 16, 17, 18, 19], badge: 'Teen & Gold Armor', biome: 'jungle' },
       { id: 5, name: 'World 5: the Artic lands', levels: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29], badge: 'Adult & Bears', biome: 'storm' },
-      { id: 6, name: 'World 6: The End', levels: [30], badge: 'Cockatrice Boss', biome: 'fields' },
+      { id: 6, name: 'World 6: the Boss', levels: [30], badge: 'Cockatrice Boss', biome: 'fields' },
       { id: 7, name: 'World 7: the Desert lands', levels: [31, 32, 33, 34, 35], badge: 'Shieldless & Falcons', biome: 'desert' },
       { id: 8, name: 'World 8: Peckerin Coast', levels: [36, 37, 38, 39, 40], badge: 'Raft & Sharks', biome: 'coast' },
     ];
@@ -2035,15 +2035,15 @@ export const GameModals: React.FC<ModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
               <div className="bg-amber-950/35 p-3.5 border border-amber-500/60 space-y-1.5">
                 <span className="font-pixel-arcade text-[9px] text-amber-300 block">WORLD 7: THE DESERT LANDS (31–35)</span>
-                <p className="text-[11px] text-slate-200"><strong className="text-rose-300">Shield-Snatch Ambush:</strong> On Stage 31, a Desert Falcon swoops down in a cutscene and steals your Royal Shield—you must brave the dunes with no shield!</p>
-                <p className="text-[11px] text-slate-200"><strong className="text-amber-300">Desert Falcons (Enemy):</strong> Watch their red swoop arc and hold <strong className="text-yellow-300">Down Arrow (▼ / S)</strong> to <strong>Crouch</strong> low so they miss snatching you!</p>
-                <p className="text-[11px] text-slate-200"><strong className="text-yellow-200">Sand Cats &amp; Kittens (Wildlife):</strong> Innocent desert felines that prowl, curl up to rest, and nibble leftover meat on desert bones (includes baby Sand Kittens in the Bestiary).</p>
+                <p className="text-[11px] text-slate-200"><strong className="text-rose-300">Shield-Snatch &amp; Falcons:</strong> On Stage 31, a Falcon steals your Royal Shield! Hold <strong className="text-yellow-300">Down Arrow (▼ / S)</strong> to <strong>Crouch</strong> beneath diving Falcons and jump over <strong className="text-lime-300">Prickly Cactuses</strong>.</p>
+                <p className="text-[11px] text-slate-200"><strong className="text-amber-300">Archaeology Brush &amp; Netherite Armor:</strong> Grab the <strong>Dig Brush</strong> on Level 1, then sweep Desert buried mounds (<strong className="text-yellow-300">X / K</strong>) in World 7 to unearth coins &amp; rare <strong className="text-purple-300">Netherite Armor</strong>!</p>
+                <p className="text-[11px] text-slate-200"><strong className="text-yellow-200">Pyramid Background Sand Cats &amp; Kittens:</strong> Real-life Sahara Sand Cats roam, curl up to sleep, and eat meat from bones right on the sunlit dunes beside the Great Pyramids.</p>
               </div>
               <div className="bg-sky-950/40 p-3.5 border border-sky-500/60 space-y-1.5">
                 <span className="font-pixel-arcade text-[9px] text-sky-300 block">WORLD 8: PECKERIN COAST (36–40)</span>
-                <p className="text-[11px] text-slate-200"><strong className="text-amber-300">Axe, Trees &amp; Raft:</strong> Pull the <strong>Axe</strong> from the beach stump, press <strong>X / K</strong> to chop coastal trees down (watch them topple!), gather logs to build your raft, and push it right into the sea.</p>
-                <p className="text-[11px] text-slate-200"><strong className="text-rose-300">Sea Rocks &amp; Sharks (Enemy):</strong> Steer your raft with <strong className="text-yellow-300">▲ / ▼</strong> to dodge jagged rocks that slowly crack your raft, and dodge or slash hungry <strong>Coastal Sharks</strong> lurking and lunging from the waves!</p>
-                <p className="text-[11px] text-slate-200"><strong className="text-sky-200">Coastal Seagulls (Wildlife):</strong> Innocent seabirds soaring overhead, diving to catch fish, and swooping down to rest peacefully on your raft before flying away.</p>
+                <p className="text-[11px] text-slate-200"><strong className="text-amber-300">Axe, Trees &amp; Raft:</strong> Pull the <strong>Axe</strong> from the beach stump, chop coastal trees with <strong>X / K</strong>, build your raft from fallen logs, and push it into the sea.</p>
+                <p className="text-[11px] text-slate-200"><strong className="text-rose-300">Sea Rocks, Sharks &amp; Coral Chest:</strong> Dodge rocks &amp; lunging <strong>Sharks</strong> with <strong className="text-yellow-300">▲ / ▼</strong>, and sail close to the <strong>Rock Chest</strong> perched on one sea rock—it may hold vibrant <strong className="text-rose-300">Coral Armor</strong>!</p>
+                <p className="text-[11px] text-slate-200"><strong className="text-sky-200">Coastal Seagulls:</strong> Real-life coastal gulls soar overhead, dive for silver fish, and perch peacefully on your raft before flying away.</p>
               </div>
             </div>
 
@@ -2057,10 +2057,10 @@ export const GameModals: React.FC<ModalProps> = ({
                 <p className="text-[11px] text-slate-300"><strong className="text-amber-200">Falcons &amp; Sharks:</strong> Crouch under Desert Falcon dives (▼) and dodge/slash lunging Coastal Sharks at sea!</p>
               </div>
               <div className="bg-slate-950/80 p-3.5 border border-amber-900/60 space-y-1.5">
-                <span className="font-pixel-arcade text-[9px] text-amber-400 block">HAZARDS &amp; BESTIARY LOG</span>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Magma Vents &amp; Boulders:</strong> Read volcanic tremor plumes and leap cleanly over rolling temple granite.</p>
+                <span className="font-pixel-arcade text-[9px] text-amber-400 block">HAZARDS, PLANTS &amp; BESTIARY LOG</span>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Magma Vents, Boulders &amp; Cactuses:</strong> Read volcanic plumes, leap over rolling granite and prickly Desert Cactuses.</p>
                 <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Stormclouds &amp; Sea Rocks:</strong> Dodge plasma lightning reticles in World 5 and steer clear of jagged sea rocks in World 8.</p>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Bestiary:</strong> Every foe, mini-boss, and innocent animal (including Falcons, Sharks, Sand Cats + Kittens, and Seagulls) logs automatically!</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Bestiary &amp; Plants Log:</strong> Every foe, boss, innocent animal (Pyramid Sand Cats &amp; Seagulls), and plant logs automatically!</p>
               </div>
             </div>
 
@@ -2972,29 +2972,36 @@ export const GameModals: React.FC<ModalProps> = ({
     );
   }
 
-  // --- Grand Victory Screen (Level 30 Cockatrice Victory OR Level 40 Full 8-World Voyage Victory) ---
+  // --- Grand Finale "TO BE CONTINUED..." Sign Screen (Level 40 Completion) ---
   if (currentScreen === 'VICTORY') {
-    const isFullVoyageComplete = activeLevelId >= 40;
     return wrapWithPopup(
-      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-4 z-40 overflow-y-auto">
-        <div className="w-full max-w-lg bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-amber-400 rounded-3xl p-6 sm:p-8 flex flex-col items-center text-center shadow-[0_0_60px_rgba(245,158,11,0.3)]">
-          <div className="w-16 h-16 rounded-full bg-amber-400/20 border-2 border-amber-400 flex items-center justify-center mb-3">
-            <Trophy className="w-9 h-9 text-amber-400 animate-bounce" />
+      <div className="absolute inset-0 bg-slate-950/88 backdrop-blur-md flex flex-col items-center justify-center p-4 z-40 overflow-y-auto">
+        <div className="w-full max-w-lg bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-amber-400 rounded-3xl p-6 sm:p-8 flex flex-col items-center text-center shadow-[0_0_65px_rgba(245,158,11,0.35)]">
+          {/* Iconic Wooden & Gold Adventure Signpost: TO BE CONTINUED... */}
+          <div className="relative mb-5 w-full max-w-md flex flex-col items-center">
+            <div className="w-full bg-gradient-to-b from-amber-700 via-amber-800 to-amber-950 border-4 border-slate-950 shadow-[0_6px_0_#0f172a,inset_0_2px_0_rgba(253,224,71,0.5)] px-5 py-4 relative">
+              {/* Corner iron rivets */}
+              <span className="absolute top-2 left-2 w-2.5 h-2.5 bg-amber-300 border border-slate-950" />
+              <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-amber-300 border border-slate-950" />
+              <span className="absolute bottom-2 left-2 w-2.5 h-2.5 bg-amber-300 border border-slate-950" />
+              <span className="absolute bottom-2 right-2 w-2.5 h-2.5 bg-amber-300 border border-slate-950" />
+              <div className="font-pixel-arcade text-[9px] text-amber-200 tracking-[0.22em] mb-1.5">
+                ★ STAGE 40 · PECKERIN COAST COMPLETE ★
+              </div>
+              <h1 className="font-pixel-arcade text-xl sm:text-2xl text-yellow-300 tracking-wider drop-shadow-[0_3px_0_#0f172a] animate-pulse">
+                TO BE CONTINUED...
+              </h1>
+            </div>
+            {/* Wooden signpost vertical beam */}
+            <div className="w-5 h-5 bg-gradient-to-r from-amber-900 via-amber-700 to-amber-950 border-x-2 border-b-2 border-slate-950" />
           </div>
 
-          <h1 className="font-pixel text-2xl sm:text-3xl text-amber-400 mb-2">
-            CONGRATULATIONS!
-          </h1>
-          <p className="font-pixel text-xs sm:text-sm text-emerald-400 mb-4 tracking-wide">
-            {isFullVoyageComplete
-              ? 'YOU CONQUERED ALL 40 LEVELS & 8 WORLDS!'
-              : 'THE ANCIENT COCKATRICE IS DEFEATED!'}
+          <p className="font-pixel text-xs sm:text-sm text-emerald-400 mb-3 tracking-wide">
+            YOU CONQUERED ALL 40 LEVELS &amp; 8 WORLDS!
           </p>
 
           <p className="font-body text-slate-200 text-sm mb-6 leading-relaxed max-w-md">
-            {isFullVoyageComplete
-              ? 'From a tiny coop hatchling to conquering the Desert Lands without a shield and sailing Peckerin Coast past sharks and reefs—you are a true legend!'
-              : 'Peace has returned to the Green Fields! Now two uncharted expeditions await: the Desert lands and the ocean waves of Peckerin Coast.'}
+            From a tiny coop hatchling to defeating the Boss, surviving the Desert lands without a shield, and sailing Peckerin Coast past sharks and reefs—your next great horizon awaits!
           </p>
 
           {/* Stats Box */}
@@ -3004,39 +3011,26 @@ export const GameModals: React.FC<ModalProps> = ({
               <span className="font-pixel text-base text-amber-400 font-bold">{saveData.totalCoins} Pellet Coins</span>
             </div>
             <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-              <span className="text-[11px] text-slate-400 font-body block">Levels Completed</span>
-              <span className="font-pixel text-base text-emerald-400 font-bold">
-                {isFullVoyageComplete ? '40 / 40 Finished' : '30 / 40 (2 New Worlds!)'}
-              </span>
+              <span className="text-[11px] text-slate-400 font-body block">Journey Progress</span>
+              <span className="font-pixel text-base text-emerald-400 font-bold">40 / 40 Finished</span>
             </div>
             <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 col-span-2 flex items-center justify-between">
               <div>
                 <span className="text-[11px] text-slate-400 font-body block">Hero Rank</span>
-                <span className="font-pixel text-sm text-amber-300 font-bold">
-                  {isFullVoyageComplete ? 'Grand Captain of Peckerin Coast' : 'Armored Adult Hero Chicken'}
-                </span>
+                <span className="font-pixel text-sm text-amber-300 font-bold">Grand Captain of Peckerin Coast</span>
               </div>
-              <Shield className="w-6 h-6 text-amber-400" />
+              <Trophy className="w-6 h-6 text-amber-400" />
             </div>
           </div>
 
           {/* Final Navigation Actions */}
           <div className="w-full flex flex-col gap-2.5">
-            {!isFullVoyageComplete ? (
-              <button
-                onClick={() => onSelectLevel(31)}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold font-pixel text-xs tracking-wide shadow-lg transition-all cursor-pointer"
-              >
-                VENTURE TO WORLD 7: THE DESERT LANDS!
-              </button>
-            ) : (
-              <button
-                onClick={() => onStartGame(40, false)}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-500 hover:from-sky-300 hover:to-cyan-400 text-slate-950 font-bold font-pixel text-xs tracking-wide shadow-lg transition-all cursor-pointer"
-              >
-                REPLAY LEVEL 40 (PECKERIN COAST)
-              </button>
-            )}
+            <button
+              onClick={() => onStartGame(40, false)}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-500 hover:from-sky-300 hover:to-cyan-400 text-slate-950 font-bold font-pixel text-xs tracking-wide shadow-lg transition-all cursor-pointer"
+            >
+              REPLAY LEVEL 40 (PECKERIN COAST)
+            </button>
             <button
               onClick={() => onOpenScreen('LEVEL_SELECT')}
               className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
@@ -3199,13 +3193,43 @@ export const GameModals: React.FC<ModalProps> = ({
         title: 'Diamond Cuirass',
         desc: 'Apex crystalline armor granting 75% damage mitigation',
         icon: <Shield className="w-5 h-5 text-cyan-300 stroke-[2.5]" />,
-        cost: 90,
+        cost: (saveData.unlockedArmors || []).includes('diamond') ? 0 : 90,
         isMaxed: currentArmor === 'diamond',
+        isEquipOnly: (saveData.unlockedArmors || []).includes('diamond') && currentArmor !== 'diamond',
+      },
+      {
+        id: 'netherite_armor',
+        type: 'armor' as const,
+        tierValue: 'netherite',
+        title: 'Netherite Featherplate',
+        desc: 'Forged volcanic obsidian armor with molten rune trim (80% tank defense — also buried in Desert dig mounds!)',
+        icon: <Shield className="w-5 h-5 text-purple-400 fill-stone-900 stroke-[2.5]" />,
+        cost: (saveData.unlockedArmors || []).includes('netherite') ? 0 : 140,
+        isMaxed: currentArmor === 'netherite',
+        isEquipOnly: (saveData.unlockedArmors || []).includes('netherite') && currentArmor !== 'netherite',
+      },
+      {
+        id: 'coral_armor',
+        type: 'armor' as const,
+        tierValue: 'coral',
+        title: 'Coral Reef Armor',
+        desc: (saveData.unlockedArmors || []).includes('coral') || currentArmor === 'coral'
+          ? 'Vibrant coral-pink & sea-glass turquoise reef armor that guards your raft from rocks & Sharks!'
+          : 'Hidden inside Sea Rock Chests in World 8: Peckerin Coast! Sail close to the chest rock to discover it.',
+        icon: <Shield className="w-5 h-5 text-rose-400 fill-teal-400/60 stroke-[2.5]" />,
+        cost: 0,
+        isMaxed: currentArmor === 'coral',
+        isLockedDiscovery: !(saveData.unlockedArmors || []).includes('coral') && currentArmor !== 'coral',
+        isEquipOnly: (saveData.unlockedArmors || []).includes('coral') && currentArmor !== 'coral',
       },
     ];
 
     const handleBuyItem = (item: typeof shopItems[0]) => {
-      if (isShopClosed) {
+      if ((item as any).isLockedDiscovery) {
+        speakDialogue("Check the treasure chests perched on Peckerin Coast's sea rocks for Coral Armor!", 'again');
+        return;
+      }
+      if (isShopClosed && !(item as any).isEquipOnly) {
         speakDialogue("Sorry, we are currently closed! Please check back later!", 'again');
         return;
       }
@@ -3216,6 +3240,10 @@ export const GameModals: React.FC<ModalProps> = ({
       const prevPurchases = getShopPurchaseCount(saveData);
       const success = onPurchaseUpgrade?.(item.cost, item.type, (item as any).tierValue);
       if (success) {
+        if ((item as any).isEquipOnly) {
+          speakDialogue(`Equipped ${item.title}! Looking sharp!`, 'purchase');
+          return;
+        }
         const unlockedNow = getNewlyUnlockedEmotes(prevPurchases, prevPurchases + 1);
         if (unlockedNow.length > 0) {
           speakDialogue(`Shop milestone reached! You unlocked the ${unlockedNow[0].name} Emote!`, 'purchase');
@@ -3516,8 +3544,20 @@ export const GameModals: React.FC<ModalProps> = ({
                       <div className="pt-2.5 border-t border-slate-800 flex items-center justify-between gap-2">
                         {item.isMaxed ? (
                           <span className="text-[9px] font-pixel-arcade text-emerald-300 font-bold px-2.5 py-2 bg-emerald-950/70 border border-emerald-500/70 w-full text-center">
-                            ✓ MAXED OUT
+                            {item.type === 'armor' ? '✓ EQUIPPED' : '✓ MAXED OUT'}
                           </span>
+                        ) : (item as any).isLockedDiscovery ? (
+                          <span className="text-[8px] font-pixel-arcade text-rose-300 font-bold px-2.5 py-2 bg-rose-950/60 border border-rose-500/60 w-full text-center">
+                            FIND IN W8 SEA ROCK CHEST
+                          </span>
+                        ) : (item as any).isEquipOnly ? (
+                          <button
+                            type="button"
+                            onClick={() => handleBuyItem(item)}
+                            className="min-h-[36px] w-full px-3.5 py-1.5 font-pixel-arcade text-[9px] font-bold transition-all cursor-pointer bg-gradient-to-r from-teal-400 to-cyan-500 hover:from-teal-300 hover:to-cyan-400 text-slate-950 border-2 border-cyan-700 shadow-[0_3px_0_#164e63] active:translate-y-0.5 active:shadow-none"
+                          >
+                            EQUIP ARMOR
+                          </button>
                         ) : (
                           <>
                             <div className="flex items-center gap-1.5">

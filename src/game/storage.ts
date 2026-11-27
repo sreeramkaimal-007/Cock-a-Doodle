@@ -27,6 +27,8 @@ const DEFAULT_SAVE: SaveData = {
   encounteredEnemies: [],
   enemyDefeatCounts: {},
   unlockedEmotes: ['squawk'],
+  hasBrush: false,
+  unlockedArmors: [],
 };
 
 export function loadSaveData(): SaveData {
@@ -48,7 +50,7 @@ export function loadSaveData(): SaveData {
     return {
       unlockedLevel: effectiveUnlocked,
       totalCoins: typeof parsed.totalCoins === 'number' ? parsed.totalCoins : 0,
-      armor: (['none', 'iron', 'gold', 'diamond'].includes(parsed.armor) ? parsed.armor : 'none') as ArmorType,
+      armor: (['none', 'iron', 'gold', 'diamond', 'netherite', 'coral'].includes(parsed.armor) ? parsed.armor : 'none') as ArmorType,
       sword: (['none', 'iron', 'gold', 'diamond', 'netherite'].includes(parsed.sword) ? parsed.sword : 'none') as SwordType,
       preBossSword: (['none', 'iron', 'gold', 'diamond'].includes(parsed.preBossSword) ? parsed.preBossSword : (parsed.sword !== 'netherite' ? parsed.sword : 'diamond')) as SwordType,
       gender: (parsed.gender === 'hen' ? 'hen' : 'rooster') as ChickenGender,
@@ -82,6 +84,10 @@ export function loadSaveData(): SaveData {
       unlockedEmotes: Array.isArray(parsed.unlockedEmotes)
         ? Array.from(new Set(['squawk', ...parsed.unlockedEmotes.filter((id: unknown) => typeof id === 'string')])) as SaveData['unlockedEmotes']
         : ['squawk'],
+      hasBrush: Boolean(parsed.hasBrush),
+      unlockedArmors: Array.isArray(parsed.unlockedArmors)
+        ? Array.from(new Set(parsed.unlockedArmors.filter((a: unknown) => typeof a === 'string' && ['iron', 'gold', 'diamond', 'netherite', 'coral'].includes(a)))) as ArmorType[]
+        : (['iron', 'gold', 'diamond', 'netherite', 'coral'].includes(parsed.armor) ? [parsed.armor as ArmorType] : []),
       upgrades: parsed.upgrades && typeof parsed.upgrades === 'object' ? parsed.upgrades : {
         extraHearts: 0,
         speedBoost: 0,

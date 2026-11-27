@@ -227,12 +227,44 @@ const PixelCoin: React.FC<{ className?: string }> = ({ className = 'w-5 h-5 sm:w
 
 // Retro 8-bit Pixelated Shield Component
 const PixelHUDShield: React.FC<{ type: ArmorType; className?: string }> = ({ type, className = 'w-4 h-4' }) => {
+  const isNetherite = type === 'netherite';
+  const isCoral = type === 'coral';
   const isDiamond = type === 'diamond';
   const isGold = type === 'gold';
   const isIron = type === 'iron';
-  const fillColor = isDiamond ? '#38bdf8' : (isGold ? '#facc15' : (isIron ? '#cbd5e1' : '#64748b'));
-  const trimColor = isDiamond ? '#e0f2fe' : (isGold ? '#fef08a' : (isIron ? '#f1f5f9' : '#94a3b8'));
-  const shadowColor = isDiamond ? '#0369a1' : (isGold ? '#854d0e' : (isIron ? '#334155' : '#334155'));
+  const fillColor = isNetherite
+    ? '#292524'
+    : isCoral
+    ? '#fb7185'
+    : isDiamond
+    ? '#38bdf8'
+    : isGold
+    ? '#facc15'
+    : isIron
+    ? '#cbd5e1'
+    : '#64748b';
+  const trimColor = isNetherite
+    ? '#c084fc'
+    : isCoral
+    ? '#2dd4bf'
+    : isDiamond
+    ? '#e0f2fe'
+    : isGold
+    ? '#fef08a'
+    : isIron
+    ? '#f1f5f9'
+    : '#94a3b8';
+  const shadowColor = isNetherite
+    ? '#0c0a09'
+    : isCoral
+    ? '#be123c'
+    : isDiamond
+    ? '#0369a1'
+    : isGold
+    ? '#854d0e'
+    : isIron
+    ? '#334155'
+    : '#334155';
 
   return (
     <svg viewBox="0 0 10 10" className={className} style={{ shapeRendering: 'crispEdges' }}>
@@ -539,17 +571,21 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <div className={`border-[3px] border-black px-3 sm:px-3.5 py-1.5 shadow-[3px_3px_0_#000000] flex items-center gap-1.5 text-[8px] sm:text-[9.5px] font-pixel-arcade transition-all ${
               isFireResistActive
                 ? 'bg-gradient-to-r from-orange-950 to-amber-950 text-orange-200 border-amber-600 ring-1 ring-orange-500'
-                : (armor === 'diamond'
-                  ? 'bg-cyan-950 text-cyan-300 drop-shadow-[0_1px_0_#083344]'
-                  : (armor === 'gold'
-                    ? 'bg-yellow-950 text-yellow-400 drop-shadow-[0_1px_0_#3b1302]'
-                    : (armor === 'iron'
-                      ? 'bg-slate-800 text-slate-200 drop-shadow-[0_1px_0_#1e293b]'
-                      : 'bg-slate-900 text-slate-400')))
+                : armor === 'netherite'
+                ? 'bg-stone-950 text-purple-300 ring-1 ring-purple-500/60 drop-shadow-[0_1px_0_#1c1917]'
+                : armor === 'coral'
+                ? 'bg-rose-950 text-teal-200 ring-1 ring-rose-400/70 drop-shadow-[0_1px_0_#4c0519]'
+                : armor === 'diamond'
+                ? 'bg-cyan-950 text-cyan-300 drop-shadow-[0_1px_0_#083344]'
+                : armor === 'gold'
+                ? 'bg-yellow-950 text-yellow-400 drop-shadow-[0_1px_0_#3b1302]'
+                : armor === 'iron'
+                ? 'bg-slate-800 text-slate-200 drop-shadow-[0_1px_0_#1e293b]'
+                : 'bg-slate-900 text-slate-400'
             }`}>
               <PixelHUDShield type={armor} className="w-3.5 h-3.5" />
               <span>
-                Armor: {armor === 'diamond' ? 'diamond armor' : (armor === 'gold' ? 'gold armor' : (armor === 'iron' ? 'iron armor' : 'none'))}
+                Armor: {armor === 'netherite' ? 'netherite armor' : armor === 'coral' ? 'coral armor' : armor === 'diamond' ? 'diamond armor' : armor === 'gold' ? 'gold armor' : armor === 'iron' ? 'iron armor' : 'none'}
               </span>
               {isFireResistActive && (
                 <span className="flex items-center gap-0.5 ml-1 text-orange-400">

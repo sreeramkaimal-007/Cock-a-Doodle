@@ -23,7 +23,7 @@ export type GameScreen =
   | 'SHOP'
   | 'BESTIARY';
 
-export type ArmorType = 'none' | 'iron' | 'gold' | 'diamond';
+export type ArmorType = 'none' | 'iron' | 'gold' | 'diamond' | 'netherite' | 'coral';
 export type SwordType = 'none' | 'iron' | 'gold' | 'diamond' | 'netherite';
 
 export interface PlayerStats {
@@ -78,6 +78,9 @@ export interface PlayerState {
   woodTarget?: number;
   onRaft?: boolean;
   raftPushProgress?: number;
+  hasBrush?: boolean;
+  isBrushing?: boolean;
+  brushTimer?: number;
 }
 
 export type PlatformType = 'wood' | 'grass' | 'stone' | 'ruins' | 'bridge' | 'fence';
@@ -109,6 +112,12 @@ export interface Coin {
   animOffset: number;
 }
 
+export interface BrushPickup {
+  x: number;
+  y: number;
+  taken: boolean;
+}
+
 export interface TreasureChest {
   id: string;
   x: number;
@@ -116,9 +125,24 @@ export interface TreasureChest {
   width: number;
   height: number;
   opened: boolean;
-  rewardType: 'coins' | 'heart' | 'iron_armor' | 'iron_sword' | 'gold_armor' | 'gold_sword' | 'diamond_armor' | 'diamond_sword' | 'shield';
+  rewardType:
+    | 'coins'
+    | 'heart'
+    | 'iron_armor'
+    | 'iron_sword'
+    | 'gold_armor'
+    | 'gold_sword'
+    | 'diamond_armor'
+    | 'diamond_sword'
+    | 'netherite_armor'
+    | 'coral_armor'
+    | 'shield';
   rewardAmount: number;
   animProgress: number;
+  isDigSite?: boolean;
+  digProgress?: number;
+  isRockChest?: boolean;
+  rockId?: string;
 }
 
 export interface Checkpoint {
@@ -253,6 +277,17 @@ export interface SandCatWildlife {
   targetBoneId?: string;
 }
 
+export interface DesertCactus {
+  id: string;
+  x: number;
+  y: number; // Ground surface Y (cactus grows upward from y - height to y)
+  width: number;
+  height: number;
+  variant: 0 | 1 | 2; // 0: Saguaro Giant, 1: Prickly Pear, 2: Golden Barrel
+  hasFlower?: boolean;
+  hitCooldown?: number;
+}
+
 export interface ShieldSnatchCutscene {
   active: boolean;
   completed: boolean;
@@ -323,6 +358,7 @@ export interface SeaRock {
   hitCooldown: number;
   variant: number;
   foamPhase: number;
+  hasChest?: boolean;
 }
 
 export interface SeaShark {
@@ -344,6 +380,28 @@ export interface SeaShark {
   variantIndex: number;
 }
 
+export type SeaFishSpecies =
+  | 'clownfish'
+  | 'blue_tang'
+  | 'red_snapper'
+  | 'golden_angelfish'
+  | 'silver_mackerel';
+
+export interface SeaFish {
+  id: string;
+  x: number;
+  y: number;
+  baseY: number;
+  vx: number;
+  minX: number;
+  maxX: number;
+  species: SeaFishSpecies;
+  facing: 'left' | 'right';
+  swimPhase: number;
+  size: number;
+  caught: boolean;
+}
+
 export interface CoastalSeagull {
   id: string;
   x: number;
@@ -357,6 +415,8 @@ export interface CoastalSeagull {
   stateTimer: number;
   animTimer: number;
   hasFish: boolean;
+  targetFishId?: string;
+  caughtFishSpecies?: SeaFishSpecies;
   raftOffsetX: number;
   variantIndex: number;
 }
@@ -601,6 +661,7 @@ export interface LevelConfig {
   falcons?: DesertFalcon[];
   sandCats?: SandCatWildlife[];
   desertBones?: DesertBonePile[];
+  cacti?: DesertCactus[];
   hasShieldSnatchCutscene?: boolean;
   // World 8: Peckerin Coast
   axeStump?: AxeStump;
@@ -610,9 +671,12 @@ export interface LevelConfig {
   seaRocks?: SeaRock[];
   sharks?: SeaShark[];
   seagulls?: CoastalSeagull[];
+  seaFish?: SeaFish[];
   waterStartX?: number;
   waterLevelY?: number;
   woodTarget?: number;
+  // Archaeology Brush pickup (shown on Level 1 to dig buried treasure mounds)
+  brushPickup?: BrushPickup;
 }
 
 export interface QuestItem {
@@ -689,4 +753,6 @@ export interface SaveData {
   encounteredEnemies?: string[];
   enemyDefeatCounts?: Record<string, number>;
   unlockedEmotes?: EmoteId[];
+  hasBrush?: boolean;
+  unlockedArmors?: ArmorType[];
 }
