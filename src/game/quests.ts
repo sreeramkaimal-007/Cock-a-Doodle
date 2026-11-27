@@ -214,6 +214,20 @@ export const BADGE_DEFINITIONS: Omit<BadgeItem, 'unlocked'>[] = [
     tier: 'diamond',
     isSecret: true,
   },
+  {
+    id: 'desert_wanderer',
+    title: 'Dune Survivor',
+    description: 'Braved the Desert Lands without your shield and outsmarted swooping Falcons',
+    icon: 'flame',
+    tier: 'gold',
+  },
+  {
+    id: 'peckerin_captain',
+    title: 'Captain of Peckerin Coast',
+    description: 'Chopped timber, built your wooden raft, and conquered the shark-patrolled seas of World 8',
+    icon: 'crown',
+    tier: 'diamond',
+  },
 ];
 
 export function getQuestsWithStatus(saveData: SaveData): QuestItem[] {
@@ -285,6 +299,10 @@ export function getBadgesWithStatus(saveData: SaveData): BadgeItem[] {
         return (saveData.stats?.levelsClearedWithoutDamage || 0) >= 1;
       case 'secret_phoenix_rebirth':
         return Boolean(saveData.upgrades?.reviveToken);
+      case 'desert_wanderer':
+        return saveData.unlockedLevel >= 36;
+      case 'peckerin_captain':
+        return saveData.unlockedLevel >= 40;
       default:
         return false;
     }

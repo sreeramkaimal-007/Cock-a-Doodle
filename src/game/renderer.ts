@@ -1,7 +1,9 @@
 import { 
   PlayerState, Platform, Coin, TreasureChest, Checkpoint,
   VolcanoHazard, BoulderHazard, ThundercloudHazard, Enemy, Particle, FloatingText, Camera, LevelConfig,
-  ChickenGender, ArmorType, SwordType, GrowthStage, CockatriceBoss, BossFireProjectile, SilkieSamFriend, FarmerMiniBoss
+  ChickenGender, ArmorType, SwordType, GrowthStage, CockatriceBoss, BossFireProjectile, SilkieSamFriend, FarmerMiniBoss,
+  DesertFalcon, DesertBonePile, SandCatWildlife, ShieldSnatchCutscene,
+  AxeStump, ChoppableTree, WoodLogPickup, CoastalRaft, SeaRock, SeaShark, CoastalSeagull
 } from './types';
 import { getSkinPalette } from './skins';
 import { audio } from './audio';
@@ -35,6 +37,10 @@ export class GameRenderer {
   ) {
     if (theme === 'fields' || levelId === 30) {
       this.renderLevel30SanctuaryBackground(camera, time, isBossDefeated);
+    } else if (theme === 'desert') {
+      this.renderDesertBackground(camera, time, levelId);
+    } else if (theme === 'coast') {
+      this.renderCoastBackground(camera, time, levelId);
     } else if (theme === 'jungle') {
       this.renderJungleBackground(camera, time, levelId, isBossDefeated);
     } else if (theme === 'snowy' || theme === 'storm') {
@@ -3744,6 +3750,91 @@ export class GameRenderer {
       return;
     }
 
+    // World 7: The Desert Lands — Sun-baked Golden Sandstone & Terracotta Platforms
+    if (levelTheme === 'desert') {
+      // Deep sandstone body
+      ctx.fillStyle = '#9a4f1b';
+      ctx.fillRect(sx, sy, plat.width, plat.height);
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(sx, sy + 10, plat.width, Math.max(0, plat.height - 10));
+
+      // Horizontal sedimentary sandstone strata
+      ctx.fillStyle = '#7c2d12';
+      for (let syRow = sy + 18; syRow < sy + plat.height - 6; syRow += 16) {
+        ctx.fillRect(sx + 4, syRow, plat.width - 8, 2);
+      }
+      // Subtle sandstone brick blocks / cracks
+      ctx.fillStyle = '#c26921';
+      for (let bx = sx + 12; bx < sx + plat.width - 14; bx += 38) {
+        ctx.fillRect(bx, sy + 14, 16, 6);
+        if (plat.height > 40) {
+          ctx.fillRect(bx + 10, sy + 32, 18, 6);
+        }
+      }
+      // Dark weathered bottom lip
+      ctx.fillStyle = '#5c1d0c';
+      ctx.fillRect(sx, sy + plat.height - 3, plat.width, 3);
+
+      // Sunlit golden sand drift crust on top
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(sx, sy, plat.width, 9);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(sx, sy, plat.width, 5);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(sx, sy, plat.width, 2);
+
+      // Occasional desert scrub / sand pebbles on top edge
+      for (let px = sx + 18; px < sx + plat.width - 18; px += 52) {
+        ctx.fillStyle = '#92400e';
+        ctx.fillRect(px, sy + 6, 4, 2);
+        ctx.fillStyle = '#fef3c7';
+        ctx.fillRect(px + 20, sy + 2, 3, 2);
+      }
+      return;
+    }
+
+    // World 8: Peckerin Coast — Warm Beach Sand & Driftwood Island Shores
+    if (levelTheme === 'coast') {
+      // Wet coastal earth & sand body
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(sx, sy, plat.width, plat.height);
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(sx, sy + 10, plat.width, Math.max(0, plat.height - 10));
+
+      // Layered wet beach strata
+      ctx.fillStyle = '#78350f';
+      for (let syRow = sy + 20; syRow < sy + plat.height - 6; syRow += 18) {
+        ctx.fillRect(sx + 2, syRow, plat.width - 4, 3);
+      }
+
+      // Bright coastal beach sand top
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(sx, sy, plat.width, 10);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(sx, sy, plat.width, 6);
+      ctx.fillStyle = '#fef9c3';
+      ctx.fillRect(sx, sy, plat.width, 2);
+
+      // Seashells & coastal pebbles
+      for (let px = sx + 14; px < sx + plat.width - 14; px += 44) {
+        ctx.fillStyle = '#fda4af';
+        ctx.fillRect(px, sy + 3, 4, 3);
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(px + 1, sy + 3, 2, 1);
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(px + 22, sy + 5, 3, 2);
+      }
+      // Subtle sea grass tufts along top
+      for (let gx = sx + 30; gx < sx + plat.width - 30; gx += 76) {
+        ctx.fillStyle = '#16a34a';
+        ctx.fillRect(gx, sy - 4, 2, 4);
+        ctx.fillRect(gx + 3, sy - 6, 2, 6);
+        ctx.fillStyle = '#4ade80';
+        ctx.fillRect(gx + 1, sy - 3, 2, 3);
+      }
+      return;
+    }
+
     // In World 4 (or wherever a fox patrols/spawns), keep the lush floating land (grass with dirt under) permanently!
     // Even when the fox is defeated, do NOT change the platform texture!
     const hasFox = Boolean(
@@ -5980,7 +6071,8 @@ export class GameRenderer {
     facingLeft: boolean,
     animTimer: number,
     scale: number = 1,
-    variantIndex: number = 0
+    variantIndex: number = 0,
+    isInfected: boolean = false
   ) {
     ctx.save();
     ctx.scale(scale * (facingLeft ? -1 : 1), scale);
@@ -5998,7 +6090,19 @@ export class GameRenderer {
       // 3: Melanistic Black Wolf
       { coat: '#1f242d', back: '#0d1016', ruff: '#333b48', belly: '#4b5563', muzzle: '#374151', legFar: '#090b10', legNear: '#181c24', tailTip: '#030712', earInner: '#6b7280', eye: '#fbbf24' },
     ];
-    const p = palettes[morph];
+    const infectedPalette = {
+      coat: '#120508',
+      back: '#050102',
+      ruff: '#991b1b',
+      belly: '#dc2626',
+      muzzle: '#26090e',
+      legFar: '#050102',
+      legNear: '#1c060a',
+      tailTip: '#ef4444',
+      earInner: '#ef4444',
+      eye: '#ff1e1e',
+    };
+    const p = isInfected ? infectedPalette : palettes[morph];
 
     const walk = Math.sin(animTimer * 12) * 3.8;
     const bodyBob = Math.abs(Math.sin(animTimer * 12)) * 1.1;
@@ -6175,7 +6279,8 @@ export class GameRenderer {
     facingLeft: boolean,
     animTimer: number,
     scale: number = 1,
-    variantIndex: number = 0
+    variantIndex: number = 0,
+    isInfected: boolean = false
   ) {
     ctx.save();
     ctx.scale(scale * (facingLeft ? -1 : 1), scale);
@@ -6193,7 +6298,18 @@ export class GameRenderer {
       // 3: Arctic Fox (Vulpes lagopus)
       { coat: '#f1f5f9', back: '#cbd5e1', light: '#ffffff', belly: '#ffffff', earBack: '#94a3b8', earInner: '#fbcfe8', leg: '#cbd5e1', tailTip: '#ffffff', eye: '#eab308' },
     ];
-    const p = palettes[morph];
+    const infectedPalette = {
+      coat: '#140508',
+      back: '#050102',
+      light: '#b91c1c',
+      belly: '#dc2626',
+      earBack: '#050102',
+      earInner: '#ef4444',
+      leg: '#050102',
+      tailTip: '#ef4444',
+      eye: '#ff1e1e',
+    };
+    const p = isInfected ? infectedPalette : palettes[morph];
 
     const runCycle = Math.sin(animTimer * 16) * 4.5;
     const bounce = Math.abs(Math.sin(animTimer * 16)) * 1.2;
@@ -6317,7 +6433,8 @@ export class GameRenderer {
     facingLeft: boolean,
     animTimer: number,
     scale: number = 1,
-    variantIndex: number = 0
+    variantIndex: number = 0,
+    isInfected: boolean = false
   ) {
     ctx.save();
     ctx.scale(scale * (facingLeft ? -1 : 1), scale);
@@ -6335,7 +6452,18 @@ export class GameRenderer {
       // 3: American Black Bear (Ursus americanus)
       { coat: '#1e1b18', hump: '#2d2824', highlight: '#44403c', muzzle: '#8a6240', muzzleDark: '#5c4028', legFar: '#0f0e0d', legNear: '#171513', earInner: '#57534e', eye: '#f59e0b' },
     ];
-    const p = palettes[morph];
+    const infectedPalette = {
+      coat: '#110407',
+      hump: '#7f1d1d',
+      highlight: '#dc2626',
+      muzzle: '#2a080c',
+      muzzleDark: '#070102',
+      legFar: '#050102',
+      legNear: '#1a0609',
+      earInner: '#ef4444',
+      eye: '#ff1e1e',
+    };
+    const p = isInfected ? infectedPalette : palettes[morph];
 
     const walk = Math.sin(animTimer * 8) * 3.5;
     const sway = Math.abs(Math.sin(animTimer * 8)) * 0.9;
@@ -6973,7 +7101,8 @@ export class GameRenderer {
     facingLeft: boolean,
     animTimer: number,
     scale: number = 1,
-    variantIndex: number = 0
+    variantIndex: number = 0,
+    isInfected: boolean = false
   ) {
     ctx.save();
     ctx.scale(scale * (facingLeft ? -1 : 1), scale);
@@ -6991,7 +7120,16 @@ export class GameRenderer {
       // 3: Rainforest Bushmaster (Lachesis muta)
       { body: '#5c4033', dark: '#1c1917', pattern: '#a8a29e', belly: '#d6d3d1', head: '#442c22', eye: '#f59e0b', isRinged: false },
     ];
-    const p = palettes[morph];
+    const infectedPalette = {
+      body: '#140407',
+      dark: '#050102',
+      pattern: '#ef4444',
+      belly: '#991b1b',
+      head: '#1f060a',
+      eye: '#ff1e1e',
+      isRinged: false,
+    };
+    const p = isInfected ? infectedPalette : palettes[morph];
 
     const slitherPhase = animTimer * 9.5;
     const baseY = halfH - 2.6;
@@ -7168,13 +7306,15 @@ export class GameRenderer {
 
   // --- Enemies (Wolf, Fox, Snake, Bear): Render in-combat on platforms ---
 
-  public renderEnemy(enemy: Enemy, camera: Camera, levelTheme?: LevelConfig['theme']) {
+  public renderEnemy(enemy: Enemy, camera: Camera, levelTheme?: LevelConfig['theme'], levelId?: number) {
     if (enemy.state === 'defeated') return;
     const ctx = this.ctx;
     const sx = enemy.x - camera.x;
     const sy = enemy.y - camera.y;
 
     if (sx + enemy.width < -60 || sx > this.canvas.width + 60) return;
+
+    const isInfected = Boolean(levelId === 30 || levelTheme === 'fields' || enemy.isBossSummon);
 
     ctx.save();
 
@@ -7186,25 +7326,80 @@ export class GameRenderer {
     const isLeft = enemy.facing === 'left';
     ctx.translate(sx + enemy.width / 2, sy + enemy.height / 2);
 
-    const variantIdx = this.getBiomeEnemyVariant(enemy, levelTheme);
-    if (enemy.type === 'wolf') {
-      this.drawWolfSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx);
-    } else if (enemy.type === 'fox') {
-      this.drawFoxSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx);
-    } else if (enemy.type === 'snake') {
-      this.drawSnakeSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx);
-    } else {
-      this.drawBearSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx);
-    }
-
     const halfW = enemy.width / 2;
     const halfH = enemy.height / 2;
+
+    // 1. Dark crimson-and-black cursed corruption aura behind Level 30 infected enemies
+    if (isInfected) {
+      const pulse = 0.55 + Math.sin(enemy.animTimer * 7.5) * 0.25;
+      const auraR = Math.max(enemy.width, enemy.height) * 0.82;
+      const auraGrad = ctx.createRadialGradient(0, 0, 3, 0, 0, auraR);
+      auraGrad.addColorStop(0, `rgba(220, 38, 38, ${0.42 * pulse})`);
+      auraGrad.addColorStop(0.55, `rgba(12, 2, 5, ${0.52 * pulse})`);
+      auraGrad.addColorStop(1, 'rgba(12, 2, 5, 0)');
+      ctx.fillStyle = auraGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, auraR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const variantIdx = this.getBiomeEnemyVariant(enemy, levelTheme);
+    if (enemy.type === 'wolf') {
+      this.drawWolfSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx, isInfected);
+    } else if (enemy.type === 'fox') {
+      this.drawFoxSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx, isInfected);
+    } else if (enemy.type === 'snake') {
+      this.drawSnakeSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx, isInfected);
+    } else {
+      this.drawBearSprite(ctx, enemy.width, enemy.height, isLeft, enemy.animTimer, 1, variantIdx, isInfected);
+    }
+
+    // 2. Crimson corruption veins, dark tendrils & drifting red-and-black infection spores
+    if (isInfected) {
+      const dir = isLeft ? -1 : 1;
+      const veinPulse = 0.7 + Math.sin(enemy.animTimer * 9.5) * 0.3;
+
+      // Glowing crimson corruption veins etched across the beast's body
+      ctx.save();
+      ctx.strokeStyle = `rgba(239, 68, 68, ${veinPulse})`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-halfW * 0.35 * dir, -halfH * 0.15);
+      ctx.lineTo(-halfW * 0.08 * dir, halfH * 0.08);
+      ctx.lineTo(halfW * 0.14 * dir, -halfH * 0.22);
+      ctx.moveTo(-halfW * 0.08 * dir, halfH * 0.08);
+      ctx.lineTo(halfW * 0.26 * dir, halfH * 0.2);
+      ctx.stroke();
+
+      // Glowing crimson eye flare
+      const eyeX = dir * (enemy.type === 'bear' ? halfW - 3.5 : enemy.type === 'snake' ? halfW - 3 : halfW - 4.5);
+      const eyeY = enemy.type === 'snake' ? -halfH + 4 : enemy.type === 'bear' ? -halfH + 8 : -halfH + 4.5;
+      ctx.fillStyle = `rgba(255, 30, 30, ${0.85 * veinPulse})`;
+      ctx.fillRect(eyeX - 1.5, eyeY - 1, 3, 2);
+      ctx.fillStyle = '#fecaca';
+      ctx.fillRect(eyeX - 0.5, eyeY - 0.5, 1, 1);
+
+      // Rising red-and-black infection spores / shadow wisps
+      for (let i = 0; i < 4; i++) {
+        const phase = (enemy.animTimer * 1.4 + i * 0.25) % 1;
+        const px = Math.round(Math.sin(enemy.animTimer * 4 + i * 1.7) * (halfW * 0.72));
+        const py = Math.round(halfH * 0.25 - phase * (enemy.height + 12));
+        const size = i % 2 === 0 ? 3 : 2.5;
+        ctx.globalAlpha = (1 - phase) * 0.92;
+        ctx.fillStyle = i % 2 === 0 ? '#090204' : '#ef4444';
+        ctx.fillRect(px - 1, py - 1, size + 1, size + 1);
+        ctx.fillStyle = i % 2 === 0 ? '#dc2626' : '#090204';
+        ctx.fillRect(px, py, size - 1, size - 1);
+      }
+      ctx.restore();
+    }
+
     if (enemy.health < enemy.maxHealth) {
       const barW = enemy.width;
       const barH = 4;
-      ctx.fillStyle = '#ef4444';
+      ctx.fillStyle = isInfected ? '#090204' : '#ef4444';
       ctx.fillRect(-halfW, -halfH - 10, barW, barH);
-      ctx.fillStyle = '#22c55e';
+      ctx.fillStyle = isInfected ? '#ef4444' : '#22c55e';
       ctx.fillRect(-halfW, -halfH - 10, (barW * enemy.health) / enemy.maxHealth, barH);
     }
 
@@ -9509,10 +9704,92 @@ export class GameRenderer {
     const isBlinking = isGrounded && !isMoving && ((time % 3.6) < 0.14);
 
     const PLAYER_VISUAL_SCALE = 0.72;
+    const activeEmote = player.activeEmote || null;
+    const emoteTimer = player.emoteTimer ?? 0;
+    const emoteDuration = player.emoteDuration ?? 0;
+    const hasEmote = Boolean(activeEmote && emoteTimer > 0 && emoteDuration > 0);
+    const emoteElapsed = hasEmote ? Math.max(0, emoteDuration - emoteTimer) : 0;
+
+    // Optional radiant pixel sunrise beams behind chicken during Golden Crow
+    if (hasEmote && activeEmote === 'golden_crow') {
+      const ctx = this.ctx;
+      const fade = Math.min(1, emoteElapsed / 0.25) * Math.min(1, emoteTimer / 0.45);
+      ctx.save();
+      ctx.translate(cx, cy - 2);
+      ctx.globalAlpha = 0.36 * fade;
+      for (let i = 0; i < 8; i++) {
+        const ang = (i * Math.PI) / 4 + emoteElapsed * 0.9;
+        ctx.save();
+        ctx.rotate(ang);
+        ctx.fillStyle = i % 2 === 0 ? '#fde047' : '#fbbf24';
+        ctx.fillRect(-3, -38, 6, 26);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    // Body transform modifiers while an emote animation is playing
+    let emoteOffsetX = 0;
+    let emoteOffsetY = 0;
+    let emoteScaleX = 1;
+    let emoteScaleY = 1;
+    let emoteRot = 0;
+
+    if (hasEmote) {
+      if (activeEmote === 'squawk') {
+        const chirp = Math.abs(Math.sin(emoteElapsed * 13));
+        emoteScaleX = 1 - chirp * 0.06;
+        emoteScaleY = 1 + chirp * 0.14;
+        emoteOffsetY = -chirp * 2.5;
+      } else if (activeEmote === 'happy_hop') {
+        const hop = Math.abs(Math.sin(emoteElapsed * 9.5));
+        emoteOffsetY = -hop * 8.5;
+        emoteRot = Math.sin(emoteElapsed * 9.5) * 0.11;
+        emoteScaleX = 1 + (1 - hop) * 0.08;
+        emoteScaleY = 1 - (1 - hop) * 0.06;
+      } else if (activeEmote === 'angry_ruffle') {
+        emoteOffsetX = Math.sin(emoteElapsed * 52) * 2.5;
+        const puff = 0.5 + 0.5 * Math.sin(emoteElapsed * 18);
+        emoteScaleX = 1.11 + puff * 0.06;
+        emoteScaleY = 1.05 + puff * 0.04;
+      } else if (activeEmote === 'heart_flutter') {
+        emoteOffsetY = -Math.sin(emoteElapsed * 7.5) * 3.2 - 1;
+        emoteRot = Math.sin(emoteElapsed * 9.5) * 0.08;
+      } else if (activeEmote === 'royal_strut') {
+        const strut = Math.abs(Math.sin(emoteElapsed * 6.5));
+        emoteOffsetY = -strut * 3.5;
+        emoteScaleX = 1.04;
+        emoteScaleY = 1.07 + strut * 0.04;
+        emoteRot = Math.sin(emoteElapsed * 6.5) * 0.05;
+      } else if (activeEmote === 'golden_crow') {
+        const crow = Math.abs(Math.sin(emoteElapsed * 8));
+        emoteScaleY = 1.08 + crow * 0.1;
+        emoteOffsetY = -crow * 3;
+      }
+    }
+
+    const feetY = sy + player.height;
+    const isCrouching = Boolean(player.isCrouching);
+    const visualBaseHeight = isCrouching && player.standingHeight ? player.standingHeight : player.height;
+    const renderCenterY = isCrouching ? feetY - visualBaseHeight * 0.34 : cy;
+
+    this.ctx.save();
+    if (isCrouching) {
+      this.ctx.translate(cx, feetY);
+      this.ctx.scale(1.18, 0.58);
+      this.ctx.translate(-cx, -feetY);
+    }
+    if (hasEmote) {
+      this.ctx.translate(cx + emoteOffsetX, feetY + emoteOffsetY);
+      this.ctx.rotate(emoteRot);
+      this.ctx.scale(emoteScaleX, emoteScaleY);
+      this.ctx.translate(-cx, -feetY);
+    }
+
     this.renderCharacterModel(
       this.ctx,
       cx,
-      cy,
+      renderCenterY,
       player.gender || 'rooster',
       player.stage,
       effArmor,
@@ -9520,12 +9797,12 @@ export class GameRenderer {
       {
         facing: player.facing,
         width: player.width / PLAYER_VISUAL_SCALE,
-        height: player.height / PLAYER_VISUAL_SCALE,
+        height: visualBaseHeight / PLAYER_VISUAL_SCALE,
         scale: PLAYER_VISUAL_SCALE,
         time,
         isAttacking: player.isAttacking,
         isBlocking: player.isBlocking,
-        hasCrown: extraOptions?.hasCrown,
+        hasCrown: extraOptions?.hasCrown || (hasEmote && activeEmote === 'royal_strut'),
         isMoving,
         isJumping,
         isFalling,
@@ -9536,6 +9813,42 @@ export class GameRenderer {
         fireResistActive: Boolean(player.fireResistTimer && player.fireResistTimer > 0),
       }
     );
+
+    // Draw gleaming woodcutter's axe when carrying the Peckerin Coast axe on shore
+    if (player.hasAxe && !player.onRaft) {
+      const ctx = this.ctx;
+      const dir = player.facing === 'right' ? 1 : -1;
+      const swingAngle = player.isAttacking ? 1.15 : -0.25 + Math.sin(time * 5) * 0.06;
+      ctx.save();
+      ctx.translate(cx + dir * 10, renderCenterY + 2);
+      ctx.scale(dir, 1);
+      ctx.rotate(swingAngle);
+      // Wooden handle
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(-2, -18, 4, 24);
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(-1, -17, 2, 22);
+      // Steel axe head
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(-3, -20, 12, 9);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(1, -19, 8, 7);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(7, -19, 2, 7);
+      ctx.restore();
+    }
+
+    this.ctx.restore();
+
+    // Subtle crouch indicator dust puff & label when tucked low
+    if (isCrouching) {
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.fillStyle = 'rgba(254, 243, 199, 0.5)';
+      ctx.fillRect(Math.round(cx - 14), Math.round(feetY - 3), 5, 3);
+      ctx.fillRect(Math.round(cx + 9), Math.round(feetY - 3), 5, 3);
+      ctx.restore();
+    }
 
     // Subtle toxic-emerald venom shimmer around the chicken while poisoned
     if ((player.poisonTimer ?? 0) > 0) {
@@ -9552,6 +9865,237 @@ export class GameRenderer {
       ctx.fill();
       ctx.restore();
     }
+
+    // Persistent crisp pixel-art emote animation floating in the game world
+    if (hasEmote && activeEmote) {
+      this.renderPlayerEmote(player, cx + emoteOffsetX, sy + emoteOffsetY, emoteElapsed, emoteTimer, emoteDuration);
+    }
+  }
+
+  private renderPlayerEmote(
+    player: PlayerState,
+    cx: number,
+    topY: number,
+    elapsed: number,
+    remaining: number,
+    duration: number
+  ) {
+    const emote = player.activeEmote;
+    if (!emote) return;
+    const ctx = this.ctx;
+    const dir = player.facing === 'right' ? 1 : -1;
+
+    // Smooth snappy pop-in and gentle fade-out
+    const popIn = Math.min(1, elapsed / 0.16);
+    const fadeOut = Math.min(1, remaining / 0.42);
+    const popScale = popIn < 1 ? 0.55 + Math.sin(popIn * Math.PI * 0.65) * 0.55 : 1;
+    const alpha = Math.max(0, Math.min(1, popIn * fadeOut));
+    const bob = Math.sin(elapsed * 6.5) * 2.5;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // 1. World-space pixel-art effects directly around the chicken
+    if (emote === 'squawk') {
+      // Expanding crisp 8-bit sound-wave pixel arcs from beak
+      const beakX = cx + dir * (player.width * 0.55);
+      const beakY = topY + player.height * 0.28;
+      for (let w = 0; w < 3; w++) {
+        const phase = (elapsed * 2.2 + w * 0.33) % 1;
+        const dist = 4 + phase * 22;
+        const waveAlpha = (1 - phase) * alpha;
+        ctx.save();
+        ctx.globalAlpha = waveAlpha;
+        ctx.fillStyle = w % 2 === 0 ? '#fde047' : '#fb923c';
+        const wx = Math.round(beakX + dir * dist);
+        const wy = Math.round(beakY - 5);
+        ctx.fillRect(wx, wy, 2, 3);
+        ctx.fillRect(wx + dir * 2, wy + 3, 2, 5);
+        ctx.fillRect(wx, wy + 8, 2, 3);
+        ctx.restore();
+      }
+    } else if (emote === 'angry_ruffle') {
+      // Rising 8-bit pixel steam puffs from both sides of head
+      for (let s = 0; s < 2; s++) {
+        const side = s === 0 ? -1 : 1;
+        const phase = (elapsed * 1.9 + s * 0.5) % 1;
+        const px = Math.round(cx + side * (11 + phase * 11));
+        const py = Math.round(topY + 4 - phase * 18);
+        ctx.save();
+        ctx.globalAlpha = (1 - phase) * alpha * 0.9;
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(px - 3, py - 2, 6, 4);
+        ctx.fillRect(px - 2, py - 4, 4, 2);
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillRect(px - 2, py + 1, 5, 1);
+        ctx.restore();
+      }
+    } else if (emote === 'heart_flutter') {
+      // Floating mini 8-bit pixel hearts drifting upward around chicken
+      for (let h = 0; h < 3; h++) {
+        const phase = (elapsed * 1.15 + h * 0.34) % 1;
+        const hx = Math.round(cx + Math.sin(elapsed * 4 + h * 2.1) * 14 + (h - 1) * 8);
+        const hy = Math.round(topY + 2 - phase * 26);
+        ctx.save();
+        ctx.globalAlpha = (1 - phase) * alpha;
+        ctx.fillStyle = h % 2 === 0 ? '#f472b6' : '#fb7185';
+        ctx.fillRect(hx - 3, hy - 2, 2, 2);
+        ctx.fillRect(hx + 1, hy - 2, 2, 2);
+        ctx.fillRect(hx - 3, hy, 6, 2);
+        ctx.fillRect(hx - 2, hy + 2, 4, 1);
+        ctx.fillRect(hx - 1, hy + 3, 2, 1);
+        ctx.restore();
+      }
+    } else if (emote === 'happy_hop' || emote === 'royal_strut' || emote === 'golden_crow') {
+      // Orbiting 8-bit pixel star glints
+      for (let k = 0; k < 4; k++) {
+        const ang = elapsed * 3.4 + (k * Math.PI) / 2;
+        const sx = Math.round(cx + Math.cos(ang) * 19);
+        const sy = Math.round(topY + player.height * 0.3 + Math.sin(ang) * 9);
+        ctx.fillStyle = emote === 'happy_hop' ? (k % 2 === 0 ? '#4ade80' : '#fde047') : '#fef08a';
+        ctx.fillRect(sx - 2, sy, 5, 1);
+        ctx.fillRect(sx, sy - 2, 1, 5);
+      }
+    }
+
+    // 2. Chunky 8-bit Pixel Emote Bubble Floating Above the Chicken
+    const bx = Math.round(cx);
+    const by = Math.round(topY - 26 + bob);
+    ctx.translate(bx, by);
+    ctx.scale(popScale, popScale);
+
+    const badgeW = 30;
+    const badgeH = 22;
+    const left = -badgeW / 2;
+    const top = -badgeH / 2;
+
+    // Bubble border & dark pixel drop shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(left + 2, top + 2, badgeW, badgeH);
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(left - 2, top, badgeW + 4, badgeH);
+    ctx.fillRect(left, top - 2, badgeW, badgeH + 4);
+
+    // Cream pixel interior
+    ctx.fillStyle = emote === 'angry_ruffle' ? '#fef2f2' : '#fffbeb';
+    ctx.fillRect(left, top, badgeW, badgeH);
+
+    // Crisp speech pointer triangle (pixel steps)
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-4, top + badgeH + 1, 8, 2);
+    ctx.fillRect(-2, top + badgeH + 3, 4, 2);
+    ctx.fillStyle = emote === 'angry_ruffle' ? '#fef2f2' : '#fffbeb';
+    ctx.fillRect(-2, top + badgeH, 4, 3);
+
+    // Inner animated pixel-art icon for each emote
+    if (emote === 'squawk') {
+      // Animated pixel beak + pulsing sound waves
+      const pulse = Math.floor(elapsed * 8) % 2;
+      ctx.fillStyle = '#ea580c';
+      ctx.fillRect(-10, -3, 4, 6);
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(-6, -5, 4, 10);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-2, -6, 2, 12);
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(2, -3, 2, 6);
+      if (pulse === 0) {
+        ctx.fillRect(6, -5, 2, 10);
+        ctx.fillRect(10, -7, 2, 14);
+      } else {
+        ctx.fillRect(7, -6, 2, 12);
+      }
+    } else if (emote === 'happy_hop') {
+      // Bouncing pixel star with joyful smiling face
+      const hopIcon = Math.round(Math.sin(elapsed * 12) * 1.5);
+      ctx.fillStyle = '#16a34a';
+      ctx.fillRect(-4, -7 + hopIcon, 8, 12);
+      ctx.fillRect(-8, -3 + hopIcon, 16, 6);
+      ctx.fillStyle = '#4ade80';
+      ctx.fillRect(-3, -6 + hopIcon, 6, 10);
+      ctx.fillRect(-6, -2 + hopIcon, 12, 4);
+      ctx.fillStyle = '#14532d';
+      ctx.fillRect(-3, -2 + hopIcon, 2, 2);
+      ctx.fillRect(1, -2 + hopIcon, 2, 2);
+      ctx.fillRect(-2, 1 + hopIcon, 4, 1);
+      ctx.fillStyle = '#fde047';
+      ctx.fillRect(-10, -6, 2, 2);
+      ctx.fillRect(8, -6, 2, 2);
+    } else if (emote === 'angry_ruffle') {
+      // Pulsing 8-bit red anger vein mark
+      const throb = Math.floor(elapsed * 10) % 2;
+      ctx.fillStyle = '#dc2626';
+      const s = throb === 0 ? 1 : 0;
+      ctx.fillRect(-8 - s, -6 - s, 5, 2);
+      ctx.fillRect(-5 - s, -8 - s, 2, 5);
+      ctx.fillRect(3 + s, -6 - s, 5, 2);
+      ctx.fillRect(3 + s, -8 - s, 2, 5);
+      ctx.fillRect(-8 - s, 4 + s, 5, 2);
+      ctx.fillRect(-5 - s, 3 + s, 2, 5);
+      ctx.fillRect(3 + s, 4 + s, 5, 2);
+      ctx.fillRect(3 + s, 3 + s, 2, 5);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-2, -2, 4, 4);
+    } else if (emote === 'heart_flutter') {
+      // Beating 8-bit pixel heart
+      const beat = Math.sin(elapsed * 10) > 0 ? 1 : 0;
+      ctx.fillStyle = '#ec4899';
+      ctx.fillRect(-7 - beat, -5 - beat, 5 + beat, 5 + beat);
+      ctx.fillRect(2, -5 - beat, 5 + beat, 5 + beat);
+      ctx.fillRect(-7 - beat, -1, 14 + beat * 2, 4);
+      ctx.fillRect(-5, 3, 10, 2);
+      ctx.fillRect(-3, 5, 6, 2);
+      ctx.fillRect(-1, 7, 2, 1);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-5, -4, 2, 2);
+    } else if (emote === 'royal_strut') {
+      // Floating 8-bit royal crown with gem glint
+      ctx.fillStyle = '#ca8a04';
+      ctx.fillRect(-9, -2, 18, 9);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-9, -6, 3, 5);
+      ctx.fillRect(-2, -8, 4, 7);
+      ctx.fillRect(6, -6, 3, 5);
+      ctx.fillRect(-8, -1, 16, 6);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-2, 0, 4, 4);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(-6, 1, 2, 2);
+      ctx.fillRect(4, 1, 2, 2);
+      if (Math.floor(elapsed * 6) % 2 === 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-1, -7, 2, 2);
+      }
+    } else {
+      // 'golden_crow': Animated pixel music note + golden sunrise sparkles
+      const noteY = Math.round(Math.sin(elapsed * 8) * 1.5);
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(-2, -7 + noteY, 9, 3);
+      ctx.fillRect(-2, -4 + noteY, 2, 8);
+      ctx.fillRect(5, -4 + noteY, 2, 7);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-6, 2 + noteY, 6, 4);
+      ctx.fillRect(1, 1 + noteY, 6, 4);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-4, 3 + noteY, 2, 1);
+      ctx.fillRect(3, 2 + noteY, 2, 1);
+      ctx.fillStyle = '#fb923c';
+      ctx.fillRect(-11, -6, 2, 2);
+      ctx.fillRect(9, -6, 2, 2);
+    }
+
+    // Subtle depleting pixel timer bar along bottom of emote bubble
+    const pct = Math.max(0, Math.min(1, remaining / Math.max(0.1, duration)));
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(left + 2, top + badgeH - 2, badgeW - 4, 2);
+    ctx.fillStyle =
+      emote === 'angry_ruffle' ? '#ef4444' :
+      emote === 'happy_hop' ? '#22c55e' :
+      emote === 'heart_flutter' ? '#ec4899' : '#f59e0b';
+    ctx.fillRect(left + 2, top + badgeH - 2, Math.round((badgeW - 4) * pct), 2);
+
+    ctx.restore();
   }
 
   /**
@@ -12634,6 +13178,44 @@ export class GameRenderer {
           : `rgba(249, 115, 22, ${(0.72 * flicker).toFixed(3)})`;
         ctx.fillRect(Math.round(ex), Math.round(ey), sz, sz);
       }
+    } else if (theme === 'desert') {
+      // Warm drifting Sahara sand motes & golden desert sun haze
+      for (let i = 0; i < 2; i++) {
+        const beamX = wrap(180 + i * 420 - camera.x * 0.08, w + 320) - 140;
+        const grad = ctx.createLinearGradient(beamX, 0, beamX + 120, h * 0.78);
+        grad.addColorStop(0, 'rgba(253, 224, 71, 0.085)');
+        grad.addColorStop(1, 'rgba(251, 146, 60, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(beamX, 0);
+        ctx.lineTo(beamX + 90, 0);
+        ctx.lineTo(beamX + 210, h * 0.8);
+        ctx.lineTo(beamX + 80, h * 0.8);
+        ctx.closePath();
+        ctx.fill();
+      }
+      for (let i = 0; i < 22; i++) {
+        const seed = i * 59.3;
+        const sx = wrap(seed * 27 - camera.x * (0.35 + (i % 3) * 0.1) - time * (38 + (i % 5) * 14), w + 60) - 30;
+        const sy = 90 + ((i * 49) % Math.max(120, h - 130)) + Math.sin(time * 2.2 + seed) * 10;
+        const alpha = 0.25 + 0.35 * Math.abs(Math.sin(time * 2.8 + seed));
+        ctx.fillStyle = i % 2 === 0
+          ? `rgba(253, 230, 138, ${alpha.toFixed(3)})`
+          : `rgba(245, 158, 11, ${(alpha * 0.9).toFixed(3)})`;
+        ctx.fillRect(Math.round(sx), Math.round(sy), i % 3 === 0 ? 4 : 2, 2);
+      }
+    } else if (theme === 'coast') {
+      // Sparkling ocean mist glints & breezy sea spray
+      for (let i = 0; i < 18; i++) {
+        const seed = i * 71.9;
+        const sx = wrap(seed * 23 - camera.x * (0.28 + (i % 3) * 0.08) - time * (22 + (i % 4) * 8), w + 60) - 30;
+        const sy = 110 + ((i * 53) % Math.max(120, h - 140)) + Math.cos(time * 1.9 + seed) * 12;
+        const glint = 0.28 + 0.5 * Math.max(0, Math.sin(time * 3.1 + seed));
+        ctx.fillStyle = i % 3 === 0
+          ? `rgba(186, 230, 253, ${glint.toFixed(3)})`
+          : `rgba(255, 255, 255, ${(glint * 0.85).toFixed(3)})`;
+        ctx.fillRect(Math.round(sx), Math.round(sy), 3, 2);
+      }
     } else {
       // Plains / Coop / Trail / Juvenile / Restored Green Fields: warm sunlight beams, golden pollen & drifting petals/dandelions
       for (let i = 0; i < 2; i++) {
@@ -12718,6 +13300,1337 @@ export class GameRenderer {
       ctx.fillText(ft.text, sx, sy);
     });
     ctx.restore();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // WORLD 7: THE DESERT LANDS (Background, Falcon, Shield-Snatch, Sand Cats, Bones)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private renderDesertBackground(camera: Camera, time: number, _levelId: number = 31) {
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
+    // 1. Sun-drenched Sahara Sky Gradient
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
+    skyGrad.addColorStop(0, '#0284c7');
+    skyGrad.addColorStop(0.28, '#38bdf8');
+    skyGrad.addColorStop(0.58, '#fcd34d');
+    skyGrad.addColorStop(0.84, '#fb923c');
+    skyGrad.addColorStop(1, '#ea580c');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    // 2. Blazing Desert Sun with pulsing mirage halo
+    const sunX = w * 0.78;
+    const sunY = 86;
+    ctx.fillStyle = 'rgba(254, 240, 138, 0.22)';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 78 + Math.sin(time * 2.2) * 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(253, 224, 71, 0.45)';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 50, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fef9c3';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 32, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3. Distant Ancient Pyramids & Red Sandstone Mesas (Parallax 0.12)
+    const p1 = -(camera.x * 0.12) % 900;
+    for (let x = p1 - 900; x < w + 900; x += 900) {
+      // Great Pyramid
+      ctx.fillStyle = '#c2410c';
+      ctx.beginPath();
+      ctx.moveTo(x + 120, h - 130);
+      ctx.lineTo(x + 250, h - 295);
+      ctx.lineTo(x + 380, h - 130);
+      ctx.closePath();
+      ctx.fill();
+      // Lit face
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.moveTo(x + 250, h - 295);
+      ctx.lineTo(x + 380, h - 130);
+      ctx.lineTo(x + 266, h - 130);
+      ctx.closePath();
+      ctx.fill();
+
+      // Smaller Companion Pyramid
+      ctx.fillStyle = '#b45309';
+      ctx.beginPath();
+      ctx.moveTo(x + 330, h - 130);
+      ctx.lineTo(x + 415, h - 235);
+      ctx.lineTo(x + 500, h - 130);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.moveTo(x + 415, h - 235);
+      ctx.lineTo(x + 500, h - 130);
+      ctx.lineTo(x + 426, h - 130);
+      ctx.closePath();
+      ctx.fill();
+
+      // Flat-topped Desert Mesa Butte
+      ctx.fillStyle = '#9a3412';
+      ctx.beginPath();
+      ctx.moveTo(x + 600, h - 130);
+      ctx.lineTo(x + 635, h - 240);
+      ctx.lineTo(x + 785, h - 240);
+      ctx.lineTo(x + 820, h - 130);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#ea580c';
+      ctx.fillRect(x + 638, h - 240, 144, 14);
+    }
+
+    // 4. Rolling Midground Golden Dunes (Parallax 0.28)
+    const p2 = -(camera.x * 0.28) % 640;
+    ctx.fillStyle = '#d97706';
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let x = p2 - 640; x <= w + 640; x += 320) {
+      ctx.quadraticCurveTo(x + 160, h - 205, x + 320, h - 135);
+    }
+    ctx.lineTo(w + 640, h);
+    ctx.closePath();
+    ctx.fill();
+
+    // 5. Foreground Warm Ochre Dunes & Saguaro Cacti (Parallax 0.45)
+    const p3 = -(camera.x * 0.45) % 520;
+    ctx.fillStyle = '#b45309';
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let x = p3 - 520; x <= w + 520; x += 260) {
+      ctx.quadraticCurveTo(x + 130, h - 148, x + 260, h - 98);
+    }
+    ctx.lineTo(w + 520, h);
+    ctx.closePath();
+    ctx.fill();
+
+    // Pixel Saguaro Cacti silhouettes along the ridge
+    for (let x = p3 - 520; x < w + 520; x += 260) {
+      const cx = Math.round(x + 115);
+      const cy = Math.round(h - 122);
+      ctx.fillStyle = '#14532d';
+      ctx.fillRect(cx - 5, cy - 42, 10, 44);
+      ctx.fillRect(cx - 17, cy - 28, 12, 7);
+      ctx.fillRect(cx - 17, cy - 39, 7, 14);
+      ctx.fillRect(cx + 5, cy - 22, 12, 7);
+      ctx.fillRect(cx + 11, cy - 35, 7, 16);
+      ctx.fillStyle = '#16a34a';
+      ctx.fillRect(cx - 2, cy - 40, 3, 40);
+      ctx.fillRect(cx - 15, cy - 37, 2, 10);
+      ctx.fillRect(cx + 13, cy - 33, 2, 12);
+    }
+  }
+
+  public drawFalconSprite(
+    ctx: CanvasRenderingContext2D,
+    _width: number,
+    _height: number,
+    flipLeft: boolean,
+    animTime: number,
+    scale: number = 1,
+    variantIndex: number = 0,
+    carryingShield: boolean = false
+  ) {
+    const palettes = [
+      { body: '#78350f', wing: '#451a03', chest: '#fef3c7', tip: '#1c1917', eye: '#fbbf24' }, // Peregrine Amber
+      { body: '#475569', wing: '#1e293b', chest: '#f1f5f9', tip: '#0f172a', eye: '#facc15' }, // Slate Sky-Hawk
+      { body: '#9a3412', wing: '#5c1d0c', chest: '#fed7aa', tip: '#292524', eye: '#fde047' }, // Dune Kestrel
+      { body: '#854d0e', wing: '#422006', chest: '#fef9c3', tip: '#1c1917', eye: '#f59e0b' }, // Sun-Crest Falcon
+    ];
+    const pal = palettes[Math.abs(variantIndex) % palettes.length];
+    const flap = Math.sin(animTime * 11) * 10;
+
+    ctx.save();
+    ctx.scale(flipLeft ? -scale : scale, scale);
+
+    // Back wing
+    ctx.fillStyle = pal.wing;
+    ctx.beginPath();
+    ctx.moveTo(-4, -3);
+    ctx.lineTo(-22, -16 - flap);
+    ctx.lineTo(-10, -2 - flap * 0.45);
+    ctx.closePath();
+    ctx.fill();
+
+    // Tail feathers
+    ctx.fillStyle = pal.tip;
+    ctx.fillRect(-24, -2, 11, 5);
+    ctx.fillStyle = pal.body;
+    ctx.fillRect(-22, -1, 8, 3);
+
+    // Sleek falcon torso
+    ctx.fillStyle = pal.body;
+    ctx.fillRect(-13, -7, 24, 13);
+    ctx.fillStyle = pal.chest;
+    ctx.fillRect(-7, -1, 16, 7);
+    // Speckled chest bars
+    ctx.fillStyle = pal.wing;
+    ctx.fillRect(-4, 1, 3, 2);
+    ctx.fillRect(2, 2, 3, 2);
+
+    // Head & fierce falcon crown
+    ctx.fillStyle = pal.wing;
+    ctx.fillRect(7, -11, 13, 10);
+    ctx.fillStyle = pal.chest;
+    ctx.fillRect(10, -6, 8, 5);
+    // Dark malar stripe
+    ctx.fillStyle = pal.tip;
+    ctx.fillRect(12, -5, 3, 4);
+
+    // Glowing predator eye
+    ctx.fillStyle = pal.eye;
+    ctx.fillRect(13, -9, 4, 3);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(15, -8, 2, 2);
+
+    // Hooked golden raptor beak
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(19, -8, 6, 4);
+    ctx.fillStyle = '#b45309';
+    ctx.fillRect(23, -5, 3, 4);
+
+    // Front wing (sweeping boldly)
+    ctx.fillStyle = pal.body;
+    ctx.beginPath();
+    ctx.moveTo(-6, -2);
+    ctx.lineTo(-20, -20 + flap);
+    ctx.lineTo(6, -12 + flap * 0.6);
+    ctx.lineTo(4, 2);
+    ctx.closePath();
+    ctx.fill();
+    // Wing primary feather tips
+    ctx.fillStyle = pal.tip;
+    ctx.fillRect(-20, -20 + flap, 7, 4);
+
+    // Talons clutching beneath body
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(-2, 6, 3, 6);
+    ctx.fillRect(4, 6, 3, 6);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-3, 11, 2, 3);
+    ctx.fillRect(0, 11, 2, 3);
+    ctx.fillRect(3, 11, 2, 3);
+    ctx.fillRect(6, 11, 2, 3);
+
+    // Stolen Royal Shield clutched in talons during the cutscene!
+    if (carryingShield) {
+      ctx.save();
+      ctx.translate(3, 18);
+      ctx.rotate(Math.sin(animTime * 8) * 0.14);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-10, -9, 20, 21);
+      ctx.fillStyle = '#0ea5e9';
+      ctx.fillRect(-8, -7, 16, 17);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-8, -7, 16, 3);
+      ctx.fillRect(-2, -4, 4, 12);
+      ctx.fillRect(-6, 0, 12, 3);
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  public renderDesertFalcons(falcons: DesertFalcon[], camera: Camera, time: number) {
+    const ctx = this.ctx;
+    falcons.forEach(f => {
+      if (f.state === 'defeated') return;
+      const sx = f.x - camera.x;
+      const sy = f.y - camera.y;
+      if (sx < -160 || sx > this.canvas.width + 160) return;
+
+      // Telegraph danger arc & CROUCH prompt!
+      if (f.state === 'telegraph') {
+        const pulse = 0.55 + 0.45 * Math.sin(time * 22);
+        const tx = f.targetX - camera.x;
+        const ty = f.swoopLowY - camera.y;
+        ctx.save();
+        ctx.strokeStyle = `rgba(239, 68, 68, ${pulse.toFixed(2)})`;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([7, 6]);
+        ctx.beginPath();
+        ctx.moveTo(sx + f.width / 2, sy + f.height / 2);
+        ctx.quadraticCurveTo(tx, ty + 18, tx + (f.facing === 'right' ? 140 : -140), sy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Warning badge above falcon
+        ctx.fillStyle = 'rgba(127, 29, 29, 0.92)';
+        ctx.fillRect(Math.round(sx - 28), Math.round(sy - 30), 112, 18);
+        ctx.strokeStyle = '#fca5a5';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(Math.round(sx - 28), Math.round(sy - 30), 112, 18);
+        ctx.fillStyle = '#fef08a';
+        ctx.font = '700 9px "Silkscreen", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('▼ CROUCH! ▼', sx + 28, sy - 18);
+        ctx.restore();
+      }
+
+      ctx.save();
+      if (f.hurtTimer > 0 && Math.floor(time * 24) % 2 === 0) {
+        ctx.filter = 'brightness(2.2)';
+      }
+      ctx.translate(sx + f.width / 2, sy + f.height / 2);
+      if (f.state === 'swooping') {
+        ctx.rotate(f.facing === 'right' ? 0.24 : -0.24);
+      }
+      this.drawFalconSprite(
+        ctx,
+        f.width,
+        f.height,
+        f.facing === 'left',
+        f.wingPhase,
+        1.12,
+        f.variantIndex,
+        false
+      );
+      ctx.restore();
+    });
+  }
+
+  public renderShieldSnatchCutscene(cs: ShieldSnatchCutscene, camera: Camera, time: number) {
+    if (!cs.active) return;
+    const ctx = this.ctx;
+    const sx = cs.falconX - camera.x;
+    const sy = cs.falconY - camera.y;
+
+    // Cinematic letterbox bars
+    ctx.save();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fillRect(0, 0, this.canvas.width, 40);
+    ctx.fillRect(0, this.canvas.height - 58, this.canvas.width, 58);
+
+    // Draw the thieving Desert Falcon clutching the shield
+    ctx.save();
+    ctx.translate(sx, sy);
+    this.drawFalconSprite(
+      ctx,
+      54,
+      36,
+      cs.falconFacing === 'left',
+      time * 1.4,
+      1.35,
+      0,
+      cs.carryingShield
+    );
+    ctx.restore();
+
+    // Retro Cutscene Banner
+    ctx.fillStyle = '#facc15';
+    ctx.font = '700 11px "Silkscreen", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('! DESERT AMBUSH !', this.canvas.width / 2, 25);
+
+    ctx.fillStyle = '#fef3c7';
+    ctx.font = '700 12px "Silkscreen", monospace';
+    ctx.fillText(cs.speechText, this.canvas.width / 2, this.canvas.height - 25);
+    ctx.restore();
+  }
+
+  public renderDesertBones(bones: DesertBonePile[], camera: Camera) {
+    const ctx = this.ctx;
+    bones.forEach(b => {
+      const sx = Math.round(b.x - camera.x);
+      const sy = Math.round(b.y - camera.y);
+      if (sx < -60 || sx > this.canvas.width + 60) return;
+
+      ctx.save();
+      // Bleached desert ribs & femur bones resting on sand
+      ctx.fillStyle = '#e7e5e4';
+      ctx.fillRect(sx - 16, sy - 6, 30, 5);
+      ctx.fillRect(sx - 18, sy - 8, 5, 8);
+      ctx.fillRect(sx + 12, sy - 8, 5, 8);
+      // Curved ribs sticking up
+      ctx.fillStyle = '#f5f5f4';
+      ctx.fillRect(sx - 10, sy - 16, 4, 11);
+      ctx.fillRect(sx - 2, sy - 18, 4, 13);
+      ctx.fillRect(sx + 6, sy - 15, 4, 10);
+      ctx.fillStyle = '#d6d3d1';
+      ctx.fillRect(sx - 10, sy - 16, 8, 3);
+      ctx.fillRect(sx - 2, sy - 18, 8, 3);
+
+      // Leftover meat scraps for Sand Cats to nibble!
+      if (b.meatRemaining > 0) {
+        ctx.fillStyle = '#991b1b';
+        ctx.fillRect(sx - 7, sy - 10, 12, 6);
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(sx - 5, sy - 9, 8, 4);
+        ctx.fillStyle = '#fecaca';
+        ctx.fillRect(sx - 3, sy - 8, 3, 2);
+      }
+      ctx.restore();
+    });
+  }
+
+  public drawSandCatSprite(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    flipLeft: boolean = false,
+    variantIndex: number = 0,
+    isBaby: boolean = false,
+    activity: 'walk' | 'rest' | 'eat' = 'walk'
+  ) {
+    const palettes = [
+      { fur: '#e7c28e', belly: '#fef3c7', stripe: '#b45309', ear: '#fda4af', nose: '#78350f' }, // Sahara Sand
+      { fur: '#d6b48c', belly: '#faf5eb', stripe: '#92400e', ear: '#fbcfe8', nose: '#57534e' }, // Pale Dune
+      { fur: '#eab676', belly: '#fffbeb', stripe: '#9a3412', ear: '#fecdd3', nose: '#7c2d12' }, // Golden Ochre
+      { fur: '#cbd5e1', belly: '#f8fafc', stripe: '#64748b', ear: '#fbcfe8', nose: '#334155' }, // Silver Mirage
+    ];
+    const pal = palettes[Math.abs(variantIndex) % palettes.length];
+    const effScale = isBaby ? scale * 0.72 : scale;
+
+    ctx.save();
+    ctx.scale(flipLeft ? -effScale : effScale, effScale);
+
+    if (activity === 'rest') {
+      // Curled up sleeping sand cat with bobbing "Zzz" breathing
+      const breathe = Math.sin(animTime * 2.5) * 0.8;
+      ctx.fillStyle = pal.fur;
+      ctx.fillRect(-13, -9 - breathe, 24, 10 + breathe);
+      ctx.fillStyle = pal.belly;
+      ctx.fillRect(-9, -4, 14, 5);
+      // Curled striped tail
+      ctx.fillStyle = pal.stripe;
+      ctx.fillRect(-15, -4, 8, 4);
+      ctx.fillStyle = '#1c1917';
+      ctx.fillRect(-16, -4, 3, 4);
+      // Resting head with iconic oversized wide-set sand cat ears!
+      ctx.fillStyle = pal.fur;
+      ctx.fillRect(5, -12 - breathe, 11, 9);
+      // Big triangular ears
+      ctx.fillStyle = pal.fur;
+      ctx.fillRect(3, -17 - breathe, 5, 6);
+      ctx.fillRect(12, -17 - breathe, 5, 6);
+      ctx.fillStyle = pal.ear;
+      ctx.fillRect(4, -15 - breathe, 3, 3);
+      ctx.fillRect(13, -15 - breathe, 3, 3);
+      // Closed sleepy eyes
+      ctx.fillStyle = '#1c1917';
+      ctx.fillRect(8, -8 - breathe, 3, 1.5);
+      ctx.fillRect(12, -8 - breathe, 3, 1.5);
+    } else {
+      const legStride = activity === 'walk' ? Math.sin(animTime * 9) * 3 : 0;
+      const headDip = activity === 'eat' ? 4 + Math.abs(Math.sin(animTime * 8)) * 3 : 0;
+
+      // Tail wagging gently
+      const tailWag = Math.sin(animTime * 4.5) * 3;
+      ctx.fillStyle = pal.fur;
+      ctx.fillRect(-19, -12 + tailWag * 0.5, 9, 4);
+      ctx.fillStyle = '#1c1917';
+      ctx.fillRect(-21, -12 + tailWag * 0.5, 3, 4);
+
+      // Legs
+      ctx.fillStyle = pal.fur;
+      ctx.fillRect(-10 + legStride, -5, 4, 6);
+      ctx.fillRect(-4 - legStride, -5, 4, 6);
+      ctx.fillRect(4 + legStride, -5, 4, 6);
+      ctx.fillRect(9 - legStride, -5, 4, 6);
+      // Dark paw bars (signature real sand cat markings)
+      ctx.fillStyle = pal.stripe;
+      ctx.fillRect(-10 + legStride, -3, 4, 2);
+      ctx.fillRect(4 + legStride, -3, 4, 2);
+
+      // Slender desert cat torso
+      ctx.fillStyle = pal.fur;
+      ctx.fillRect(-11, -13, 22, 9);
+      ctx.fillStyle = pal.belly;
+      ctx.fillRect(-7, -7, 14, 4);
+      ctx.fillStyle = pal.stripe;
+      ctx.fillRect(-6, -12, 3, 4);
+      ctx.fillRect(0, -12, 3, 4);
+
+      // Head (dips down toward bones when eating!)
+      const hx = 8;
+      const hy = -18 + headDip;
+      ctx.fillStyle = pal.fur;
+      ctx.fillRect(hx, hy, 11, 10);
+      // Signature big wide sand-cat ears
+      ctx.fillRect(hx - 2, hy - 5, 5, 6);
+      ctx.fillRect(hx + 8, hy - 5, 5, 6);
+      ctx.fillStyle = pal.ear;
+      ctx.fillRect(hx - 1, hy - 3, 3, 3);
+      ctx.fillRect(hx + 9, hy - 3, 3, 3);
+      // Bright amber-green feline eyes
+      ctx.fillStyle = '#bef264';
+      ctx.fillRect(hx + 6, hy + 2, 3, 3);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(hx + 7, hy + 2, 1.5, 3);
+      // Cheek tear stripe & pink nose
+      ctx.fillStyle = pal.stripe;
+      ctx.fillRect(hx + 4, hy + 5, 3, 2);
+      ctx.fillStyle = pal.nose;
+      ctx.fillRect(hx + 10, hy + 5, 2, 2);
+    }
+
+    ctx.restore();
+  }
+
+  public renderSandCats(cats: SandCatWildlife[], camera: Camera, time: number) {
+    const ctx = this.ctx;
+    cats.forEach(cat => {
+      const sx = cat.x - camera.x;
+      const sy = cat.y - camera.y;
+      if (sx < -60 || sx > this.canvas.width + 60) return;
+
+      ctx.save();
+      ctx.translate(sx, sy);
+      this.drawSandCatSprite(
+        ctx,
+        cat.animTimer,
+        1.15,
+        cat.facing === 'left',
+        cat.variantIndex,
+        cat.isBaby,
+        cat.state
+      );
+
+      // Tiny floating Zzz when resting or crumb heart when eating
+      if (cat.state === 'rest') {
+        const floatY = (time * 12) % 14;
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.85)';
+        ctx.font = '700 8px "Silkscreen", monospace';
+        ctx.fillText('z', 10, -18 - floatY);
+      } else if (cat.state === 'eat' && Math.floor(time * 4) % 2 === 0) {
+        ctx.fillStyle = '#fca5a5';
+        ctx.fillRect(cat.facing === 'right' ? 14 : -18, -6, 3, 3);
+      }
+      ctx.restore();
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // WORLD 8: PECKERIN COAST (Ocean, Axe Stump, Falling Trees, Raft, Rocks, Sharks, Seagulls)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private renderCoastBackground(camera: Camera, time: number, _levelId: number = 36) {
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
+    // 1. Crisp Tropical Coastal Azure Sky
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
+    skyGrad.addColorStop(0, '#0369a1');
+    skyGrad.addColorStop(0.38, '#38bdf8');
+    skyGrad.addColorStop(0.72, '#bae6fd');
+    skyGrad.addColorStop(1, '#fef9c3');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    // 2. Bright Coastal Sun
+    const sunX = w * 0.22;
+    const sunY = 78;
+    ctx.fillStyle = 'rgba(254, 249, 195, 0.3)';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 64 + Math.sin(time * 1.8) * 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 30, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3. Fluffy Puffy Coastal Clouds (Parallax 0.1)
+    const cp = -(camera.x * 0.1 + time * 8) % 600;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    for (let x = cp - 600; x < w + 600; x += 300) {
+      ctx.fillRect(Math.round(x + 60), 66, 68, 16);
+      ctx.fillRect(Math.round(x + 74), 54, 38, 14);
+      ctx.fillRect(Math.round(x + 190), 104, 52, 14);
+      ctx.fillRect(Math.round(x + 202), 94, 28, 12);
+    }
+
+    // 4. Distant Sea Horizon, Islands & Coastal Lighthouse (Parallax 0.16)
+    const horizonY = h - 185;
+    const ip = -(camera.x * 0.16) % 860;
+    for (let x = ip - 860; x < w + 860; x += 860) {
+      // Distant volcanic island silhouette
+      ctx.fillStyle = '#0e7490';
+      ctx.beginPath();
+      ctx.moveTo(x + 100, horizonY);
+      ctx.quadraticCurveTo(x + 220, horizonY - 68, x + 360, horizonY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Lighthouse island
+      ctx.fillStyle = '#0f766e';
+      ctx.beginPath();
+      ctx.moveTo(x + 560, horizonY);
+      ctx.quadraticCurveTo(x + 640, horizonY - 36, x + 730, horizonY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Red & white striped lighthouse
+      const lx = Math.round(x + 635);
+      const ly = Math.round(horizonY - 28);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(lx, ly - 38, 14, 38);
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(lx, ly - 30, 14, 8);
+      ctx.fillRect(lx, ly - 14, 14, 8);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(lx - 2, ly - 44, 18, 6);
+      // Rotating golden lighthouse beam
+      const beamPulse = 0.22 + 0.18 * Math.sin(time * 2.4);
+      ctx.fillStyle = `rgba(254, 240, 138, ${beamPulse.toFixed(2)})`;
+      ctx.beginPath();
+      ctx.moveTo(lx + 7, ly - 41);
+      ctx.lineTo(lx + 115, ly - 65);
+      ctx.lineTo(lx + 115, ly - 24);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Distant ocean horizon sheen
+    const seaBack = ctx.createLinearGradient(0, horizonY, 0, h);
+    seaBack.addColorStop(0, '#0284c7');
+    seaBack.addColorStop(0.5, '#0369a1');
+    seaBack.addColorStop(1, '#0c4a6e');
+    ctx.fillStyle = seaBack;
+    ctx.fillRect(0, horizonY, w, h - horizonY);
+  }
+
+  public renderCoastalWater(
+    waterStartX: number,
+    waterLevelY: number,
+    worldWidth: number,
+    camera: Camera,
+    time: number
+  ) {
+    const ctx = this.ctx;
+    const startSX = Math.max(0, waterStartX - camera.x);
+    const endSX = Math.min(this.canvas.width, worldWidth - camera.x);
+    if (endSX <= startSX) return;
+
+    const topY = waterLevelY - camera.y;
+    const waterH = Math.max(0, this.canvas.height - topY + 40);
+
+    ctx.save();
+    // Main turquoise-to-deep-cobalt ocean body
+    const grad = ctx.createLinearGradient(0, topY, 0, this.canvas.height);
+    grad.addColorStop(0, 'rgba(14, 165, 233, 0.86)');
+    grad.addColorStop(0.28, 'rgba(2, 132, 199, 0.92)');
+    grad.addColorStop(0.7, 'rgba(3, 105, 161, 0.96)');
+    grad.addColorStop(1, 'rgba(12, 74, 110, 0.98)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(startSX, topY, endSX - startSX, waterH);
+
+    // Animated whitecap wave crest ribbon along water surface
+    ctx.fillStyle = '#e0f2fe';
+    for (let x = startSX; x < endSX; x += 22) {
+      const waveY = Math.sin((x + camera.x) * 0.045 + time * 4.2) * 3.5;
+      ctx.fillRect(Math.round(x), Math.round(topY + waveY - 2), 16, 4);
+    }
+
+    // Mid-depth glistening wave bands (visual cues for raft steering lanes!)
+    for (let row = 0; row < 3; row++) {
+      const rowY = topY + 26 + row * 28;
+      ctx.fillStyle = row === 1 ? 'rgba(125, 211, 252, 0.25)' : 'rgba(186, 230, 253, 0.18)';
+      for (let x = startSX - ((time * (28 + row * 10)) % 72); x < endSX; x += 72) {
+        if (x + 30 < startSX) continue;
+        const dx = Math.max(startSX, x);
+        ctx.fillRect(Math.round(dx), Math.round(rowY + Math.sin(time * 3 + x * 0.02) * 2), 30, 3);
+      }
+    }
+    ctx.restore();
+  }
+
+  public renderAxeStump(stump: AxeStump, camera: Camera, time: number) {
+    const ctx = this.ctx;
+    const sx = Math.round(stump.x - camera.x);
+    const sy = Math.round(stump.y - camera.y);
+    if (sx < -80 || sx > this.canvas.width + 80) return;
+
+    ctx.save();
+    // Wooden tree stump firmly rooted in beach sand
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(sx - 20, sy - 24, 40, 24);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(sx - 17, sy - 22, 34, 21);
+    ctx.fillStyle = '#92400e';
+    ctx.fillRect(sx - 12, sy - 21, 8, 19);
+    ctx.fillRect(sx + 4, sy - 21, 7, 19);
+    // Flared roots
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(sx - 25, sy - 6, 8, 6);
+    ctx.fillRect(sx + 17, sy - 6, 8, 6);
+    // Pale cut timber ring top
+    ctx.fillStyle = '#fde68a';
+    ctx.fillRect(sx - 18, sy - 26, 36, 5);
+    ctx.fillStyle = '#d97706';
+    ctx.fillRect(sx - 12, sy - 25, 24, 2);
+
+    // Embedded Woodcutter's Axe waiting to be picked up!
+    if (!stump.axeTaken) {
+      ctx.save();
+      ctx.translate(sx + 2, sy - 25);
+      ctx.rotate(-0.42);
+      // Steel blade stuck into stump
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(-10, -8, 14, 11);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(-9, -6, 11, 8);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-9, -2, 11, 3);
+      // Wooden axe handle angled upward
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(-2, -32, 5, 30);
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(-1, -31, 3, 28);
+      ctx.restore();
+
+      // Bobbing prompt badge
+      const bob = Math.sin(time * 5.5) * 4;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      ctx.fillRect(sx - 34, Math.round(sy - 74 + bob), 68, 18);
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx - 34, Math.round(sy - 74 + bob), 68, 18);
+      ctx.fillStyle = '#fde047';
+      ctx.font = '700 9px "Silkscreen", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('GRAB AXE!', sx, Math.round(sy - 62 + bob));
+    }
+    ctx.restore();
+  }
+
+  public renderChoppableTrees(trees: ChoppableTree[], camera: Camera, time: number) {
+    const ctx = this.ctx;
+    trees.forEach(tree => {
+      const sx = Math.round(tree.x - camera.x);
+      const sy = Math.round(tree.y - camera.y);
+      if (sx < -160 || sx > this.canvas.width + 160) return;
+
+      ctx.save();
+      // Always draw the remaining cut base stump
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(sx - 11, sy - 14, 22, 14);
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(sx - 8, sy - 13, 16, 12);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(sx - 9, sy - 15, 18, 3);
+
+      // Fading opacity once completely fallen
+      const alpha = tree.state === 'fallen' ? 0.52 : 1;
+      ctx.globalAlpha = alpha;
+
+      // Shake offset when struck by the axe
+      const shakeX = tree.shakeTimer > 0 ? Math.sin(time * 55) * 4 : 0;
+
+      // Pivot at trunk cut point so the entire tree falls realistically!
+      ctx.translate(sx + shakeX, sy - 12);
+      ctx.rotate(tree.fallAngle);
+
+      const trunkH = tree.height;
+      if (tree.variant === 'palm') {
+        // Segmented tropical palm trunk
+        for (let seg = 0; seg < trunkH; seg += 12) {
+          const curveX = Math.sin((seg / trunkH) * 1.4) * 8;
+          ctx.fillStyle = seg % 24 === 0 ? '#78350f' : '#92400e';
+          ctx.fillRect(Math.round(curveX - 7), -seg - 12, 14, 12);
+          ctx.fillStyle = '#b45309';
+          ctx.fillRect(Math.round(curveX - 4), -seg - 11, 5, 10);
+        }
+        const topX = Math.round(Math.sin(1.4) * 8);
+        const topY = -trunkH;
+        // Coconuts under crown
+        ctx.fillStyle = '#451a03';
+        ctx.fillRect(topX - 8, topY + 2, 7, 7);
+        ctx.fillRect(topX + 1, topY + 3, 7, 7);
+        // Lush sweeping palm fronds
+        const frondAngles = [-2.5, -1.9, -1.2, -0.5, 0.25, 0.85];
+        frondAngles.forEach((ang, idx) => {
+          ctx.save();
+          ctx.translate(topX, topY);
+          ctx.rotate(ang + Math.sin(time * 2.2 + idx) * 0.04);
+          ctx.fillStyle = idx % 2 === 0 ? '#15803d' : '#16a34a';
+          ctx.fillRect(0, -5, 42, 10);
+          ctx.fillStyle = '#4ade80';
+          ctx.fillRect(4, -3, 30, 4);
+          ctx.restore();
+        });
+      } else {
+        // Coastal Pine trunk & layered evergreen boughs
+        ctx.fillStyle = '#5c2d0c';
+        ctx.fillRect(-8, -trunkH, 16, trunkH);
+        ctx.fillStyle = '#78350f';
+        ctx.fillRect(-5, -trunkH, 6, trunkH);
+
+        const tiers = [
+          { y: -trunkH + 46, w: 68, h: 28, c: '#14532d' },
+          { y: -trunkH + 22, w: 54, h: 26, c: '#166534' },
+          { y: -trunkH - 2, w: 38, h: 24, c: '#15803d' },
+        ];
+        tiers.forEach(t => {
+          ctx.fillStyle = t.c;
+          ctx.beginPath();
+          ctx.moveTo(0, t.y - t.h);
+          ctx.lineTo(-t.w / 2, t.y);
+          ctx.lineTo(t.w / 2, t.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#22c55e';
+          ctx.fillRect(-t.w * 0.25, t.y - t.h * 0.45, t.w * 0.5, 4);
+        });
+      }
+
+      ctx.restore();
+
+      // Show crisp chop HP pips above standing trees that have been hit or are ready to chop
+      if (tree.state === 'standing' && tree.hp < tree.maxHp) {
+        ctx.save();
+        const barW = 36;
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(sx - barW / 2 - 2, sy - tree.height - 26, barW + 4, 8);
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(sx - barW / 2, sy - tree.height - 24, Math.round((tree.hp / tree.maxHp) * barW), 4);
+        ctx.restore();
+      }
+    });
+  }
+
+  public renderWoodLogs(logs: WoodLogPickup[], camera: Camera, time: number) {
+    const ctx = this.ctx;
+    logs.forEach(log => {
+      if (log.collected) return;
+      const sx = Math.round(log.x - camera.x);
+      const sy = Math.round(log.y - camera.y + Math.sin(time * 6 + log.x) * 2.5);
+      if (sx < -40 || sx > this.canvas.width + 40) return;
+
+      ctx.save();
+      // Golden glow aura so wood pickups pop on beach sand
+      ctx.fillStyle = 'rgba(253, 224, 71, 0.25)';
+      ctx.beginPath();
+      ctx.arc(sx, sy - 6, 16, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bundled wooden log sprite
+      ctx.fillStyle = '#451a03';
+      ctx.fillRect(sx - 13, sy - 11, 26, 11);
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(sx - 11, sy - 9, 22, 7);
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(sx - 10, sy - 8, 20, 3);
+      // Cut timber ends
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(sx + 8, sy - 9, 4, 7);
+      // Rope tie in center
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(sx - 2, sy - 11, 4, 11);
+      ctx.restore();
+    });
+  }
+
+  public renderCoastalRaft(
+    raft: CoastalRaft,
+    woodCount: number,
+    woodTarget: number,
+    camera: Camera,
+    time: number
+  ) {
+    const ctx = this.ctx;
+    const sx = Math.round(raft.x - camera.x);
+    const sy = Math.round(raft.y - camera.y);
+    if (sx + raft.width < -120 || sx > this.canvas.width + 120) return;
+
+    ctx.save();
+
+    if (raft.state === 'unbuilt') {
+      // Dashed glowing raft blueprint waiting on the beach!
+      const pulse = 0.55 + 0.35 * Math.sin(time * 4.5);
+      ctx.strokeStyle = `rgba(250, 204, 21, ${pulse.toFixed(2)})`;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 5]);
+      ctx.strokeRect(sx, sy, raft.width, raft.height);
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+      ctx.fillRect(sx - 12, sy - 38, raft.width + 24, 24);
+      ctx.strokeStyle = woodCount >= woodTarget ? '#4ade80' : '#facc15';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx - 12, sy - 38, raft.width + 24, 24);
+
+      ctx.fillStyle = woodCount >= woodTarget ? '#86efac' : '#fde047';
+      ctx.font = '700 9px "Silkscreen", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        woodCount >= woodTarget ? 'WALK HERE TO BUILD!' : `RAFT WOOD: ${woodCount}/${woodTarget}`,
+        sx + raft.width / 2,
+        sy - 23
+      );
+      ctx.restore();
+      return;
+    }
+
+    if (raft.state === 'building') {
+      // Partially assembled logs & construction progress bar
+      const planks = Math.max(1, Math.ceil(raft.buildProgress * 5));
+      for (let i = 0; i < planks; i++) {
+        ctx.fillStyle = i % 2 === 0 ? '#78350f' : '#92400e';
+        ctx.fillRect(sx + i * (raft.width / 5), sy + 2, raft.width / 5 - 1, raft.height - 2);
+      }
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(sx + 6, sy - 24, raft.width - 12, 10);
+      ctx.fillStyle = '#4ade80';
+      ctx.fillRect(sx + 8, sy - 22, Math.round((raft.width - 16) * raft.buildProgress), 6);
+      ctx.fillStyle = '#fef08a';
+      ctx.font = '700 9px "Silkscreen", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('BUILDING RAFT...', sx + raft.width / 2, sy - 30);
+      ctx.restore();
+      return;
+    }
+
+    // Built / Pushing / Sailing / Docked Wooden Raft!
+    const bob = raft.state === 'sailing' ? Math.sin(raft.bobPhase) * 3 : 0;
+    const hitFlash = raft.invulnTimer > 0 && Math.floor(time * 20) % 2 === 0;
+    const ry = Math.round(sy + bob);
+
+    if (hitFlash) {
+      ctx.filter = 'brightness(1.9)';
+    }
+
+    // Wooden mast & billowing cream sail
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(sx + raft.width * 0.48, ry - 52, 6, 54);
+    ctx.fillStyle = '#fef3c7';
+    ctx.beginPath();
+    ctx.moveTo(sx + raft.width * 0.54, ry - 48);
+    ctx.quadraticCurveTo(
+      sx + raft.width * 0.92 + Math.sin(time * 5) * 4,
+      ry - 30,
+      sx + raft.width * 0.54,
+      ry - 12
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#d97706';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Little crimson pennant flag at mast peak
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(sx + raft.width * 0.48 - 12, ry - 52, 12, 6);
+
+    // Lashed wooden log deck
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(sx - 2, ry - 1, raft.width + 4, raft.height + 4);
+    const logCount = 6;
+    const logW = raft.width / logCount;
+    for (let i = 0; i < logCount; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#92400e' : '#78350f';
+      ctx.fillRect(Math.round(sx + i * logW), ry + 1, Math.ceil(logW - 1), raft.height);
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(Math.round(sx + i * logW + 2), ry + 2, Math.max(2, Math.floor(logW - 5)), 4);
+    }
+    // Cross-beam lashings (ropes)
+    ctx.fillStyle = '#fde68a';
+    ctx.fillRect(sx + 4, ry + 5, raft.width - 8, 3);
+    ctx.fillRect(sx + 4, ry + raft.height - 6, raft.width - 8, 3);
+
+    // Progressive jagged damage cracks as rocks hit the raft!
+    const dmg = Math.max(0, raft.maxHealth - raft.health);
+    if (dmg > 0) {
+      ctx.strokeStyle = '#09090b';
+      ctx.lineWidth = 2;
+      for (let c = 0; c < dmg; c++) {
+        const cx = sx + 14 + c * 18;
+        ctx.beginPath();
+        ctx.moveTo(cx, ry + 2);
+        ctx.lineTo(cx + 5, ry + 10);
+        ctx.lineTo(cx - 2, ry + 18);
+        ctx.stroke();
+      }
+    }
+
+    // Wake foam trail behind sailing raft
+    if (raft.state === 'sailing') {
+      ctx.fillStyle = 'rgba(224, 242, 254, 0.8)';
+      ctx.fillRect(sx - 18, ry + raft.height - 4, 14, 4);
+      ctx.fillRect(sx - 30, ry + raft.height - 2, 10, 3);
+    }
+
+    ctx.filter = 'none';
+
+    // Action prompt when built on shore or being pushed
+    if (raft.state === 'built_on_shore' || raft.state === 'pushing') {
+      const bobText = Math.sin(time * 6) * 3;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      ctx.fillRect(sx - 14, Math.round(ry - 82 + bobText), raft.width + 28, 22);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx - 14, Math.round(ry - 82 + bobText), raft.width + 28, 22);
+      ctx.fillStyle = '#7dd3fc';
+      ctx.font = '700 9px "Silkscreen", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('PUSH RAFT RIGHT →', sx + raft.width / 2, Math.round(ry - 68 + bobText));
+    }
+
+    // Raft hull durability bar while sailing
+    if (raft.state === 'sailing') {
+      const barW = 76;
+      const bx = Math.round(sx + raft.width / 2 - barW / 2);
+      const by = Math.round(ry - 66);
+      const ratio = Math.max(0, raft.health / raft.maxHealth);
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      ctx.fillRect(bx - 2, by - 2, barW + 4, 10);
+      ctx.fillStyle = ratio > 0.5 ? '#22c55e' : ratio > 0.25 ? '#f59e0b' : '#ef4444';
+      ctx.fillRect(bx, by, Math.round(barW * ratio), 6);
+      ctx.fillStyle = '#e0f2fe';
+      ctx.font = '700 8px "Silkscreen", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`RAFT ${raft.health}/${raft.maxHealth}`, sx + raft.width / 2, by - 5);
+    }
+
+    ctx.restore();
+  }
+
+  public renderSeaRocks(rocks: SeaRock[], _waterLevelY: number, camera: Camera, time: number) {
+    const ctx = this.ctx;
+    rocks.forEach(rock => {
+      const sx = Math.round(rock.x - camera.x);
+      const sy = Math.round(rock.y - camera.y);
+      if (sx + rock.width < -60 || sx > this.canvas.width + 60) return;
+
+      ctx.save();
+      // Jagged dark coastal reef silhouette
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy + rock.height);
+      ctx.lineTo(sx + rock.width * 0.16, sy + rock.height * 0.25);
+      ctx.lineTo(sx + rock.width * 0.48, sy);
+      ctx.lineTo(sx + rock.width * 0.82, sy + rock.height * 0.28);
+      ctx.lineTo(sx + rock.width, sy + rock.height);
+      ctx.closePath();
+      ctx.fill();
+
+      // Sunlit slate rock facet
+      ctx.fillStyle = '#475569';
+      ctx.beginPath();
+      ctx.moveTo(sx + rock.width * 0.48, sy);
+      ctx.lineTo(sx + rock.width * 0.82, sy + rock.height * 0.28);
+      ctx.lineTo(sx + rock.width * 0.92, sy + rock.height);
+      ctx.lineTo(sx + rock.width * 0.44, sy + rock.height);
+      ctx.closePath();
+      ctx.fill();
+
+      // Barnacle specks & highlight ridge
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillRect(Math.round(sx + rock.width * 0.46), Math.round(sy + 4), 4, 8);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(Math.round(sx + rock.width * 0.28), Math.round(sy + rock.height - 9), 4, 3);
+      ctx.fillRect(Math.round(sx + rock.width * 0.65), Math.round(sy + rock.height - 11), 4, 3);
+
+      // Animated white sea surf foam crashing around rock base
+      const foamOffset = Math.sin(time * 5 + rock.foamPhase) * 3;
+      ctx.fillStyle = 'rgba(224, 242, 254, 0.88)';
+      ctx.fillRect(Math.round(sx - 6 + foamOffset), Math.round(sy + rock.height - 4), rock.width + 12, 5);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.round(sx + 2 - foamOffset), Math.round(sy + rock.height - 6), rock.width - 4, 3);
+      ctx.restore();
+    });
+  }
+
+  public drawSharkSprite(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    flipLeft: boolean = false,
+    variantIndex: number = 0,
+    isLunging: boolean = false
+  ) {
+    const palettes = [
+      { top: '#334155', mid: '#64748b', belly: '#f1f5f9', fin: '#1e293b' }, // Great Reef Grey
+      { top: '#1e3a8a', mid: '#3b82f6', belly: '#eff6ff', fin: '#172554' }, // Azure Mako
+      { top: '#3f3f46', mid: '#71717a', belly: '#e4e4e7', fin: '#18181b' }, // Tiger Steel
+      { top: '#0f172a', mid: '#334155', belly: '#e2e8f0', fin: '#020617' }, // Deep Trench Slate
+    ];
+    const pal = palettes[Math.abs(variantIndex) % palettes.length];
+    const tailSwish = Math.sin(animTime * (isLunging ? 15 : 6.5)) * 4;
+
+    ctx.save();
+    ctx.scale(flipLeft ? -scale : scale, scale);
+
+    // Sweeping shark caudal tail fin
+    ctx.fillStyle = pal.fin;
+    ctx.beginPath();
+    ctx.moveTo(-18, 0);
+    ctx.lineTo(-32, -13 + tailSwish);
+    ctx.lineTo(-26, 0);
+    ctx.lineTo(-30, 11 + tailSwish);
+    ctx.closePath();
+    ctx.fill();
+
+    // Sleek torpedo shark body
+    ctx.fillStyle = pal.top;
+    ctx.fillRect(-20, -10, 38, 12);
+    ctx.fillStyle = pal.mid;
+    ctx.fillRect(-16, -6, 36, 9);
+    // White underbelly
+    ctx.fillStyle = pal.belly;
+    ctx.fillRect(-14, 1, 32, 7);
+
+    // Iconic tall dorsal fin!
+    ctx.fillStyle = pal.fin;
+    ctx.beginPath();
+    ctx.moveTo(-4, -10);
+    ctx.lineTo(3, -24);
+    ctx.lineTo(10, -10);
+    ctx.closePath();
+    ctx.fill();
+
+    // Pectoral side fin
+    ctx.fillStyle = pal.fin;
+    ctx.beginPath();
+    ctx.moveTo(0, 4);
+    ctx.lineTo(-8, 15);
+    ctx.lineTo(8, 7);
+    ctx.closePath();
+    ctx.fill();
+
+    // Pointed snout & snapping toothed jaws
+    ctx.fillStyle = pal.top;
+    ctx.beginPath();
+    ctx.moveTo(16, -10);
+    ctx.lineTo(30, -2);
+    ctx.lineTo(16, 2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Gill slits
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(6, -4, 1.5, 6);
+    ctx.fillRect(9, -4, 1.5, 6);
+    ctx.fillRect(12, -4, 1.5, 6);
+
+    // Fierce predator eye
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(17, -6, 4, 4);
+    ctx.fillStyle = isLunging ? '#ef4444' : '#fde047';
+    ctx.fillRect(18, -5, 2, 2);
+
+    // Open crimson mouth & jagged white teeth when lunging!
+    const jawDrop = isLunging ? 8 : 3;
+    ctx.fillStyle = '#7f1d1d';
+    ctx.fillRect(14, 1, 13, jawDrop);
+    ctx.fillStyle = '#ffffff';
+    for (let t = 0; t < 4; t++) {
+      ctx.fillRect(15 + t * 3, 1, 2, 3);
+      if (isLunging) {
+        ctx.fillRect(16 + t * 3, 1 + jawDrop - 3, 2, 3);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  public renderSeaSharks(sharks: SeaShark[], camera: Camera, time: number) {
+    const ctx = this.ctx;
+    sharks.forEach(s => {
+      if (s.state === 'defeated') return;
+      const sx = Math.round(s.x - camera.x);
+      const sy = Math.round(s.y - camera.y);
+      if (sx < -100 || sx > this.canvas.width + 100) return;
+
+      ctx.save();
+      if (s.hurtTimer > 0 && Math.floor(time * 24) % 2 === 0) {
+        ctx.filter = 'brightness(2.2)';
+      }
+
+      if (s.state === 'stalking' || s.state === 'submerging') {
+        // Watching in the water: menacing dorsal fin slicing waves + glowing eyes under surface!
+        const dir = s.facing === 'right' ? 1 : -1;
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.scale(dir, 1);
+
+        // Submerged shadowy body under the surface
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.42)';
+        ctx.fillRect(-24, 4, 48, 12);
+        // Tall dorsal fin above water
+        ctx.fillStyle = '#1e293b';
+        ctx.beginPath();
+        ctx.moveTo(-9, 4);
+        ctx.lineTo(-1, -18);
+        ctx.lineTo(10, 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#475569';
+        ctx.beginPath();
+        ctx.moveTo(-1, -18);
+        ctx.lineTo(5, 4);
+        ctx.lineTo(10, 4);
+        ctx.closePath();
+        ctx.fill();
+        // Watching amber eye glint beneath wave
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(14, 6, 3, 2);
+        // Water ripple foam around fin
+        ctx.fillStyle = 'rgba(224, 242, 254, 0.85)';
+        ctx.fillRect(-16, 3, 30, 3);
+        ctx.restore();
+      } else if (s.state === 'telegraph') {
+        // Red bubbling warning ring right before shark bursts upward!
+        const pulse = 0.55 + 0.45 * Math.sin(time * 24);
+        ctx.strokeStyle = `rgba(239, 68, 68, ${pulse.toFixed(2)})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy + 2, 28, 9, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Fin shaking intensely
+        ctx.fillStyle = '#dc2626';
+        ctx.beginPath();
+        ctx.moveTo(sx - 9, sy + 4);
+        ctx.lineTo(sx, sy - 20);
+        ctx.lineTo(sx + 9, sy + 4);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#fef08a';
+        ctx.font = '700 9px "Silkscreen", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('! SHARK !', sx, sy - 26);
+      } else if (s.state === 'lunging') {
+        // Full ferocious shark breaching up out of the ocean!
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(s.facing === 'right' ? -0.42 : 0.42);
+        this.drawSharkSprite(ctx, s.animTimer, 1.05, s.facing === 'left', s.variantIndex, true);
+        ctx.restore();
+      }
+
+      ctx.restore();
+    });
+  }
+
+  public drawSeagullSprite(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    flipLeft: boolean = false,
+    variantIndex: number = 0,
+    activity: CoastalSeagull['state'] = 'flying',
+    hasFish: boolean = false
+  ) {
+    const palettes = [
+      { wing: '#cbd5e1', tip: '#1e293b', body: '#ffffff', beak: '#f59e0b' }, // Herring Pearl
+      { wing: '#94a3b8', tip: '#0f172a', body: '#f8fafc', beak: '#fb923c' }, // Harbor Slate
+      { wing: '#e2e8f0', tip: '#334155', body: '#ffffff', beak: '#facc15' }, // Snow Gull
+      { wing: '#a8a29e', tip: '#1c1917', body: '#fafaf9', beak: '#f97316' }, // Driftwood Gull
+    ];
+    const pal = palettes[Math.abs(variantIndex) % palettes.length];
+    const isPerched = activity === 'resting_on_raft';
+
+    ctx.save();
+    ctx.scale(flipLeft ? -scale : scale, scale);
+
+    if (isPerched) {
+      // Cute resting seagull perched with folded wings on the raft!
+      const headBob = Math.sin(animTime * 3) * 1;
+      // Thin orange seabird legs
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(-3, 2, 2, 7);
+      ctx.fillRect(2, 2, 2, 7);
+      ctx.fillRect(-4, 8, 4, 2);
+      ctx.fillRect(1, 8, 4, 2);
+      // Plump white body
+      ctx.fillStyle = pal.body;
+      ctx.fillRect(-10, -5, 18, 9);
+      // Folded grey wing with black tips
+      ctx.fillStyle = pal.wing;
+      ctx.fillRect(-9, -4, 13, 6);
+      ctx.fillStyle = pal.tip;
+      ctx.fillRect(-13, -3, 5, 4);
+      // Head & bright curious eye
+      ctx.fillStyle = pal.body;
+      ctx.fillRect(4, -12 + headBob, 9, 8);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(9, -10 + headBob, 2, 2);
+      // Golden beak
+      ctx.fillStyle = pal.beak;
+      ctx.fillRect(12, -9 + headBob, 6, 3);
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(15, -7 + headBob, 2, 1.5);
+    } else {
+      const flap = Math.sin(animTime * 9.5) * 9;
+      // Far wing
+      ctx.fillStyle = pal.wing;
+      ctx.beginPath();
+      ctx.moveTo(-2, -3);
+      ctx.lineTo(-14, -13 - flap * 0.8);
+      ctx.lineTo(4, -5 - flap * 0.3);
+      ctx.closePath();
+      ctx.fill();
+
+      // Tail
+      ctx.fillStyle = pal.body;
+      ctx.fillRect(-17, -2, 7, 4);
+      // Torso
+      ctx.fillStyle = pal.body;
+      ctx.fillRect(-11, -5, 20, 8);
+      // Head
+      ctx.fillStyle = pal.body;
+      ctx.fillRect(6, -8, 8, 7);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(10, -6, 2, 2);
+      // Beak
+      ctx.fillStyle = pal.beak;
+      ctx.fillRect(14, -6, 6, 3);
+
+      // Shimmering silver fish caught in beak!
+      if (hasFish) {
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(16, -3, 9, 4);
+        ctx.fillStyle = '#e0f2fe';
+        ctx.fillRect(18, -2, 5, 2);
+        ctx.fillStyle = '#0284c7';
+        ctx.fillRect(24, -4, 3, 6);
+      }
+
+      // Near graceful gull wing
+      ctx.fillStyle = pal.wing;
+      ctx.beginPath();
+      ctx.moveTo(-4, -2);
+      ctx.lineTo(-15, -14 + flap);
+      ctx.lineTo(5, -6 + flap * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = pal.tip;
+      ctx.fillRect(-15, -14 + flap, 5, 3);
+    }
+
+    ctx.restore();
+  }
+
+  public renderCoastalSeagulls(seagulls: CoastalSeagull[], camera: Camera, time: number) {
+    const ctx = this.ctx;
+    seagulls.forEach(g => {
+      const sx = Math.round(g.x - camera.x);
+      const sy = Math.round(g.y - camera.y);
+      if (sx < -80 || sx > this.canvas.width + 80) return;
+
+      ctx.save();
+      ctx.translate(sx, sy);
+      if (g.state === 'diving_fish') {
+        ctx.rotate(g.facing === 'right' ? 0.45 : -0.45);
+      }
+      this.drawSeagullSprite(
+        ctx,
+        g.animTimer + time * 0.2,
+        1.05,
+        g.facing === 'left',
+        g.variantIndex,
+        g.state,
+        g.hasFish
+      );
+      ctx.restore();
+    });
   }
 }
 

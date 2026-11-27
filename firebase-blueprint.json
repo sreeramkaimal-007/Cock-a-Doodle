@@ -19,7 +19,7 @@
         },
         "unlockedLevel": {
           "type": "number",
-          "description": "Highest unlocked level number from 1 to 30."
+          "description": "Highest unlocked level number from 1 to 40."
         },
         "totalCoins": {
           "type": "number",

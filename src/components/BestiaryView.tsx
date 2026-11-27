@@ -330,6 +330,30 @@ const BestiarySpriteCanvas: React.FC<{
         if (flipped) ctx.scale(-1, 1);
         renderer.drawLadybugSprite(ctx, time, scale, colorVariantIndex);
         ctx.restore();
+      } else if (entryId === 'falcon') {
+        const scale = variant === 'hero' ? 2.85 : 0.9;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 4 : 1));
+        renderer.drawFalconSprite(ctx, 54, 36, flipped, time * 1.1, scale, colorVariantIndex, false);
+        ctx.restore();
+      } else if (entryId === 'shark') {
+        const scale = variant === 'hero' ? 2.75 : 0.86;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 6 : 2));
+        renderer.drawSharkSprite(ctx, time * 1.15, scale, flipped, colorVariantIndex, true);
+        ctx.restore();
+      } else if (entryId === 'sand_cat') {
+        const scale = variant === 'hero' ? (isBaby ? 3.5 : 3.2) : 1.0;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 26 : 8));
+        renderer.drawSandCatSprite(ctx, time * 1.2, scale, flipped, colorVariantIndex, isBaby, 'walk');
+        ctx.restore();
+      } else if (entryId === 'seagull') {
+        const scale = variant === 'hero' ? 3.2 : 1.0;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 8 : 2));
+        renderer.drawSeagullSprite(ctx, time * 1.15, scale, flipped, colorVariantIndex, 'carrying_fish', true);
+        ctx.restore();
       }
 
       // Apply clean dark shadow silhouette for unencountered entries
@@ -505,6 +529,18 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
       case 'hare':
         audio.playWildlifeChime('hare');
         break;
+      case 'falcon':
+        audio.playFalconScreech();
+        break;
+      case 'shark':
+        audio.playSharkLunge();
+        break;
+      case 'sand_cat':
+        audio.playWildlifeChime('sand_cat');
+        break;
+      case 'seagull':
+        audio.playWildlifeChime('seagull');
+        break;
       default:
         audio.playWildlifeChime('insect');
         break;
@@ -518,6 +554,8 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
     else if (selectedEntry.id === 'fox') audio.playEnemyStep('fox', 1.0, 'jungle');
     else if (selectedEntry.id === 'snake') audio.playEnemyStep('snake', 1.0, 'jungle');
     else if (selectedEntry.id === 'bear') audio.playEnemyStep('bear', 1.0, 'snow');
+    else if (selectedEntry.id === 'falcon') audio.playFalconScreech();
+    else if (selectedEntry.id === 'shark') audio.playSharkLunge();
     else if (selectedEntry.id === 'farmer') audio.playFarmerStep(farmerPose === 'lunge', 1.0);
     else if (selectedEntry.id === 'cockatrice') audio.playBossStep(true, 1.0);
   };

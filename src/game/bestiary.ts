@@ -5,6 +5,8 @@ export type BestiaryEntryId =
   | 'fox'
   | 'snake'
   | 'bear'
+  | 'falcon'
+  | 'shark'
   | 'farmer'
   | 'cockatrice'
   | 'volcano'
@@ -13,6 +15,8 @@ export type BestiaryEntryId =
   | 'sheep'
   | 'monkey'
   | 'hare'
+  | 'sand_cat'
+  | 'seagull'
   | 'butterfly'
   | 'dragonfly'
   | 'honeybee'
@@ -583,6 +587,138 @@ export const BESTIARY_ENTRIES: BestiaryEntry[] = [
       { name: 'Harlequin Orange', swatch: '#f97316' },
     ],
   },
+  {
+    id: 'falcon',
+    name: 'Desert Falcon',
+    scientificName: 'Falco cherrug arenarius',
+    subtitle: 'Skybound Shield-Snatching Raptor',
+    category: 'creature',
+    firstSeenLevel: 31,
+    habitat: 'World 7 · the Desert lands',
+    threatRank: 'HIGH SKY THREAT',
+    hpLabel: '4 HP',
+    damageLabel: '1.5 Hearts',
+    speedLabel: 'Blazing Swoop',
+    biomes: ['the Desert lands', 'Sunscorch Dunes', 'Mirage Citadel Pass'],
+    behavior: 'Soars high across desert thermals watching for prey, screeches as it locks on, then dives low with curved talons to snatch travelers from the sand.',
+    weakness: 'Pressing Down Arrow (or S) to crouch ducks cleanly beneath its swooping claws—or slash upward as it pulls out of a dive.',
+    specialAbility: 'Shield Snatch — ambushed you on arrival in the Desert Lands and flew off with your Royal Shield, forcing shieldless travel across the dunes.',
+    scaleClass: 'Medium Aerial Raptor',
+    dangerRating: 4,
+    lore: 'Crowned kings of the blistering Desert Lands, these keen-eyed raptors spot shiny armor from miles aloft. Known for disarming travelers before hunting them down, one brazen falcon swooped right out of the sun to steal your Royal Shield!',
+    combatTip: 'Watch the crimson swoop line and listen for its shrill desert screech—hold Down Arrow (▼) or S to crouch low until its talons pass harmlessly overhead.',
+    discoveryHint: 'Reach World 7 (the Desert lands) at Stage 31 to encounter the Desert Falcon.',
+    backdropGradient: 'linear-gradient(180deg, #b45309 0%, #f59e0b 55%, #fde68a 100%)',
+    groundColor: '#d97706',
+    groundTrimColor: '#fbbf24',
+    accentColor: '#f59e0b',
+    trackDefeats: true,
+    colorVariants: [
+      { name: 'Golden Saker', swatch: '#d97706' },
+      { name: 'Dune Peregrine', swatch: '#64748b' },
+      { name: 'Mirage Tawny', swatch: '#b45309' },
+      { name: 'Suncrest Rust', swatch: '#c2410c' },
+    ],
+  },
+  {
+    id: 'shark',
+    name: 'Coastal Shark',
+    scientificName: 'Carcharhinus peckerini',
+    subtitle: 'Stalking Reef & Open-Sea Predator',
+    category: 'creature',
+    firstSeenLevel: 36,
+    habitat: 'World 8 · Peckerin Coast',
+    threatRank: 'APEX SEA THREAT',
+    hpLabel: '5 HP',
+    damageLabel: '1.5 Hearts',
+    speedLabel: 'Swift Lunge',
+    biomes: ['Peckerin Coast', 'Barnacle Reef', 'Sharkfin Strait'],
+    behavior: 'Glides silently beneath ocean swells with only its slicing dorsal fin visible, watching passing rafts before boiling the waves and lunging upward with snapping jaws.',
+    weakness: 'Steer your wooden raft into another wave lane (▲ / ▼) when bubbles churn beneath you, or slash its snout with your blade mid-lunge!',
+    specialAbility: 'Tidal Ambush — watches rafts patiently from below, then launches straight out of the surf to bite both sailor and timber.',
+    scaleClass: 'Large Marine Predator',
+    dangerRating: 4,
+    lore: 'Feared by every seafaring bird along Peckerin Coast, these tireless reef sharks shadow freshly launched rafts through jagged sea rock channels, waiting for splintered hulls or unwary captains.',
+    combatTip: 'Keep an eye on patrolling dorsal fins and foaming warning rings—steer clear with Up/Down arrows or counter-slash with X/K right as it breaches!',
+    discoveryHint: 'Build and launch your raft in World 8 (Peckerin Coast) at Stage 36 to encounter Coastal Sharks.',
+    backdropGradient: 'linear-gradient(180deg, #0369a1 0%, #0284c7 52%, #0c4a6e 100%)',
+    groundColor: '#0c4a6e',
+    groundTrimColor: '#38bdf8',
+    accentColor: '#0284c7',
+    trackDefeats: true,
+    colorVariants: [
+      { name: 'Reef Slate', swatch: '#475569' },
+      { name: 'Great Azure', swatch: '#1d4ed8' },
+      { name: 'Tiger Sandbar', swatch: '#6b7280' },
+      { name: 'Deep Abyssal', swatch: '#1e293b' },
+    ],
+  },
+  {
+    id: 'sand_cat',
+    name: 'Desert Sand Cat',
+    scientificName: 'Felis margarita',
+    subtitle: 'Peaceful Dune Prowler & Kitten',
+    category: 'wildlife',
+    firstSeenLevel: 31,
+    habitat: 'World 7 · the Desert lands',
+    threatRank: 'PEACEFUL WILDLIFE',
+    hpLabel: 'Friendly',
+    damageLabel: 'Harmless',
+    speedLabel: 'Gentle Prowl',
+    biomes: ['the Desert lands', 'Oasis Bone Trail', 'Sandstone Canyon'],
+    behavior: 'Prowls softly across scorching dunes on fur-padded paws, curls up in sunny sand hollows to nap, and nibbles leftover scraps of meat found clinging to ancient desert bones.',
+    weakness: 'Harmless wildcat—pause to watch adults and tiny baby Sand Kittens rest or snack beside sun-bleached bones.',
+    specialAbility: 'Desert Adaptation — furry paw soles shield them from burning sand while oversized ears listen for movement across the dunes.',
+    scaleClass: 'Small Desert Feline',
+    dangerRating: 0,
+    lore: 'Small, wide-eared wildcats native to the Desert Lands. Unbothered by passing hero chickens, sand cat families wander between sandstone outcrops—resting in the warmth or sharing leftover meat scraps found among weathered desert bones.',
+    combatTip: 'Completely peaceful! Toggle the Baby preview above to inspect the adorable fluffy Sand Kitten variant seen trotting beside its parents.',
+    discoveryHint: 'Explore World 7 (the Desert lands) at Stage 31 to spot Sand Cats and their kittens.',
+    backdropGradient: 'linear-gradient(180deg, #d97706 0%, #f59e0b 52%, #fef3c7 100%)',
+    groundColor: '#c2782d',
+    groundTrimColor: '#fcd34d',
+    accentColor: '#f59e0b',
+    trackDefeats: false,
+    hasBabyForm: true,
+    babyName: 'Sand Kitten',
+    colorVariants: [
+      { name: 'Sahara Cream', swatch: '#eab308' },
+      { name: 'Dune Buff', swatch: '#d6a96a' },
+      { name: 'Canyon Russet', swatch: '#c2783e' },
+    ],
+  },
+  {
+    id: 'seagull',
+    name: 'Coastal Seagull',
+    scientificName: 'Larus peckerinus',
+    subtitle: 'Innocent Sea-Skimming Companion',
+    category: 'wildlife',
+    firstSeenLevel: 36,
+    habitat: 'World 8 · Peckerin Coast',
+    threatRank: 'PEACEFUL WILDLIFE',
+    hpLabel: 'Friendly',
+    damageLabel: 'Harmless',
+    speedLabel: 'Breezy Glide',
+    biomes: ['Peckerin Coast', 'Driftwood Cove', 'Peckerin Horizon'],
+    behavior: 'Soars gracefully on sea breezes, plunges into turquoise waves to catch shimmering silver fish in its beak, and even swoops down to perch and rest right on your wooden raft before flying away.',
+    weakness: 'Gentle coastal bird—sail smoothly and gulls will happily hitch a short ride on your raft.',
+    specialAbility: 'Surf Fisher & Raft Percher — dives cleanly for fish mid-flight and recognizes friendly bird captains crossing the sea.',
+    scaleClass: 'Medium Coastal Seabird',
+    dangerRating: 0,
+    lore: 'Cheerful white-and-slate seabirds that fill the skies of Peckerin Coast with bright calls. Innocent and curious, they skim the surf hunting fish and often fold their wings to rest right alongside you on your raft mid-voyage.',
+    combatTip: 'Harmless ocean friend! While sailing Peckerin Coast, watch for seagulls swooping down to catch fish or hopping onto your raft for a breather.',
+    discoveryHint: 'Visit World 8 (Peckerin Coast) at Stage 36 to watch Seagulls fishing and resting on your raft.',
+    backdropGradient: 'linear-gradient(180deg, #0284c7 0%, #38bdf8 55%, #e0f2fe 100%)',
+    groundColor: '#0369a1',
+    groundTrimColor: '#bae6fd',
+    accentColor: '#38bdf8',
+    trackDefeats: false,
+    colorVariants: [
+      { name: 'Silver Herring', swatch: '#e2e8f0' },
+      { name: 'Harbor Slate', swatch: '#94a3b8' },
+      { name: 'Sunlit Ivory', swatch: '#fef9c3' },
+    ],
+  },
 ];
 
 const VALID_IDS = new Set<string>(BESTIARY_ENTRIES.map(e => e.id));
@@ -619,7 +755,7 @@ export function getEncounteredBestiarySet(saveData: SaveData): Set<BestiaryEntry
     }
 
     if (
-      completedGame ||
+      (completedGame && entry.firstSeenLevel <= 30) ||
       unlockedLevel > entry.firstSeenLevel ||
       (entry.firstSeenLevel === 1 && saveData.hasSeenIntro)
     ) {

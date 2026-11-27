@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GameEngine } from './game/engine';
 import { GameRenderer } from './game/renderer';
-import { GameScreen, SaveData, GrowthStage, ChickenGender, ChickenSkinId, BadgeItem } from './game/types';
+import { GameScreen, SaveData, GrowthStage, ChickenGender, ChickenSkinId, BadgeItem, EmoteId } from './game/types';
 import { loadSaveData, saveSaveData, clearSaveData } from './game/storage';
 import { audio } from './game/audio';
 import {
@@ -14,6 +14,7 @@ import {
 } from './game/admob';
 import { LEVELS } from './game/levels';
 import { getBadgesWithStatus } from './game/quests';
+import { EMOTES, getNewlyUnlockedEmotes, getUnlockedEmotes, isEmoteUnlocked } from './game/emotes';
 import { GameHUD } from './components/GameHUD';
 import { GameModals } from './components/GameModals';
 import { TouchControls } from './components/TouchControls';
@@ -44,6 +45,10 @@ export default function App() {
   const [playerFireResistTimer, setPlayerFireResistTimer] = useState<number>(0);
   const [playerPoisonTimer, setPlayerPoisonTimer] = useState<number>(0);
   const [playerPoisonMaxDuration, setPlayerPoisonMaxDuration] = useState<number>(0);
+  const [emoteTrayOpen, setEmoteTrayOpen] = useState<boolean>(false);
+  const [activePlayerEmote, setActivePlayerEmote] = useState<EmoteId | null>(null);
+  const [playerOnRaft, setPlayerOnRaft] = useState<boolean>(false);
+  const [activeHasShield, setActiveHasShield] = useState<boolean>(false);
   const [showTouchControls, setShowTouchControls] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024;
@@ -442,15 +447,15 @@ export default function App() {
       );
       if (isBossNormalized) {
         // "when we defeat the boss the music changes into the same music from level 1"
-        audio.playMusic('coop');
+        audio.playMusic('coop', 1.2);
       } else {
-        audio.playMusic('boss');
+        audio.playMusic('boss', 0.85);
       }
     } else if (levelId === 6) {
       // "Dont change the level music at level 6 just make it the same"
-      audio.playMusic('coop');
+      audio.playMusic('coop', 0.95);
     } else {
-      audio.playMusic(level.theme);
+      audio.playMusic(level.theme, 0.95);
     }
   }, []);
 
@@ -526,7 +531,7 @@ export default function App() {
         },
         onLevelClear: (completedLevelId, earnedCoins) => {
           updateSaveData(prev => {
-            const nextLvl = Math.min(30, Math.max(prev.unlockedLevel, completedLevelId + 1));
+            const nextLvl = Math.min(40, Math.max(prev.unlockedLevel, completedLevelId + 1));
             return {
               ...prev,
               unlockedLevel: nextLvl,
@@ -556,7 +561,7 @@ export default function App() {
           }
         },
         onEvolution: (stage) => {
-          const nextLvl = Math.min(30, levelId + 1);
+          const nextLvl = Math.min(40, levelId + 1);
           setActiveLevelId(nextLvl);
           setEvolutionStage(stage);
           audio.playEvolution();
@@ -577,11 +582,12 @@ export default function App() {
         onVictory: (earnedCoins) => {
           updateSaveData(prev => ({
             ...prev,
+            unlockedLevel: Math.min(40, Math.max(prev.unlockedLevel, levelId + 1)),
             totalCoins: prev.totalCoins + earnedCoins,
             hasCompletedGame: true,
           }));
           setCoinsEarned(earnedCoins);
-          if (levelId >= 30) {
+          if (levelId === 30) {
             endingProgressRef.current = 0;
             setScreen('ENDING_CINEMATIC');
           } else {
@@ -652,6 +658,8 @@ export default function App() {
     setCoinsEarned(0);
     setPlayerHealth(engineRef.current.player.health);
     setPlayerStage(engineRef.current.player.stage);
+    setPlayerOnRaft(Boolean(engineRef.current.player.onRaft));
+    setActiveHasShield(Boolean(engineRef.current.hasShield));
     updateMusicForLevel(levelId);
   }, [updateSaveData, updateMusicForLevel]);
 
@@ -743,9 +751,8 @@ export default function App() {
     }
 
     const nextLvl = activeLevelId + 1;
-    if (nextLvl > 30) {
-      endingProgressRef.current = 0;
-      setScreen('ENDING_CINEMATIC');
+    if (nextLvl > 40) {
+      setScreen('VICTORY');
     } else if (nextLvl === 10) {
       setActiveLevelId(10);
       setEvolutionStage('juvenile');
@@ -888,6 +895,16 @@ export default function App() {
         nextShield = true;
       }
 
+      const prevPurchases = prev.stats?.shopPurchases || 0;
+      const nextPurchases = prevPurchases + 1;
+      const newlyUnlocked = getNewlyUnlockedEmotes(prevPurchases, nextPurchases);
+      const nextUnlockedEmotes = Array.from(
+        new Set([...(prev.unlockedEmotes || ['squawk']), ...newlyUnlocked.map(e => e.id)])
+      ) as EmoteId[];
+      if (newlyUnlocked.length > 0) {
+        audio.playBadgeUnlock();
+      }
+
       return {
         ...prev,
         totalCoins: nextCoins,
@@ -895,9 +912,10 @@ export default function App() {
         armor: nextArmor,
         sword: nextSword,
         hasShield: nextShield,
+        unlockedEmotes: nextUnlockedEmotes,
         stats: {
           ...prev.stats,
-          shopPurchases: (prev.stats?.shopPurchases || 0) + 1,
+          shopPurchases: nextPurchases,
         }
       };
     });
@@ -945,14 +963,24 @@ export default function App() {
       const currentUnlocked = (prev.unlockedSkins || ['classic']) as ChickenSkinId[];
       const typedSkin = skinId as ChickenSkinId;
       const nextUnlocked = currentUnlocked.includes(typedSkin) ? currentUnlocked : [...currentUnlocked, typedSkin];
+      const prevPurchases = prev.stats?.shopPurchases || 0;
+      const nextPurchases = prevPurchases + 1;
+      const newlyUnlocked = getNewlyUnlockedEmotes(prevPurchases, nextPurchases);
+      const nextUnlockedEmotes = Array.from(
+        new Set([...(prev.unlockedEmotes || ['squawk']), ...newlyUnlocked.map(e => e.id)])
+      ) as EmoteId[];
+      if (newlyUnlocked.length > 0) {
+        audio.playBadgeUnlock();
+      }
       return {
         ...prev,
         totalCoins: prev.totalCoins - cost,
         unlockedSkins: nextUnlocked,
         selectedSkin: typedSkin,
+        unlockedEmotes: nextUnlockedEmotes,
         stats: {
           ...prev.stats,
-          shopPurchases: (prev.stats?.shopPurchases || 0) + 1,
+          shopPurchases: nextPurchases,
         }
       };
     });
@@ -997,10 +1025,9 @@ export default function App() {
     }
   }, [updateSaveData]);
 
-  // Centralized screen music manager:
-  // - "when we pause the game or go to main menu or settings there will be waiting music"
-  // - "and when it plays the cutscene the music changes into victory music"
-  // - "and then when we continue the game the music will change into the exact same music from the levels we are procressing"
+  // Centralized dynamic music manager:
+  // Smoothly crossfades between biome-specific ambient tracks (menus, pause, shop, world transitions)
+  // and full level/boss/victory scores based on the player's current biome and progression.
   useEffect(() => {
     if (
       screen === 'MENU' ||
@@ -1016,16 +1043,28 @@ export default function App() {
       screen === 'WORLD_LOADING' ||
       screen === 'RESTART_LOADING'
     ) {
-      audio.playMusic('waiting');
+      const contextLevelId =
+        screen === 'MENU'
+          ? (activeLevelId > 1 ? activeLevelId : Math.min(40, saveData.unlockedLevel || 1))
+          : activeLevelId;
+      const contextLevel = LEVELS.find(l => l.id === contextLevelId) || LEVELS[0];
+      const isBossDefeatedInSession = Boolean(
+        contextLevel.id === 30 && engineRef.current?.level.cockatrice?.state === 'defeated'
+      );
+      const isRestoredRealm = Boolean(saveData.hasCompletedGame || isBossDefeatedInSession);
+      const fadeDuration = screen === 'WORLD_LOADING' ? 1.6 : screen === 'PAUSED' ? 0.95 : 1.3;
+      audio.playBiomeAmbient(contextLevel.theme, isRestoredRealm, fadeDuration);
     } else if (screen === 'PLAYING') {
       updateMusicForLevel(activeLevelId);
     } else if (screen === 'ENDING_CINEMATIC' || screen === 'VICTORY') {
-      audio.playMusic('victory');
+      audio.playMusic('victory', 1.15);
     } else if (screen === 'INTRO_CINEMATIC' || screen === 'DEATH_LOADING') {
-      audio.stopMusic();
+      audio.stopMusic(0.35);
     }
+  }, [screen, activeLevelId, saveData.unlockedLevel, saveData.hasCompletedGame, updateMusicForLevel]);
 
-    // Trigger AdMob popup interstitial only when reaching in-game achievements (never on losing a life)
+  // Trigger AdMob popup interstitial only when reaching in-game achievements (never on losing a life)
+  useEffect(() => {
     if (screen === 'LEVEL_CLEAR') {
       void showAdMobInterstitial({
         reason: 'achievement_level_clear',
@@ -1051,7 +1090,7 @@ export default function App() {
         subtitle: 'Grand Victory Achievement Unlocked',
       });
     }
-  }, [screen, activeLevelId, updateMusicForLevel]);
+  }, [screen, activeLevelId]);
 
   // Initialize native AdMob bridge, keep banners hidden, and subscribe to interstitial popups
   useEffect(() => {
@@ -1060,7 +1099,7 @@ export default function App() {
     const unsubscribe = subscribeAdMobInterstitial((request) => {
       if (engineRef.current) {
         engineRef.current.isPaused = true;
-        engineRef.current.setInput({ left: false, right: false, jump: false, attack: false, block: false });
+        engineRef.current.setInput({ left: false, right: false, jump: false, attack: false, block: false, down: false });
       }
       setActiveAdMobRequest(request);
     });
@@ -1086,9 +1125,10 @@ export default function App() {
       const right = keysHeld.has('keyd') || keysHeld.has('arrowright') || keysHeld.has('d');
       const jump = keysHeld.has('space') || keysHeld.has('keyw') || keysHeld.has('arrowup') || keysHeld.has('w') || keysHeld.has(' ');
       const attack = keysHeld.has('keyx') || keysHeld.has('keyk') || keysHeld.has('x') || keysHeld.has('k');
-      const block = keysHeld.has('keyc') || keysHeld.has('arrowdown') || keysHeld.has('keys') || keysHeld.has('c') || keysHeld.has('s') || keysHeld.has('shiftleft') || keysHeld.has('shiftright') || keysHeld.has('shift');
+      const down = keysHeld.has('arrowdown') || keysHeld.has('keys') || keysHeld.has('s');
+      const block = keysHeld.has('keyc') || keysHeld.has('c') || keysHeld.has('shiftleft') || keysHeld.has('shiftright') || keysHeld.has('shift') || down;
 
-      engineRef.current.setInput({ left, right, jump, attack, block });
+      engineRef.current.setInput({ left, right, jump, attack, block, down });
     };
 
     const isFormField = (target: EventTarget | null): boolean => {
@@ -1147,6 +1187,27 @@ export default function App() {
         return;
       }
 
+      if ((code === 'keyt' || key === 't') && screen === 'PLAYING') {
+        e.preventDefault();
+        setEmoteTrayOpen(prev => !prev);
+        return;
+      }
+
+      if (screen === 'PLAYING' && ['1', '2', '3', '4', '5', '6'].includes(key)) {
+        const emoteIndex = Number(key) - 1;
+        const targetEmote = EMOTES[emoteIndex];
+        if (targetEmote) {
+          e.preventDefault();
+          if (isEmoteUnlocked(targetEmote.id, saveData)) {
+            engineRef.current?.triggerEmote(targetEmote.id);
+            setActivePlayerEmote(targetEmote.id);
+          } else {
+            audio.playHurt();
+          }
+          return;
+        }
+      }
+
       if (screen === 'PLAYING') {
         if (
           code === 'keya' || code === 'arrowleft' || key === 'a' || key === 'arrowleft' ||
@@ -1180,7 +1241,7 @@ export default function App() {
     const handleBlur = () => {
       keysHeld.clear();
       if (engineRef.current) {
-        engineRef.current.setInput({ left: false, right: false, jump: false, attack: false, block: false });
+        engineRef.current.setInput({ left: false, right: false, jump: false, attack: false, block: false, down: false });
       }
     };
 
@@ -1192,10 +1253,21 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [screen, handleStartGame, handleRestartLevel, hasGameAccess, saveData.hasCompletedGame, saveData.shopClosedUntil]);
+  }, [screen, handleStartGame, handleRestartLevel, hasGameAccess, saveData]);
+
+  // Trigger an unlocked player pixel emote in the game world
+  const handleTriggerEmote = useCallback((emoteId: EmoteId) => {
+    if (screen !== 'PLAYING' || !engineRef.current) return;
+    if (!isEmoteUnlocked(emoteId, saveData)) {
+      audio.playHurt();
+      return;
+    }
+    engineRef.current.triggerEmote(emoteId);
+    setActivePlayerEmote(emoteId);
+  }, [screen, saveData]);
 
   // Touch controls input bridge
-  const handleTouchInput = useCallback((controls: { left?: boolean; right?: boolean; jump?: boolean; attack?: boolean; block?: boolean }) => {
+  const handleTouchInput = useCallback((controls: { left?: boolean; right?: boolean; jump?: boolean; attack?: boolean; block?: boolean; down?: boolean }) => {
     if (engineRef.current && screen === 'PLAYING' && !activeAdMobRef.current) {
       engineRef.current.setInput(controls);
     }
@@ -1301,9 +1373,54 @@ export default function App() {
         // Coins
         engine.level.coins.forEach(c => renderer.renderCoin(c, engine.camera, engine.time));
 
-        // Enemies (biome-authentic coat variants: no Arctic White in grass/jungle; Arctic White + regular only in snowy)
+        // Enemies (biome-authentic coat variants; Level 30 Cockatrice lair enemies appear infected in red & black)
         if (engine.level.enemies) {
-          engine.level.enemies.forEach(e => renderer.renderEnemy(e, engine.camera, engine.level.theme));
+          engine.level.enemies.forEach(e => renderer.renderEnemy(e, engine.camera, engine.level.theme, engine.level.id));
+        }
+
+        // World 8: Peckerin Coast Ocean Water (rendered before sea rocks, sharks, raft & player)
+        if (engine.level.theme === 'coast' && engine.level.waterStartX !== undefined && engine.level.waterLevelY !== undefined) {
+          renderer.renderCoastalWater(
+            engine.level.waterStartX,
+            engine.level.waterLevelY,
+            engine.level.worldWidth,
+            engine.camera,
+            engine.time
+          );
+        }
+
+        // World 8: Coastal Axe Stump, Choppable Trees, Wood Logs, Sea Rocks, Sharks & Wooden Raft
+        if (engine.level.axeStump) {
+          renderer.renderAxeStump(engine.level.axeStump, engine.camera, engine.time);
+        }
+        if (engine.level.choppableTrees) {
+          renderer.renderChoppableTrees(engine.level.choppableTrees, engine.camera, engine.time);
+        }
+        if (engine.level.woodLogs) {
+          renderer.renderWoodLogs(engine.level.woodLogs, engine.camera, engine.time);
+        }
+        if (engine.level.seaRocks && engine.level.waterLevelY !== undefined) {
+          renderer.renderSeaRocks(engine.level.seaRocks, engine.level.waterLevelY, engine.camera, engine.time);
+        }
+        if (engine.level.sharks) {
+          renderer.renderSeaSharks(engine.level.sharks, engine.camera, engine.time);
+        }
+        if (engine.level.raft) {
+          renderer.renderCoastalRaft(
+            engine.level.raft,
+            engine.player.woodCount || 0,
+            engine.player.woodTarget || engine.level.woodTarget || 3,
+            engine.camera,
+            engine.time
+          );
+        }
+
+        // World 7: Desert Bones with leftover meat & Peaceful Sand Cats (Adults & Kittens)
+        if (engine.level.desertBones) {
+          renderer.renderDesertBones(engine.level.desertBones, engine.camera);
+        }
+        if (engine.level.sandCats) {
+          renderer.renderSandCats(engine.level.sandCats, engine.camera, engine.time);
         }
 
         // Mini-Boss: Old Farmer Jed (Level 1 baby peck encounter & adult rematch)
@@ -1311,8 +1428,21 @@ export default function App() {
           renderer.renderFarmer(engine.level.farmer, engine.camera, engine.time);
         }
 
-        // Player Chick with armor, sword, and equipped appearance skin
+        // Player Chick with armor, sword, crouch tuck, held axe, and equipped appearance skin
         renderer.renderPlayer(engine.player, engine.camera, engine.time, engine.armorType, engine.swordType, { skin: saveData.selectedSkin || 'classic' });
+
+        // World 7: Swooping Desert Falcons & Shield-Snatch Cutscene
+        if (engine.level.falcons) {
+          renderer.renderDesertFalcons(engine.level.falcons, engine.camera, engine.time);
+        }
+        if (engine.shieldSnatchCutscene && engine.shieldSnatchCutscene.active) {
+          renderer.renderShieldSnatchCutscene(engine.shieldSnatchCutscene, engine.camera, engine.time);
+        }
+
+        // World 8: Innocent Coastal Seagulls soaring, catching fish & resting on the raft
+        if (engine.level.seagulls) {
+          renderer.renderCoastalSeagulls(engine.level.seagulls, engine.camera, engine.time);
+        }
 
         // The Ancient Cockatrice Boss Fight!
         if (engine.level.cockatrice) {
@@ -1331,7 +1461,7 @@ export default function App() {
           renderer.renderSilkieSam(engine.level.silkieSam, engine.camera, engine.time);
         }
 
-        // Biome-specific ambient atmospheric effects (pollen, fireflies, arctic glints, embers/petals)
+        // Biome-specific ambient atmospheric effects (pollen, fireflies, arctic glints, embers/petals, desert sand, coastal spray)
         renderer.renderBiomeAmbientEffects(engine.level.theme, engine.camera, engine.time, isSkyBlue);
 
         // Particles & Floating Text
@@ -1353,6 +1483,15 @@ export default function App() {
           }
           return currentFireResist;
         });
+
+        const currentEmote = engine.player.activeEmote ?? null;
+        setActivePlayerEmote(prev => (prev === currentEmote ? prev : currentEmote));
+
+        const isNowOnRaft = Boolean(engine.player.onRaft);
+        setPlayerOnRaft(prev => (prev === isNowOnRaft ? prev : isNowOnRaft));
+
+        const nowHasShield = Boolean(engine.hasShield);
+        setActiveHasShield(prev => (prev === nowHasShield ? prev : nowHasShield));
 
         const currentPoison = engine.player.poisonTimer ?? 0;
         const currentPoisonMax = engine.player.poisonMaxDuration ?? 0;
@@ -1460,6 +1599,12 @@ export default function App() {
             onPause={() => setScreen('PAUSED')}
             onReturnToMenu={() => setScreen('MENU')}
             onLogOut={handleLogOut}
+            unlockedEmotes={getUnlockedEmotes(saveData)}
+            activeEmote={activePlayerEmote}
+            shopPurchases={saveData.stats?.shopPurchases || 0}
+            emoteTrayOpen={emoteTrayOpen}
+            onToggleEmoteTray={() => setEmoteTrayOpen(prev => !prev)}
+            onTriggerEmote={handleTriggerEmote}
           />
 
           {/* On-Screen Touch / Click Controls */}
@@ -1467,7 +1612,9 @@ export default function App() {
             <TouchControls
               onInput={handleTouchInput}
               canAttack={true}
-              hasShield={Boolean(engineRef.current?.hasShield || saveData.hasShield)}
+              hasShield={activeHasShield}
+              biome={currentLevelData.theme}
+              onRaft={playerOnRaft}
               onPause={() => setScreen('PAUSED')}
               isFullscreen={isFullscreen}
               onToggleFullscreen={handleToggleFullscreen}

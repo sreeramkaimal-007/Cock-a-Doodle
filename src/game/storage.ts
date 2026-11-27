@@ -26,6 +26,7 @@ const DEFAULT_SAVE: SaveData = {
   openedChestIds: [],
   encounteredEnemies: [],
   enemyDefeatCounts: {},
+  unlockedEmotes: ['squawk'],
 };
 
 export function loadSaveData(): SaveData {
@@ -41,8 +42,11 @@ export function loadSaveData(): SaveData {
 
     const validDiff = ['easy', 'normal', 'hard'].includes(parsed.difficulty) ? parsed.difficulty : 'normal';
 
+    const rawUnlocked = typeof parsed.unlockedLevel === 'number' ? Math.max(1, Math.min(40, parsed.unlockedLevel)) : 1;
+    const effectiveUnlocked = parsed.hasCompletedGame ? Math.max(31, rawUnlocked) : rawUnlocked;
+
     return {
-      unlockedLevel: typeof parsed.unlockedLevel === 'number' ? Math.max(1, Math.min(30, parsed.unlockedLevel)) : 1,
+      unlockedLevel: effectiveUnlocked,
       totalCoins: typeof parsed.totalCoins === 'number' ? parsed.totalCoins : 0,
       armor: (['none', 'iron', 'gold', 'diamond'].includes(parsed.armor) ? parsed.armor : 'none') as ArmorType,
       sword: (['none', 'iron', 'gold', 'diamond', 'netherite'].includes(parsed.sword) ? parsed.sword : 'none') as SwordType,
@@ -75,6 +79,9 @@ export function loadSaveData(): SaveData {
       openedChestIds: Array.isArray(parsed.openedChestIds) ? parsed.openedChestIds : [],
       encounteredEnemies: Array.isArray(parsed.encounteredEnemies) ? parsed.encounteredEnemies.filter((id: unknown) => typeof id === 'string') : [],
       enemyDefeatCounts: parsed.enemyDefeatCounts && typeof parsed.enemyDefeatCounts === 'object' ? parsed.enemyDefeatCounts : {},
+      unlockedEmotes: Array.isArray(parsed.unlockedEmotes)
+        ? Array.from(new Set(['squawk', ...parsed.unlockedEmotes.filter((id: unknown) => typeof id === 'string')])) as SaveData['unlockedEmotes']
+        : ['squawk'],
       upgrades: parsed.upgrades && typeof parsed.upgrades === 'object' ? parsed.upgrades : {
         extraHearts: 0,
         speedBoost: 0,

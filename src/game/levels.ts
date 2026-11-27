@@ -1422,7 +1422,541 @@ export const LEVELS: LevelConfig[] = [
       attacksSinceSummon: 0,
     },
     hint: 'Hold S or Down Arrow for 5 seconds to block the Inferno Flame! Counter his bites and claw slashes with your sword to defeat him!'
-  }
+  },
+  // =========================================================================
+  // WORLD 7: the Desert lands (Stages 31 - 35)
+  // Shield snatched by Falcon in Level 31 cutscene! Crouch (Down Arrow / S) to dodge Falcons.
+  // Peaceful Sand Cats (adults + babies) walk, rest, and eat meat on desert bones.
+  // =========================================================================
+  ...[
+    {
+      id: 31,
+      title: 'Sunscorch Dunes',
+      subtitle: 'Watch the skies — hold ▼ Down to crouch under swooping Falcons!',
+      worldWidth: 2600,
+      hasCutscene: true,
+      falconXs: [820, 1480, 2080],
+      sandCatSpots: [
+        { x: 480, left: 360, right: 640, y: 460, boneX: 540, baby: false, variant: 0 },
+        { x: 520, left: 390, right: 620, y: 460, boneX: 540, baby: true, variant: 1 },
+        { x: 1620, left: 1500, right: 1790, y: 460, boneX: 1670, baby: false, variant: 2 },
+        { x: 1655, left: 1520, right: 1770, y: 460, boneX: 1670, baby: true, variant: 0 },
+      ],
+      snakeXs: [1150],
+    },
+    {
+      id: 32,
+      title: 'Oasis Bone Trail',
+      subtitle: 'Travel light without your shield across sun-bleached mesas',
+      worldWidth: 2700,
+      hasCutscene: false,
+      falconXs: [720, 1280, 1840, 2280],
+      sandCatSpots: [
+        { x: 430, left: 310, right: 590, y: 460, boneX: 480, baby: false, variant: 1 },
+        { x: 465, left: 330, right: 570, y: 460, boneX: 480, baby: true, variant: 2 },
+        { x: 1450, left: 1330, right: 1620, y: 460, boneX: 1510, baby: false, variant: 0 },
+        { x: 2050, left: 1930, right: 2210, y: 460, boneX: 2110, baby: true, variant: 1 },
+      ],
+      snakeXs: [980, 1740],
+    },
+    {
+      id: 33,
+      title: 'Sandstone Canyon',
+      subtitle: 'Time your crouches between mesa leaps as Falcons dive low',
+      worldWidth: 2800,
+      hasCutscene: false,
+      falconXs: [680, 1180, 1680, 2180],
+      sandCatSpots: [
+        { x: 520, left: 400, right: 660, y: 460, boneX: 560, baby: false, variant: 2 },
+        { x: 550, left: 420, right: 650, y: 460, boneX: 560, baby: true, variant: 0 },
+        { x: 1890, left: 1760, right: 2040, y: 460, boneX: 1920, baby: false, variant: 1 },
+        { x: 1920, left: 1780, right: 2020, y: 460, boneX: 1920, baby: true, variant: 2 },
+      ],
+      snakeXs: [1040, 1520, 2320],
+    },
+    {
+      id: 34,
+      title: "Pharaoh's Ruin Ridge",
+      subtitle: 'Ancient sandstone bridges patrolled by sharp-eyed raptors',
+      worldWidth: 2900,
+      hasCutscene: false,
+      falconXs: [640, 1120, 1620, 2080, 2460],
+      sandCatSpots: [
+        { x: 450, left: 340, right: 600, y: 460, boneX: 495, baby: false, variant: 0 },
+        { x: 485, left: 360, right: 590, y: 460, boneX: 495, baby: true, variant: 1 },
+        { x: 1420, left: 1300, right: 1580, y: 460, boneX: 1470, baby: false, variant: 2 },
+        { x: 2280, left: 2150, right: 2420, y: 460, boneX: 2310, baby: true, variant: 0 },
+      ],
+      snakeXs: [920, 1820, 2240],
+    },
+    {
+      id: 35,
+      title: 'Mirage Citadel Pass',
+      subtitle: 'Outsmart the Desert Falcons and reach the breezy coast ahead!',
+      worldWidth: 3000,
+      hasCutscene: false,
+      falconXs: [620, 1080, 1540, 1980, 2420],
+      sandCatSpots: [
+        { x: 420, left: 300, right: 580, y: 460, boneX: 465, baby: false, variant: 1 },
+        { x: 455, left: 320, right: 560, y: 460, boneX: 465, baby: true, variant: 2 },
+        { x: 1350, left: 1230, right: 1500, y: 460, boneX: 1390, baby: false, variant: 0 },
+        { x: 1385, left: 1250, right: 1490, y: 460, boneX: 1390, baby: true, variant: 1 },
+        { x: 2180, left: 2060, right: 2340, y: 460, boneX: 2230, baby: false, variant: 2 },
+      ],
+      snakeXs: [880, 1740, 2580],
+    },
+  ].map((spec, idx): LevelConfig => {
+    const w = spec.worldWidth;
+    const platforms: LevelConfig['platforms'] = [
+      { id: `d${spec.id}_g1`, x: 0, y: 460, width: 760, height: 80, type: 'stone' },
+      { id: `d${spec.id}_g2`, x: 860, y: 460, width: 420, height: 80, type: 'stone' },
+      { id: `d${spec.id}_g3`, x: 1360, y: 460, width: 520, height: 80, type: 'stone' },
+      { id: `d${spec.id}_g4`, x: 1960, y: 460, width: w - 1960, height: 80, type: 'stone' },
+      // Sandstone elevated mesas & ruin ledges
+      { id: `d${spec.id}_m1`, x: 580, y: 360, width: 150, height: 24, type: 'ruins', oneWay: true },
+      { id: `d${spec.id}_m2`, x: 760, y: 385, width: 110, height: 22, type: 'bridge', isMoving: idx >= 2, moveRangeY: idx >= 2 ? 32 : 0, moveSpeed: 1.5, oneWay: true },
+      { id: `d${spec.id}_m3`, x: 1020, y: 335, width: 165, height: 24, type: 'ruins', oneWay: true },
+      { id: `d${spec.id}_m4`, x: 1540, y: 350, width: 170, height: 24, type: 'ruins', oneWay: true },
+      { id: `d${spec.id}_m5`, x: 1850, y: 390, width: 120, height: 22, type: 'bridge', isMoving: idx >= 1, moveRangeX: idx >= 1 ? 35 : 0, moveSpeed: 1.4, oneWay: true },
+      { id: `d${spec.id}_m6`, x: 2160, y: 345, width: 165, height: 24, type: 'ruins', oneWay: true },
+    ];
+
+    const coins: LevelConfig['coins'] = [];
+    for (let cx = 290; cx < w - 220; cx += 165) {
+      coins.push({
+        id: `c_d${spec.id}_${cx}`,
+        x: cx,
+        y: cx % 330 === 0 ? 310 : 418,
+        collected: false,
+        radius: 10,
+        animOffset: (cx % 7) * 0.4,
+      });
+    }
+
+    const boneMap = new Map<string, { id: string; x: number; y: number; meatRemaining: number }>();
+    spec.sandCatSpots.forEach((sc, bIdx) => {
+      const key = `${sc.boneX}_${sc.y}`;
+      if (!boneMap.has(key)) {
+        boneMap.set(key, {
+          id: `bone_${spec.id}_${bIdx}`,
+          x: sc.boneX,
+          y: sc.y,
+          meatRemaining: 100,
+        });
+      }
+    });
+    const desertBones = Array.from(boneMap.values());
+
+    const sandCats = spec.sandCatSpots.map((sc, sIdx) => ({
+      id: `sandcat_${spec.id}_${sIdx}`,
+      x: sc.x,
+      y: sc.y,
+      vx: 0,
+      patrolLeft: sc.left,
+      patrolRight: sc.right,
+      facing: (sIdx % 2 === 0 ? 'right' : 'left') as 'left' | 'right',
+      state: (sIdx % 3 === 0 ? 'eat' : sIdx % 3 === 1 ? 'walk' : 'rest') as 'walk' | 'rest' | 'eat',
+      stateTimer: 2.2 + (sIdx % 3) * 1.1,
+      animTimer: sIdx * 0.9,
+      isBaby: sc.baby,
+      variantIndex: sc.variant,
+      targetBoneId: boneMap.get(`${sc.boneX}_${sc.y}`)?.id,
+    }));
+
+    const falcons = spec.falconXs.map((fx, fIdx) => ({
+      id: `falcon_${spec.id}_${fIdx}`,
+      x: fx,
+      y: 112 + (fIdx % 2) * 24,
+      vx: 0,
+      vy: 0,
+      width: 48,
+      height: 30,
+      homeX: fx,
+      homeY: 112 + (fIdx % 2) * 24,
+      patrolRange: 170,
+      facing: (fIdx % 2 === 0 ? 'left' : 'right') as 'left' | 'right',
+      state: 'soaring' as const,
+      timer: 1.4 + fIdx * 0.5,
+      targetX: fx,
+      targetY: 420,
+      swoopStartX: fx,
+      swoopStartY: 120,
+      swoopLowY: 422,
+      wingPhase: fIdx * 1.3,
+      health: 4,
+      maxHealth: 4,
+      hurtTimer: 0,
+      variantIndex: (fIdx + idx) % 4,
+      dodgedThisSwoop: false,
+    }));
+
+    const enemies: LevelConfig['enemies'] = spec.snakeXs.map((sx, eIdx) => ({
+      id: `dsnake_${spec.id}_${eIdx}`,
+      type: 'snake' as const,
+      x: sx,
+      y: 444,
+      vx: 0,
+      vy: 0,
+      width: 38,
+      height: 16,
+      patrolLeft: sx - 90,
+      patrolRight: sx + 110,
+      facing: 'left' as const,
+      health: 3,
+      maxHealth: 3,
+      speed: 74 + idx * 5,
+      damage: 1,
+      state: 'patrol' as const,
+      detectionRadius: 190,
+      isGrounded: true,
+      animTimer: eIdx * 0.7,
+      hurtTimer: 0,
+    }));
+
+    return {
+      id: spec.id,
+      world: 7,
+      worldName: 'the Desert lands',
+      title: spec.title,
+      subtitle: spec.subtitle,
+      worldWidth: w,
+      worldHeight: 540,
+      spawnPoint: { x: 90, y: 400 },
+      exitPoint: { x: w - 110, y: 392 },
+      theme: 'desert',
+      platforms,
+      coins,
+      chests: [
+        {
+          id: `ch_d${spec.id}_1`,
+          x: 1085,
+          y: 303,
+          width: 36,
+          height: 32,
+          opened: false,
+          rewardType: idx % 2 === 0 ? 'coins' : 'heart',
+          rewardAmount: idx % 2 === 0 ? 45 : 1,
+          animProgress: 0,
+        },
+        {
+          id: `ch_d${spec.id}_2`,
+          x: 2225,
+          y: 313,
+          width: 36,
+          height: 32,
+          opened: false,
+          rewardType: 'coins',
+          rewardAmount: 60,
+          animProgress: 0,
+        },
+      ],
+      checkpoints: [
+        { id: `cp_d${spec.id}_1`, x: 1460, y: 460, reached: false },
+      ],
+      enemies,
+      falcons,
+      sandCats,
+      desertBones,
+      hasShieldSnatchCutscene: spec.hasCutscene,
+      hint: spec.hasCutscene
+        ? 'A Desert Falcon snatched your Royal Shield! Press ▼ Down Arrow (or S) to CROUCH under swooping Falcons!'
+        : 'Hold ▼ Down Arrow (or S) to crouch beneath swooping Desert Falcons — Sand Cats & kittens are peaceful!',
+    };
+  }),
+
+  // =========================================================================
+  // WORLD 8: Peckerin Coast (Stages 36 - 40)
+  // Grab the axe from the stump -> chop trees (falling animation!) -> collect wood
+  // -> build raft -> push raft into sea -> sail & dodge sea rocks + sharks with friendly seagulls!
+  // =========================================================================
+  ...[
+    {
+      id: 36,
+      title: 'Driftwood Cove',
+      subtitle: 'Grab the stump axe, chop trees, build & push your raft into the sea!',
+      worldWidth: 3200,
+      treeXs: [315, 430, 545],
+      woodTarget: 3,
+      rockSpecs: [
+        { x: 1160, laneY: -36 },
+        { x: 1440, laneY: 36 },
+        { x: 1720, laneY: -10 },
+        { x: 2040, laneY: 42 },
+        { x: 2340, laneY: -40 },
+        { x: 2610, laneY: 16 },
+      ],
+      sharkRanges: [
+        { left: 1240, right: 1760 },
+        { left: 2020, right: 2620 },
+      ],
+      seagullCount: 4,
+    },
+    {
+      id: 37,
+      title: 'Barnacle Reef',
+      subtitle: 'Weave your raft past jagged reef rocks while Sharks prowl below',
+      worldWidth: 3450,
+      treeXs: [310, 425, 540],
+      woodTarget: 3,
+      rockSpecs: [
+        { x: 1120, laneY: 34 },
+        { x: 1360, laneY: -40 },
+        { x: 1580, laneY: 6 },
+        { x: 1840, laneY: -44 },
+        { x: 2060, laneY: 40 },
+        { x: 2320, laneY: -14 },
+        { x: 2580, laneY: 44 },
+        { x: 2840, laneY: -32 },
+      ],
+      sharkRanges: [
+        { left: 1180, right: 1660 },
+        { left: 1780, right: 2340 },
+        { left: 2420, right: 2940 },
+      ],
+      seagullCount: 5,
+    },
+    {
+      id: 38,
+      title: 'Pelican Shoals',
+      subtitle: 'Chop 4 coastal trees for a sturdy voyage across rocky shoals',
+      worldWidth: 3650,
+      treeXs: [295, 395, 495, 590],
+      woodTarget: 4,
+      rockSpecs: [
+        { x: 1140, laneY: -42 },
+        { x: 1350, laneY: 32 },
+        { x: 1590, laneY: -16 },
+        { x: 1810, laneY: 46 },
+        { x: 2040, laneY: -44 },
+        { x: 2260, laneY: 12 },
+        { x: 2490, laneY: -38 },
+        { x: 2730, laneY: 42 },
+        { x: 2980, laneY: -18 },
+      ],
+      sharkRanges: [
+        { left: 1200, right: 1680 },
+        { left: 1760, right: 2240 },
+        { left: 2320, right: 2780 },
+        { left: 2820, right: 3180 },
+      ],
+      seagullCount: 5,
+    },
+    {
+      id: 39,
+      title: 'Sharkfin Strait',
+      subtitle: 'Keen sharks stalk the strait — steer ▲▼ or slash lunging fins!',
+      worldWidth: 3850,
+      treeXs: [295, 395, 495, 590],
+      woodTarget: 4,
+      rockSpecs: [
+        { x: 1120, laneY: 0 },
+        { x: 1330, laneY: -46 },
+        { x: 1520, laneY: 42 },
+        { x: 1740, laneY: -24 },
+        { x: 1960, laneY: 36 },
+        { x: 2170, laneY: -46 },
+        { x: 2380, laneY: 16 },
+        { x: 2600, laneY: -40 },
+        { x: 2820, laneY: 44 },
+        { x: 3040, laneY: -18 },
+        { x: 3260, laneY: 32 },
+      ],
+      sharkRanges: [
+        { left: 1160, right: 1620 },
+        { left: 1680, right: 2160 },
+        { left: 2220, right: 2700 },
+        { left: 2740, right: 3220 },
+        { left: 3120, right: 3420 },
+      ],
+      seagullCount: 6,
+    },
+    {
+      id: 40,
+      title: 'Peckerin Horizon',
+      subtitle: 'Sail the final stretch of Peckerin Coast to the Golden Lighthouse!',
+      worldWidth: 4100,
+      treeXs: [295, 395, 495, 590],
+      woodTarget: 4,
+      rockSpecs: [
+        { x: 1120, laneY: -42 },
+        { x: 1320, laneY: 38 },
+        { x: 1530, laneY: -8 },
+        { x: 1730, laneY: -46 },
+        { x: 1930, laneY: 42 },
+        { x: 2140, laneY: 4 },
+        { x: 2360, laneY: -44 },
+        { x: 2560, laneY: 38 },
+        { x: 2780, laneY: -22 },
+        { x: 2990, laneY: 44 },
+        { x: 3210, laneY: -40 },
+        { x: 3430, laneY: 12 },
+      ],
+      sharkRanges: [
+        { left: 1180, right: 1660 },
+        { left: 1720, right: 2220 },
+        { left: 2280, right: 2780 },
+        { left: 2820, right: 3320 },
+        { left: 3300, right: 3680 },
+      ],
+      seagullCount: 6,
+    },
+  ].map((spec, idx): LevelConfig => {
+    const w = spec.worldWidth;
+    const waterStartX = 840;
+    const waterLevelY = 426;
+    const islandStartX = w - 340;
+
+    const platforms: LevelConfig['platforms'] = [
+      // Starting sandy beach shore
+      { id: `c${spec.id}_shore`, x: 0, y: 460, width: waterStartX, height: 80, type: 'grass' },
+      // Destination coastal island
+      { id: `c${spec.id}_island`, x: islandStartX, y: 460, width: 340, height: 80, type: 'grass' },
+    ];
+
+    const coins: LevelConfig['coins'] = [];
+    // Shore coins + ocean lane coins
+    for (let cx = 340; cx < islandStartX - 100; cx += 210) {
+      const seaLaneY = cx < waterStartX ? 416 : waterLevelY - 24 + ((cx % 3) - 1) * 34;
+      coins.push({
+        id: `c_co${spec.id}_${cx}`,
+        x: cx,
+        y: seaLaneY,
+        collected: false,
+        radius: 10,
+        animOffset: (cx % 5) * 0.5,
+      });
+    }
+
+    const choppableTrees = spec.treeXs.map((tx, tIdx) => ({
+      id: `tree_${spec.id}_${tIdx}`,
+      x: tx,
+      y: 460,
+      height: 112 + (tIdx % 2) * 16,
+      hp: 3,
+      maxHp: 3,
+      state: 'standing' as const,
+      fallAngle: 0,
+      fallVel: 0,
+      fallDir: (tIdx % 2 === 0 ? 1 : -1) as 1 | -1,
+      shakeTimer: 0,
+      variant: (tIdx % 2 === 0 ? 'palm' : 'coastal_pine') as 'palm' | 'coastal_pine',
+    }));
+
+    const seaRocks = spec.rockSpecs.map((rs, rIdx) => ({
+      id: `rock_${spec.id}_${rIdx}`,
+      x: rs.x,
+      y: waterLevelY + rs.laneY,
+      laneY: rs.laneY,
+      width: 44 + (rIdx % 2) * 10,
+      height: 30 + (rIdx % 2) * 6,
+      hitCooldown: 0,
+      variant: rIdx % 3,
+      foamPhase: rIdx * 1.1,
+    }));
+
+    const sharks = spec.sharkRanges.map((sr, sIdx) => ({
+      id: `shark_${spec.id}_${sIdx}`,
+      x: (sr.left + sr.right) / 2,
+      y: waterLevelY + 20,
+      vx: 0,
+      vy: 0,
+      baseY: waterLevelY + 18,
+      patrolLeft: sr.left,
+      patrolRight: sr.right,
+      facing: (sIdx % 2 === 0 ? 'left' : 'right') as 'left' | 'right',
+      state: 'stalking' as const,
+      timer: 1.8 + sIdx * 0.6,
+      animTimer: sIdx * 0.8,
+      health: 5,
+      maxHealth: 5,
+      hurtTimer: 0,
+      variantIndex: (sIdx + idx) % 4,
+    }));
+
+    const seagulls = Array.from({ length: spec.seagullCount }).map((_, gIdx) => {
+      const gx = 520 + gIdx * Math.floor((w - 860) / spec.seagullCount);
+      const gy = 105 + (gIdx % 3) * 32;
+      return {
+        id: `gull_${spec.id}_${gIdx}`,
+        x: gx,
+        y: gy,
+        vx: (gIdx % 2 === 0 ? 1 : -1) * 58,
+        vy: 0,
+        homeX: gx,
+        homeY: gy,
+        facing: (gIdx % 2 === 0 ? 'right' : 'left') as 'left' | 'right',
+        state: 'flying' as const,
+        stateTimer: 2.5 + gIdx * 1.1,
+        animTimer: gIdx * 0.7,
+        hasFish: false,
+        raftOffsetX: gIdx % 2 === 0 ? 22 : 76,
+        variantIndex: gIdx % 3,
+      };
+    });
+
+    return {
+      id: spec.id,
+      world: 8,
+      worldName: 'Peckerin Coast',
+      title: spec.title,
+      subtitle: spec.subtitle,
+      worldWidth: w,
+      worldHeight: 540,
+      spawnPoint: { x: 80, y: 400 },
+      exitPoint: { x: w - 110, y: 392 },
+      theme: 'coast',
+      platforms,
+      coins,
+      chests: [
+        {
+          id: `ch_co${spec.id}_1`,
+          x: islandStartX + 75,
+          y: 428,
+          width: 36,
+          height: 32,
+          opened: false,
+          rewardType: 'coins',
+          rewardAmount: 80 + idx * 15,
+          animProgress: 0,
+        },
+      ],
+      checkpoints: [
+        { id: `cp_co${spec.id}_1`, x: 650, y: 460, reached: false },
+      ],
+      enemies: [],
+      axeStump: {
+        x: 205,
+        y: 460,
+        axeTaken: false,
+      },
+      choppableTrees,
+      woodLogs: [],
+      raft: {
+        x: 695,
+        y: 438,
+        width: 102,
+        height: 22,
+        state: 'unbuilt',
+        buildProgress: 0,
+        pushProgress: 0,
+        health: 5,
+        maxHealth: 5,
+        invulnTimer: 0,
+        bobPhase: 0,
+        laneOffsetY: 0,
+        vx: 0,
+        vy: 0,
+        dockX: islandStartX - 88,
+      },
+      seaRocks,
+      sharks,
+      seagulls,
+      waterStartX,
+      waterLevelY,
+      woodTarget: spec.woodTarget,
+      hint: 'Pick up the Axe in the stump, press X/K to chop trees, build & push your Raft into the sea, then steer ▲▼ to dodge rocks & Sharks!',
+    };
+  }),
 ];
 
 export function getLevelConfig(id: number): LevelConfig {

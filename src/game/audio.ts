@@ -1,10 +1,21 @@
 // Synthesized Web Audio API sound engine for retro 8-bit / 16-bit platformer
 
+interface ActiveMusicTrack {
+  theme: string;
+  gainNode: GainNode;
+  intervalId: number | null;
+  padOscillators: OscillatorNode[];
+  padGain: GainNode | null;
+  cleanupTimeout: number | null;
+  stopped: boolean;
+}
+
 class AudioManager {
   private ctx: AudioContext | null = null;
   private soundEnabled = true;
   private musicEnabled = true;
-  private musicInterval: number | null = null;
+  private activeTrack: ActiveMusicTrack | null = null;
+  private fadingTracks: Set<ActiveMusicTrack> = new Set();
   private currentMusicTheme: string | null = null;
   private masterGain: GainNode | null = null;
   private musicGain: GainNode | null = null;
@@ -88,8 +99,8 @@ class AudioManager {
       if (!this.ctx) return;
       if (this.ctx.state === 'running') {
         this.unlocked = true;
-        if (this.musicEnabled && this.currentMusicTheme && this.musicInterval === null) {
-          this.playMusic(this.currentMusicTheme);
+        if (this.musicEnabled && this.currentMusicTheme && !this.activeTrack) {
+          this.playMusic(this.currentMusicTheme, 0.75);
         }
       }
     });
@@ -194,13 +205,18 @@ class AudioManager {
   public setMusicEnabled(enabled: boolean) {
     this.musicEnabled = enabled;
     if (enabled) this.unlock();
-    if (this.musicGain) {
-      this.musicGain.gain.value = enabled ? 0.35 : 0;
+    if (this.musicGain && this.ctx) {
+      const now = this.ctx.currentTime;
+      this.musicGain.gain.cancelScheduledValues(now);
+      this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, now);
+      this.musicGain.gain.linearRampToValueAtTime(enabled ? 0.36 : 0, now + 0.12);
+    } else if (this.musicGain) {
+      this.musicGain.gain.value = enabled ? 0.36 : 0;
     }
     if (!enabled) {
-      this.stopMusic();
+      this.stopMusic(0.18, true);
     } else if (this.currentMusicTheme) {
-      this.playMusic(this.currentMusicTheme);
+      this.playMusic(this.currentMusicTheme, 0.8);
     }
   }
 
@@ -1611,23 +1627,291 @@ class AudioManager {
     this.playBossDefeat();
   }
 
-  // --- Procedural Adventure Music Loops (Warm Filtered Multi-Voice Arrangements) ---
+  // --- Procedural Adventure & Dynamic Biome Ambient Music (Smooth Crossfade Engine) ---
 
-  public playMusic(theme: string) {
-    if (this.currentMusicTheme === theme && this.musicInterval !== null) {
+  public getAmbientThemeForBiome(biome: string, hasCompletedGame = false): string {
+    switch (biome) {
+      case 'coop':
+        return 'ambient_plains';
+      case 'trail':
+      case 'juvenile':
+        return 'ambient_trail';
+      case 'jungle':
+        return 'ambient_jungle';
+      case 'storm':
+      case 'snowy':
+        return 'ambient_arctic';
+      case 'fields':
+        return hasCompletedGame ? 'ambient_sanctuary' : 'ambient_volcanic';
+      case 'desert':
+        return 'ambient_desert';
+      case 'coast':
+        return 'ambient_coast';
+      default:
+        return 'ambient_plains';
+    }
+  }
+
+  public playBiomeAmbient(biome: string, hasCompletedGame = false, fadeDuration = 1.35) {
+    const ambientTheme = this.getAmbientThemeForBiome(biome, hasCompletedGame);
+    this.playMusic(ambientTheme, fadeDuration);
+  }
+
+  public getCurrentMusicTheme(): string | null {
+    return this.currentMusicTheme;
+  }
+
+  private getFilterCutoffForTheme(theme: string): number {
+    switch (theme) {
+      case 'ambient_plains':
+        return 2150;
+      case 'ambient_trail':
+        return 2400;
+      case 'ambient_jungle':
+        return 1900;
+      case 'ambient_arctic':
+        return 3050;
+      case 'ambient_volcanic':
+        return 1380;
+      case 'ambient_sanctuary':
+        return 2750;
+      case 'ambient_desert':
+        return 2250;
+      case 'ambient_coast':
+        return 2850;
+      case 'boss':
+        return 4200;
+      case 'victory':
+        return 3900;
+      default:
+        return 3400;
+    }
+  }
+
+  private disposeTrack(track: ActiveMusicTrack) {
+    track.stopped = true;
+    if (track.cleanupTimeout !== null) {
+      clearTimeout(track.cleanupTimeout);
+      track.cleanupTimeout = null;
+    }
+    if (track.intervalId !== null) {
+      clearInterval(track.intervalId);
+      track.intervalId = null;
+    }
+    track.padOscillators.forEach(osc => {
+      try {
+        osc.stop();
+      } catch {
+        // Already stopped
+      }
+      try {
+        osc.disconnect();
+      } catch {
+        // Already disconnected
+      }
+    });
+    track.padOscillators = [];
+    if (track.padGain) {
+      try {
+        track.padGain.disconnect();
+      } catch {
+        // Ignore disconnect error
+      }
+      track.padGain = null;
+    }
+    try {
+      track.gainNode.disconnect();
+    } catch {
+      // Ignore disconnect error
+    }
+    this.fadingTracks.delete(track);
+  }
+
+  private fadeOutTrack(track: ActiveMusicTrack, fadeDuration: number) {
+    if (track.stopped) return;
+    track.stopped = true;
+    if (!this.ctx || fadeDuration <= 0.02) {
+      this.disposeTrack(track);
       return;
     }
-    this.currentMusicTheme = theme;
-    if (!this.musicEnabled) return;
+
+    const now = this.ctx.currentTime;
+    const clampedFade = Math.max(0.08, fadeDuration);
+    const currentGain = Math.max(0.0001, track.gainNode.gain.value);
+    track.gainNode.gain.cancelScheduledValues(now);
+    track.gainNode.gain.setValueAtTime(currentGain, now);
+    track.gainNode.gain.linearRampToValueAtTime(0.0001, now + clampedFade);
+
+    this.fadingTracks.add(track);
+    if (track.cleanupTimeout !== null) {
+      clearTimeout(track.cleanupTimeout);
+    }
+    track.cleanupTimeout = window.setTimeout(() => {
+      this.disposeTrack(track);
+    }, Math.ceil((clampedFade + 0.14) * 1000));
+  }
+
+  private attachAmbientPad(track: ActiveMusicTrack, theme: string) {
+    if (!this.ctx) return;
+
+    const padConfigs: Record<string, { freqs: number[]; types: OscillatorType[]; baseGain: number; lfoHz: number; lfoDepth: number }> = {
+      ambient_plains: {
+        freqs: [130.81, 196.0, 329.63],
+        types: ['sine', 'sine', 'triangle'],
+        baseGain: 0.068,
+        lfoHz: 0.18,
+        lfoDepth: 0.016,
+      },
+      ambient_trail: {
+        freqs: [98.0, 146.83, 246.94],
+        types: ['sine', 'triangle', 'sine'],
+        baseGain: 0.062,
+        lfoHz: 0.22,
+        lfoDepth: 0.015,
+      },
+      ambient_jungle: {
+        freqs: [146.83, 220.0, 174.61],
+        types: ['sine', 'sine', 'triangle'],
+        baseGain: 0.066,
+        lfoHz: 0.15,
+        lfoDepth: 0.018,
+      },
+      ambient_arctic: {
+        freqs: [220.0, 329.63, 523.25],
+        types: ['sine', 'sine', 'sine'],
+        baseGain: 0.052,
+        lfoHz: 0.13,
+        lfoDepth: 0.014,
+      },
+      ambient_volcanic: {
+        freqs: [73.42, 110.0, 174.61],
+        types: ['triangle', 'sine', 'sine'],
+        baseGain: 0.088,
+        lfoHz: 0.1,
+        lfoDepth: 0.022,
+      },
+      ambient_sanctuary: {
+        freqs: [174.61, 261.63, 440.0],
+        types: ['sine', 'sine', 'triangle'],
+        baseGain: 0.064,
+        lfoHz: 0.16,
+        lfoDepth: 0.016,
+      },
+      ambient_desert: {
+        freqs: [146.83, 220.0, 293.66],
+        types: ['triangle', 'sine', 'sine'],
+        baseGain: 0.068,
+        lfoHz: 0.14,
+        lfoDepth: 0.02,
+      },
+      ambient_coast: {
+        freqs: [130.81, 196.0, 293.66],
+        types: ['sine', 'sine', 'triangle'],
+        baseGain: 0.064,
+        lfoHz: 0.21,
+        lfoDepth: 0.022,
+      },
+    };
+
+    const cfg = padConfigs[theme];
+    if (!cfg) return;
+
+    const now = this.ctx.currentTime;
+    const padGain = this.ctx.createGain();
+    padGain.gain.setValueAtTime(cfg.baseGain, now);
+    padGain.connect(track.gainNode);
+    track.padGain = padGain;
+
+    // Slow breathing LFO so the ambient harmonic bed gently swells like living wind/air
+    const lfo = this.ctx.createOscillator();
+    const lfoGain = this.ctx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(cfg.lfoHz, now);
+    lfoGain.gain.setValueAtTime(cfg.lfoDepth, now);
+    lfo.connect(lfoGain);
+    lfoGain.connect(padGain.gain);
+    lfo.start(now);
+    track.padOscillators.push(lfo);
+
+    cfg.freqs.forEach((freq, idx) => {
+      if (!this.ctx) return;
+      const osc = this.ctx.createOscillator();
+      const voiceGain = this.ctx.createGain();
+      osc.type = cfg.types[idx] || 'sine';
+      // Subtle organic detune on upper voices for lush warm chorus shimmer
+      osc.frequency.setValueAtTime(freq, now);
+      if (idx > 0) {
+        osc.detune.setValueAtTime(idx === 1 ? -4.5 : 5.5, now);
+      }
+      voiceGain.gain.setValueAtTime(idx === 0 ? 0.52 : idx === 1 ? 0.34 : 0.22, now);
+      osc.connect(voiceGain);
+      voiceGain.connect(padGain);
+      osc.start(now);
+      track.padOscillators.push(osc);
+    });
+  }
+
+  public playMusic(theme: string, fadeDuration = 1.05) {
+    // Gracefully upgrade any legacy 'waiting' request into the sunlit plains ambient track
+    const resolvedTheme = theme === 'waiting' ? 'ambient_plains' : theme;
+
+    if (this.activeTrack && this.activeTrack.theme === resolvedTheme && !this.activeTrack.stopped) {
+      return;
+    }
+    this.currentMusicTheme = resolvedTheme;
+    if (!this.musicEnabled) {
+      if (this.activeTrack) {
+        this.fadeOutTrack(this.activeTrack, 0.2);
+        this.activeTrack = null;
+      }
+      return;
+    }
     this.initContext();
     if (!this.ctx || !this.musicGain) return;
 
-    this.stopMusic();
+    const now = this.ctx.currentTime;
+    const isAmbient = resolvedTheme.startsWith('ambient_');
+    const effectiveFade = this.activeTrack ? Math.max(0.25, fadeDuration) : Math.max(0.18, fadeDuration * 0.75);
+
+    // Smoothly crossfade out previous track instead of cutting abruptly
+    if (this.activeTrack) {
+      this.fadeOutTrack(this.activeTrack, effectiveFade);
+      this.activeTrack = null;
+    }
+
+    // Smoothly glide the master music filter frequency to match the biome/track mood
+    if (this.musicFilter) {
+      const targetCutoff = this.getFilterCutoffForTheme(resolvedTheme);
+      this.musicFilter.frequency.cancelScheduledValues(now);
+      this.musicFilter.frequency.setValueAtTime(this.musicFilter.frequency.value, now);
+      this.musicFilter.frequency.linearRampToValueAtTime(targetCutoff, now + effectiveFade);
+    }
+
+    // Dedicated per-track GainNode bus for click-free crossfade
+    const trackGain = this.ctx.createGain();
+    trackGain.gain.setValueAtTime(0.0001, now);
+    trackGain.gain.linearRampToValueAtTime(1.0, now + effectiveFade);
+    trackGain.connect(this.musicGain);
+
+    const track: ActiveMusicTrack = {
+      theme: resolvedTheme,
+      gainNode: trackGain,
+      intervalId: null,
+      padOscillators: [],
+      padGain: null,
+      cleanupTimeout: null,
+      stopped: false,
+    };
+    this.activeTrack = track;
+
+    if (isAmbient) {
+      this.attachAmbientPad(track, resolvedTheme);
+    }
 
     let step = 0;
-    const A2 = 110.00;
+    const D2 = 73.42, G2 = 98.00, A2 = 110.00, Bb2 = 116.54;
     const C3 = 130.81, D3 = 146.83, E3 = 164.81, F3 = 174.61, G3 = 196.00, A3 = 220.00, Bb3 = 233.08, B3 = 246.94;
-    const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, Bb4 = 466.16, B4 = 493.88;
+    const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, Fsharp4 = 369.99, G4 = 392.00, A4 = 440.00, Bb4 = 466.16, B4 = 493.88;
     const C5 = 523.25, D5 = 587.33, E5 = 659.25, F5 = 698.46, G5 = 783.99, A5 = 880.00;
 
     let melody: number[] = [];
@@ -1635,7 +1919,103 @@ class AudioManager {
     let bass: number[] = [];
     let bpm = 130;
 
-    if (theme === 'coop') {
+    if (resolvedTheme === 'ambient_plains') {
+      // Cozy sunlit barnyard harp & marimba ambient meditation (World 1)
+      melody = [
+        C5, 0, G4, 0, E4, G4, A4, 0,
+        G4, 0, E4, 0, D4, 0, 0, 0,
+        F4, 0, A4, 0, C5, D5, C5, 0,
+        A4, 0, G4, 0, E4, 0, 0, 0
+      ];
+      harmony = [
+        E4, 0, C4, 0, G4, 0, E4, 0,
+        D4, 0, B3, 0, G4, 0, 0, 0,
+        C4, 0, F4, 0, A4, 0, G4, 0,
+        F4, 0, E4, 0, C4, 0, 0, 0
+      ];
+      bass = [C3, 0, G3, 0, F3, 0, C3, 0, D3, 0, G3, 0, C3, 0, G3, 0];
+      bpm = 86;
+    } else if (resolvedTheme === 'ambient_trail') {
+      // Breezy golden-hour pastoral trail flute & folk fifths (Worlds 2-3)
+      melody = [
+        G4, 0, B4, D5, E5, 0, D5, 0,
+        B4, A4, G4, 0, Fsharp4, 0, 0, 0,
+        E4, 0, G4, B4, D5, 0, C5, B4,
+        A4, 0, G4, 0, D4, 0, 0, 0
+      ];
+      harmony = [
+        D4, 0, G4, 0, B4, 0, A4, 0,
+        G4, 0, E4, 0, D4, 0, 0, 0,
+        B3, 0, E4, 0, G4, 0, A4, 0,
+        Fsharp4, 0, D4, 0, B3, 0, 0, 0
+      ];
+      bass = [G2, 0, D3, 0, E3, 0, B3, 0, C3, 0, G3, 0, D3, 0, G2, 0];
+      bpm = 92;
+    } else if (resolvedTheme === 'ambient_jungle') {
+      // Mystical emerald canopy kalimba & wood-marimba droplets (World 4)
+      melody = [
+        D4, 0, A4, F4, 0, G4, A4, 0,
+        C5, 0, A4, 0, F4, E4, D4, 0,
+        D4, F4, 0, A4, C5, 0, D5, A4,
+        G4, 0, F4, E4, D4, 0, 0, 0
+      ];
+      harmony = [
+        A3, 0, D4, 0, C4, 0, F4, 0,
+        G4, 0, F4, 0, C4, 0, A3, 0,
+        A3, 0, C4, 0, F4, 0, A4, 0,
+        E4, 0, C4, 0, A3, 0, 0, 0
+      ];
+      bass = [D3, 0, A3, 0, C3, 0, G3, 0, F3, 0, C3, 0, G3, 0, D3, 0];
+      bpm = 96;
+    } else if (resolvedTheme === 'ambient_arctic') {
+      // Crystalline northern aurora celesta & frost-bell ambience (World 5)
+      melody = [
+        E5, 0, 0, B4, C5, 0, 0, A4,
+        G4, 0, A4, 0, B4, 0, 0, 0,
+        C5, 0, 0, E5, D5, 0, 0, B4,
+        A4, 0, G4, 0, E4, 0, 0, 0
+      ];
+      harmony = [
+        C5, 0, 0, G4, A4, 0, 0, E4,
+        D4, 0, E4, 0, G4, 0, 0, 0,
+        A4, 0, 0, C5, B4, 0, 0, G4,
+        E4, 0, D4, 0, C4, 0, 0, 0
+      ];
+      bass = [A3, 0, E3, 0, G3, 0, D3, 0, F3, 0, C3, 0, E3, 0, A3, 0];
+      bpm = 80;
+    } else if (resolvedTheme === 'ambient_volcanic') {
+      // Deep brooding obsidian ember drone & sparse resonant bells (World 6 Cursed Lair)
+      melody = [
+        D4, 0, 0, 0, F4, 0, 0, E4,
+        D4, 0, 0, 0, Bb3, 0, 0, 0,
+        A3, 0, 0, 0, D4, 0, 0, C4,
+        Bb3, 0, 0, A3, D4, 0, 0, 0
+      ];
+      harmony = [
+        A3, 0, 0, 0, D4, 0, 0, 0,
+        F3, 0, 0, 0, G3, 0, 0, 0,
+        E3, 0, 0, 0, A3, 0, 0, 0,
+        F3, 0, 0, E3, A3, 0, 0, 0
+      ];
+      bass = [D2, 0, 0, 0, A2, 0, 0, 0, Bb2, 0, 0, 0, A2, 0, 0, 0];
+      bpm = 76;
+    } else if (resolvedTheme === 'ambient_sanctuary') {
+      // Radiant restored sanctuary harp & celestial chimes (World 6 Post-Victory)
+      melody = [
+        F4, 0, A4, C5, F5, 0, E5, C5,
+        D5, 0, C5, A4, G4, 0, 0, 0,
+        A4, 0, C5, F5, G5, 0, F5, D5,
+        C5, 0, A4, G4, F4, 0, 0, 0
+      ];
+      harmony = [
+        C4, 0, F4, 0, A4, 0, G4, 0,
+        F4, 0, E4, 0, D4, 0, 0, 0,
+        F4, 0, A4, 0, C5, 0, Bb4, 0,
+        A4, 0, F4, E4, C4, 0, 0, 0
+      ];
+      bass = [F3, 0, C3, 0, D3, 0, A3, 0, Bb3, 0, F3, 0, C3, 0, F3, 0];
+      bpm = 88;
+    } else if (resolvedTheme === 'coop') {
       // Cozy sunlit country barnyard theme
       melody = [
         C5, 0, E4, G4, C5, G4, E4, 0,
@@ -1646,7 +2026,7 @@ class AudioManager {
       harmony = [E4, 0, C4, E4, G4, E4, C4, 0, F4, 0, D4, F4, E4, D4, C4, B3];
       bass = [C3, C3, G3, G3, F3, F3, G3, G3, C3, E3, F3, D3, G3, G3, C3, G3];
       bpm = 118;
-    } else if (theme === 'trail') {
+    } else if (resolvedTheme === 'trail') {
       // Bright rolling-hills adventure theme
       melody = [
         E4, G4, C5, D5, E5, D5, C5, G4,
@@ -1657,7 +2037,7 @@ class AudioManager {
       harmony = [C4, E4, G4, B4, C5, B4, G4, E4, F4, A4, G4, F4, E4, C4, B3, 0];
       bass = [C3, G3, A3, F3, C3, G3, F3, G3];
       bpm = 134;
-    } else if (theme === 'juvenile') {
+    } else if (resolvedTheme === 'juvenile') {
       // Determined rising-hero theme (World 3: The Heat Up)
       melody = [
         A4, C5, E5, D5, C5, B4, A4, E4,
@@ -1668,7 +2048,7 @@ class AudioManager {
       harmony = [E4, A4, C5, B4, A4, G4, E4, C4, D4, F4, A4, G4, F4, E4, B3, 0];
       bass = [A3, E3, F3, G3, A3, F3, D3, E3];
       bpm = 140;
-    } else if (theme === 'jungle') {
+    } else if (resolvedTheme === 'jungle') {
       // Rhythmic tropical canopy groove (World 4)
       melody = [
         D4, F4, G4, A4, 0, A4, G4, F4,
@@ -1679,7 +2059,7 @@ class AudioManager {
       harmony = [A3, D4, E4, F4, 0, F4, E4, D4, A3, 0, D4, A3, G3, A3, D4, F4];
       bass = [D3, D3, A3, D3, F3, F3, G3, A3];
       bpm = 146;
-    } else if (theme === 'snowy') {
+    } else if (resolvedTheme === 'snowy') {
       // Dedicated crystalline alpine winter theme (World 5: The Arctic Lands!)
       melody = [
         E5, 0, B4, C5, D5, 0, C5, B4,
@@ -1693,12 +2073,12 @@ class AudioManager {
       ];
       bass = [A3, E3, G3, D3, F3, C3, E3, B3];
       bpm = 126;
-    } else if (theme === 'storm') {
+    } else if (resolvedTheme === 'storm') {
       melody = [E4, 0, G4, 0, B4, A4, G4, E4, D4, 0, F4, 0, A4, G4, F4, D4];
       harmony = [B3, 0, E4, 0, G4, F4, E4, B3, A3, 0, D4, 0, F4, E4, D4, A3];
       bass = [E3, E3, B3, E3, D3, D3, A3, D3];
       bpm = 152;
-    } else if (theme === 'boss') {
+    } else if (resolvedTheme === 'boss') {
       // Epic high-octane Boss Fight Theme with galloping minor bass, heroic arpeggios & driving percussion
       const Csharp3 = 138.59, Csharp4 = 277.18, Csharp5 = 554.37;
       melody = [
@@ -1720,24 +2100,7 @@ class AudioManager {
         D3, D3, A2, D3, Csharp3, Csharp3, A2, Csharp3
       ];
       bpm = 176;
-    } else if (theme === 'waiting') {
-      // Warm, inviting acoustic lounge theme for menus & shop
-      melody = [
-        C5, 0, E4, G4, A4, 0, G4, E4,
-        F4, A4, C5, D5, C5, 0, A4, 0,
-        D5, 0, B4, G4, E5, 0, C5, G4,
-        A4, C5, D5, E5, C5, 0, 0, 0
-      ];
-      harmony = [
-        G4, 0, C4, E4, F4, 0, E4, C4,
-        C4, F4, A4, B4, A4, 0, F4, 0
-      ];
-      bass = [
-        C3, C3, G3, G3, F3, F3, C3, C3,
-        D3, D3, G3, G3, C3, C3, G3, G3
-      ];
-      bpm = 104;
-    } else if (theme === 'victory') {
+    } else if (resolvedTheme === 'victory') {
       // Glorious, triumphant fanfare victory theme
       melody = [
         C4, G4, C5, E5, G5, 0, E5, G5,
@@ -1754,6 +2117,64 @@ class AudioManager {
         C3, C3, E3, E3, F3, G3, C3, C3
       ];
       bpm = 136;
+    } else if (resolvedTheme === 'ambient_desert') {
+      // Shimmering Phrygian-dominant desert dunes oud & mirage flute
+      const Eb4 = 311.13, Eb5 = 622.25;
+      melody = [
+        D4, 0, Eb4, Fsharp4, G4, 0, A4, 0,
+        Bb4, A4, G4, Fsharp4, Eb4, 0, D4, 0,
+        A4, 0, Bb4, C5, D5, 0, Eb5, D5,
+        Bb4, 0, A4, G4, Fsharp4, 0, D4, 0
+      ];
+      harmony = [
+        A3, 0, D4, 0, D4, 0, Fsharp4, 0,
+        G4, 0, D4, 0, A3, 0, D4, 0
+      ];
+      bass = [D3, 0, A2, 0, D3, 0, G2, 0, A2, 0, D3, 0, A2, 0, D3, 0];
+      bpm = 90;
+    } else if (resolvedTheme === 'desert') {
+      // Adventurous sunlit desert caravan theme (World 7: the Desert lands)
+      const Eb4 = 311.13, Eb5 = 622.25;
+      melody = [
+        D4, Fsharp4, G4, A4, Bb4, A4, G4, Fsharp4,
+        Eb4, D4, Fsharp4, A4, D5, 0, Bb4, A4,
+        G4, A4, Bb4, C5, D5, Eb5, D5, Bb4,
+        A4, G4, Fsharp4, Eb4, D4, 0, A4, 0
+      ];
+      harmony = [
+        A3, D4, D4, Fsharp4, G4, Fsharp4, D4, D4,
+        Bb3, A3, D4, Fsharp4, A4, 0, G4, Fsharp4
+      ];
+      bass = [D3, A2, D3, A2, G2, D3, A2, D3];
+      bpm = 138;
+    } else if (resolvedTheme === 'ambient_coast') {
+      // Breezy Peckerin Coast tide-harbor marimba & sea-breeze shimmer
+      melody = [
+        G4, 0, B4, D5, G5, 0, E5, D5,
+        C5, 0, A4, 0, B4, 0, G4, 0,
+        E4, 0, G4, C5, D5, 0, B4, A4,
+        G4, 0, D4, 0, G4, 0, 0, 0
+      ];
+      harmony = [
+        D4, 0, G4, 0, B4, 0, G4, 0,
+        E4, 0, C4, 0, D4, 0, B3, 0
+      ];
+      bass = [G2, 0, D3, 0, C3, 0, G2, 0, E3, 0, C3, 0, D3, 0, G2, 0];
+      bpm = 94;
+    } else if (resolvedTheme === 'coast') {
+      // Upbeat Peckerin Coast sea-voyage shanty adventure (World 8: Peckerin Coast)
+      melody = [
+        G4, B4, D5, G5, E5, D5, B4, G4,
+        A4, C5, E5, D5, B4, 0, G4, 0,
+        C5, E5, G5, E5, D5, B4, G4, B4,
+        A4, G4, Fsharp4, A4, G4, 0, D5, 0
+      ];
+      harmony = [
+        D4, G4, B4, D5, C5, B4, G4, D4,
+        E4, A4, C5, A4, G4, 0, D4, 0
+      ];
+      bass = [G2, D3, G2, D3, C3, G2, D3, G2];
+      bpm = 142;
     } else { // 'fields' / default restored meadow
       melody = [C5, E4, G4, C5, D5, F4, A4, D5, E5, G4, C5, B4, C5, 0, G4, 0];
       harmony = [G4, C4, E4, G4, A4, D4, F4, A4, C5, E4, G4, G4, E4, 0, E4, 0];
@@ -1764,123 +2185,184 @@ class AudioManager {
     const stepMs = (60 / bpm / 2) * 1000;
     const stepSec = stepMs / 1000;
 
-    this.musicInterval = window.setInterval(() => {
-      if (!this.ctx || !this.musicGain || !this.musicEnabled || this.ctx.state !== 'running') return;
+    const triggerStep = () => {
+      if (!this.ctx || !this.musicEnabled || this.ctx.state !== 'running') return;
 
-      const now = this.ctx.currentTime;
+      const tNow = this.ctx.currentTime;
       const melodyNote = melody[step % melody.length];
       const harmonyNote = harmony.length > 0 ? harmony[step % harmony.length] : 0;
       const bassNote = bass[Math.floor(step / 2) % bass.length];
 
-      // 1. Expressive Lead Voice with soft envelope attack
+      // 1. Expressive Lead Voice (biome-tailored synth timbre & envelope)
       if (melodyNote > 0) {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
-        if (theme === 'waiting' || theme === 'snowy') {
+        if (
+          resolvedTheme === 'snowy' ||
+          resolvedTheme === 'ambient_arctic' ||
+          resolvedTheme === 'ambient_trail' ||
+          resolvedTheme === 'ambient_volcanic' ||
+          resolvedTheme === 'ambient_sanctuary'
+        ) {
           osc.type = 'sine';
-        } else if (theme === 'victory' || theme === 'boss') {
+        } else if (resolvedTheme === 'victory' || resolvedTheme === 'boss') {
           osc.type = 'sawtooth';
         } else {
           osc.type = 'triangle';
         }
-        osc.frequency.setValueAtTime(melodyNote, now);
+
+        // Subtle organic kalimba pitch settle on jungle ambient plucks
+        if (resolvedTheme === 'ambient_jungle') {
+          osc.frequency.setValueAtTime(melodyNote * 1.015, tNow);
+          osc.frequency.exponentialRampToValueAtTime(melodyNote, tNow + 0.025);
+        } else {
+          osc.frequency.setValueAtTime(melodyNote, tNow);
+        }
 
         const leadVol =
-          theme === 'waiting' ? 0.13 :
-          theme === 'snowy' ? 0.16 :
-          theme === 'boss' ? 0.21 :
-          theme === 'victory' ? 0.19 : 0.17;
-        gain.gain.setValueAtTime(0.001, now);
-        gain.gain.linearRampToValueAtTime(leadVol, now + 0.012);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + stepSec * (theme === 'snowy' ? 1.35 : 0.9));
+          resolvedTheme === 'ambient_volcanic' ? 0.14 :
+          resolvedTheme === 'ambient_arctic' ? 0.125 :
+          isAmbient ? 0.135 :
+          resolvedTheme === 'snowy' ? 0.16 :
+          resolvedTheme === 'boss' ? 0.21 :
+          resolvedTheme === 'victory' ? 0.19 : 0.17;
+
+        const attackSec = isAmbient ? (resolvedTheme === 'ambient_jungle' ? 0.008 : 0.024) : 0.012;
+        const decayMult =
+          resolvedTheme === 'ambient_arctic' || resolvedTheme === 'ambient_volcanic' ? 2.35 :
+          isAmbient ? 1.85 :
+          resolvedTheme === 'snowy' ? 1.35 : 0.9;
+
+        gain.gain.setValueAtTime(0.001, tNow);
+        gain.gain.linearRampToValueAtTime(leadVol, tNow + attackSec);
+        gain.gain.exponentialRampToValueAtTime(0.001, tNow + stepSec * decayMult);
 
         osc.connect(gain);
-        gain.connect(this.musicGain);
-        osc.start(now);
-        osc.stop(now + stepSec * (theme === 'snowy' ? 1.4 : 0.95));
+        gain.connect(trackGain);
+        osc.start(tNow);
+        osc.stop(tNow + stepSec * decayMult + 0.04);
 
-        // Crystalline bell overtone for snowy Arctic theme
-        if (theme === 'snowy' && step % 2 === 0) {
+        // Biome-specific harmonic sparkle / chime overtones
+        if (
+          (resolvedTheme === 'snowy' && step % 2 === 0) ||
+          resolvedTheme === 'ambient_arctic' ||
+          resolvedTheme === 'ambient_sanctuary'
+        ) {
           const bell = this.ctx.createOscillator();
           const bGain = this.ctx.createGain();
           bell.type = 'sine';
-          bell.frequency.setValueAtTime(melodyNote * 2, now);
-          bGain.gain.setValueAtTime(0.055, now);
-          bGain.gain.exponentialRampToValueAtTime(0.001, now + stepSec * 1.1);
+          bell.frequency.setValueAtTime(melodyNote * 2, tNow);
+          bGain.gain.setValueAtTime(resolvedTheme === 'ambient_arctic' ? 0.048 : 0.042, tNow);
+          bGain.gain.exponentialRampToValueAtTime(0.001, tNow + stepSec * 1.6);
           bell.connect(bGain);
-          bGain.connect(this.musicGain);
-          bell.start(now);
-          bell.stop(now + stepSec * 1.15);
+          bGain.connect(trackGain);
+          bell.start(tNow);
+          bell.stop(tNow + stepSec * 1.65);
+        } else if (resolvedTheme === 'ambient_volcanic') {
+          // Resonant metallic fifth overtone for solemn obsidian cathedral bell
+          const bell = this.ctx.createOscillator();
+          const bGain = this.ctx.createGain();
+          bell.type = 'sine';
+          bell.frequency.setValueAtTime(melodyNote * 1.5, tNow);
+          bGain.gain.setValueAtTime(0.036, tNow);
+          bGain.gain.exponentialRampToValueAtTime(0.001, tNow + stepSec * 2.1);
+          bell.connect(bGain);
+          bGain.connect(trackGain);
+          bell.start(tNow);
+          bell.stop(tNow + stepSec * 2.15);
         }
       }
 
       // 2. Soft Warm Harmony Pad / Counter-Melody
-      if (harmonyNote > 0 && (step % 2 === 0 || theme === 'boss')) {
+      if (harmonyNote > 0 && (step % 2 === 0 || resolvedTheme === 'boss')) {
         const hOsc = this.ctx.createOscillator();
         const hGain = this.ctx.createGain();
-        hOsc.type = 'triangle';
-        hOsc.frequency.setValueAtTime(harmonyNote, now);
-        const hVol = theme === 'boss' ? 0.095 : (theme === 'waiting' ? 0.055 : 0.075);
-        hGain.gain.setValueAtTime(0.001, now);
-        hGain.gain.linearRampToValueAtTime(hVol, now + 0.018);
-        hGain.gain.exponentialRampToValueAtTime(0.001, now + stepSec * 1.5);
+        hOsc.type = isAmbient ? 'sine' : 'triangle';
+        hOsc.frequency.setValueAtTime(harmonyNote, tNow);
+        const hVol = resolvedTheme === 'boss' ? 0.095 : (isAmbient ? 0.058 : 0.075);
+        const hDecay = isAmbient ? 2.1 : 1.5;
+        hGain.gain.setValueAtTime(0.001, tNow);
+        hGain.gain.linearRampToValueAtTime(hVol, tNow + (isAmbient ? 0.035 : 0.018));
+        hGain.gain.exponentialRampToValueAtTime(0.001, tNow + stepSec * hDecay);
         hOsc.connect(hGain);
-        hGain.connect(this.musicGain);
-        hOsc.start(now);
-        hOsc.stop(now + stepSec * 1.55);
+        hGain.connect(trackGain);
+        hOsc.start(tNow);
+        hOsc.stop(tNow + stepSec * hDecay + 0.05);
       }
 
       // 3. Warm Grounded Bass Pulse on Even Steps
       if (step % 2 === 0 && bassNote > 0) {
         const bOsc = this.ctx.createOscillator();
         const bGain = this.ctx.createGain();
-        bOsc.type = theme === 'boss' ? 'triangle' : 'sine';
-        bOsc.frequency.setValueAtTime(bassNote, now);
+        bOsc.type = resolvedTheme === 'boss' ? 'triangle' : 'sine';
+        bOsc.frequency.setValueAtTime(bassNote, tNow);
 
-        const bassVol = theme === 'waiting' ? 0.15 : (theme === 'boss' ? 0.27 : 0.21);
-        bGain.gain.setValueAtTime(0.001, now);
-        bGain.gain.linearRampToValueAtTime(bassVol, now + 0.01);
-        bGain.gain.exponentialRampToValueAtTime(0.001, now + stepSec * 1.85);
+        const bassVol =
+          resolvedTheme === 'ambient_volcanic' ? 0.18 :
+          isAmbient ? 0.125 :
+          resolvedTheme === 'boss' ? 0.27 : 0.21;
+        const bassDecay = isAmbient ? 2.4 : 1.85;
+        bGain.gain.setValueAtTime(0.001, tNow);
+        bGain.gain.linearRampToValueAtTime(bassVol, tNow + (isAmbient ? 0.03 : 0.01));
+        bGain.gain.exponentialRampToValueAtTime(0.001, tNow + stepSec * bassDecay);
 
         bOsc.connect(bGain);
-        bGain.connect(this.musicGain);
-        bOsc.start(now);
-        bOsc.stop(now + stepSec * 1.9);
+        bGain.connect(trackGain);
+        bOsc.start(tNow);
+        bOsc.stop(tNow + stepSec * bassDecay + 0.05);
       }
 
-      // 4. Organic Acoustic/Retro Percussion Groove
-      const hasGroove = theme === 'boss' || theme === 'victory' || theme === 'jungle' || theme === 'juvenile' || theme === 'trail';
+      // 4. Organic Acoustic/Retro Percussion Groove & Biome Ambient Textures
+      const hasGroove =
+        resolvedTheme === 'boss' ||
+        resolvedTheme === 'victory' ||
+        resolvedTheme === 'jungle' ||
+        resolvedTheme === 'juvenile' ||
+        resolvedTheme === 'trail';
+
       if (hasGroove && step % 2 === 0) {
         const isSnare = step % 4 === 2;
         if (isSnare) {
           this.playNoiseBurst(
             0.065,
-            theme === 'jungle' ? 1400 : 2200,
+            resolvedTheme === 'jungle' ? 1400 : 2200,
             'bandpass',
-            theme === 'boss' ? 0.16 : 0.09,
-            this.musicGain
+            resolvedTheme === 'boss' ? 0.16 : 0.09,
+            trackGain
           );
         } else {
           // Punchy warm kick drum
           const kOsc = this.ctx.createOscillator();
           const kGain = this.ctx.createGain();
           kOsc.type = 'sine';
-          kOsc.frequency.setValueAtTime(128, now);
-          kOsc.frequency.exponentialRampToValueAtTime(42, now + 0.065);
-          kGain.gain.setValueAtTime(theme === 'boss' ? 0.26 : 0.14, now);
-          kGain.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+          kOsc.frequency.setValueAtTime(128, tNow);
+          kOsc.frequency.exponentialRampToValueAtTime(42, tNow + 0.065);
+          kGain.gain.setValueAtTime(resolvedTheme === 'boss' ? 0.26 : 0.14, tNow);
+          kGain.gain.exponentialRampToValueAtTime(0.001, tNow + 0.075);
           kOsc.connect(kGain);
-          kGain.connect(this.musicGain);
-          kOsc.start(now);
-          kOsc.stop(now + 0.08);
+          kGain.connect(trackGain);
+          kOsc.start(tNow);
+          kOsc.stop(tNow + 0.08);
         }
-      } else if ((theme === 'boss' || theme === 'jungle') && step % 2 === 1) {
+      } else if ((resolvedTheme === 'boss' || resolvedTheme === 'jungle') && step % 2 === 1) {
         // Crisp off-beat hi-hat / shaker
-        this.playNoiseBurst(0.028, 5200, 'highpass', theme === 'boss' ? 0.075 : 0.045, this.musicGain);
+        this.playNoiseBurst(0.028, 5200, 'highpass', resolvedTheme === 'boss' ? 0.075 : 0.045, trackGain);
+      } else if (resolvedTheme === 'ambient_jungle' && step % 4 === 3) {
+        // Gentle rainforest canopy shaker whisper
+        this.playNoiseBurst(0.055, 3600, 'bandpass', 0.026, trackGain);
+      } else if (resolvedTheme === 'ambient_volcanic' && step % 8 === 0) {
+        // Subtle distant magma ember pulse
+        this.playNoiseBurst(0.18, 320, 'lowpass', 0.04, trackGain);
       }
 
       step++;
-    }, stepMs);
+    };
+
+    // Start immediately on beat 0 for ambient tracks so transitions feel responsive and alive
+    if (isAmbient) {
+      triggerStep();
+    }
+    track.intervalId = window.setInterval(triggerStep, stepMs);
   }
 
   public playCountdownPip(count: number) {
@@ -2202,10 +2684,19 @@ class AudioManager {
     noise.start(now);
   }
 
-  public playWildlifeChime(kind: 'sheep' | 'monkey' | 'hare' | 'insect') {
+  public playWildlifeChime(kind: 'sheep' | 'monkey' | 'hare' | 'insect' | 'sand_cat' | 'seagull') {
     if (!this.soundEnabled) return;
     this.initContext();
     if (!this.ctx || !this.sfxGain) return;
+
+    if (kind === 'sand_cat') {
+      this.playSandCatPurr();
+      return;
+    }
+    if (kind === 'seagull') {
+      this.playSeagullCall();
+      return;
+    }
 
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
@@ -2267,10 +2758,372 @@ class AudioManager {
     }
   }
 
-  public stopMusic() {
-    if (this.musicInterval !== null) {
-      clearInterval(this.musicInterval);
-      this.musicInterval = null;
+  public playFalconScreech() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(2400, now);
+    filter.Q.setValueAtTime(3.2, now);
+    osc.frequency.setValueAtTime(2200, now);
+    osc.frequency.exponentialRampToValueAtTime(2850, now + 0.08);
+    osc.frequency.exponentialRampToValueAtTime(1180, now + 0.36);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.26, now + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.39);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.42);
+    this.playNoiseBurst(0.18, 2800, 'bandpass', 0.12, this.sfxGain, 0.02);
+  }
+
+  public playSandCatPurr() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+    // Soft desert kitten trill/mew
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(580, now);
+    osc.frequency.exponentialRampToValueAtTime(840, now + 0.09);
+    osc.frequency.exponentialRampToValueAtTime(510, now + 0.24);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.18, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.28);
+  }
+
+  public playTreeChop() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(230, now);
+    osc.frequency.exponentialRampToValueAtTime(85, now + 0.09);
+    gain.gain.setValueAtTime(0.32, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.12);
+    this.playNoiseBurst(0.08, 1250, 'bandpass', 0.24, this.sfxGain, 0);
+  }
+
+  public playTreeFall() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+    // Creak then heavy timber thud
+    const creak = this.ctx.createOscillator();
+    const cGain = this.ctx.createGain();
+    creak.type = 'sawtooth';
+    creak.frequency.setValueAtTime(190, now);
+    creak.frequency.linearRampToValueAtTime(110, now + 0.26);
+    cGain.gain.setValueAtTime(0.14, now);
+    cGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    creak.connect(cGain);
+    cGain.connect(this.sfxGain);
+    creak.start(now);
+    creak.stop(now + 0.3);
+
+    const thud = this.ctx.createOscillator();
+    const tGain = this.ctx.createGain();
+    thud.type = 'sine';
+    thud.frequency.setValueAtTime(120, now + 0.32);
+    thud.frequency.exponentialRampToValueAtTime(38, now + 0.56);
+    tGain.gain.setValueAtTime(0.36, now + 0.32);
+    tGain.gain.exponentialRampToValueAtTime(0.001, now + 0.58);
+    thud.connect(tGain);
+    tGain.connect(this.sfxGain);
+    thud.start(now + 0.32);
+    thud.stop(now + 0.6);
+    this.playNoiseBurst(0.22, 650, 'lowpass', 0.28, this.sfxGain, 0.32);
+  }
+
+  public playRaftBuild() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+    [0, 0.12, 0.24].forEach((offset, idx) => {
+      if (!this.ctx || !this.sfxGain) return;
+      const t = now + offset;
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(280 + idx * 75, t);
+      osc.frequency.exponentialRampToValueAtTime(140, t + 0.08);
+      g.gain.setValueAtTime(0.24, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+      osc.connect(g);
+      g.connect(this.sfxGain);
+      osc.start(t);
+      osc.stop(t + 0.1);
+    });
+  }
+
+  public playRockCrunch() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(145, now);
+    osc.frequency.exponentialRampToValueAtTime(48, now + 0.22);
+    g.gain.setValueAtTime(0.32, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+    osc.connect(g);
+    g.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.26);
+    this.playNoiseBurst(0.2, 950, 'bandpass', 0.32, this.sfxGain, 0);
+  }
+
+  public playSharkLunge() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+    // Ocean splash + menacing low jaw snap
+    this.playNoiseBurst(0.28, 1300, 'bandpass', 0.28, this.sfxGain, 0);
+    const snap = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    snap.type = 'sawtooth';
+    snap.frequency.setValueAtTime(160, now + 0.05);
+    snap.frequency.exponentialRampToValueAtTime(52, now + 0.24);
+    g.gain.setValueAtTime(0.28, now + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+    snap.connect(g);
+    g.connect(this.sfxGain);
+    snap.start(now + 0.05);
+    snap.stop(now + 0.28);
+  }
+
+  public playSeagullCall() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+    [0, 0.22].forEach((offset, idx) => {
+      if (!this.ctx || !this.sfxGain) return;
+      const t = now + offset;
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(idx === 0 ? 1150 : 1260, t);
+      osc.frequency.exponentialRampToValueAtTime(idx === 0 ? 1680 : 1540, t + 0.07);
+      osc.frequency.exponentialRampToValueAtTime(920, t + 0.19);
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.15, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+      osc.connect(g);
+      g.connect(this.sfxGain);
+      osc.start(t);
+      osc.stop(t + 0.22);
+    });
+  }
+
+  public playEmote(
+    emoteId: 'squawk' | 'happy_hop' | 'angry_ruffle' | 'heart_flutter' | 'royal_strut' | 'golden_crow',
+    stage: 'egg' | 'baby' | 'juvenile' | 'teen' | 'adult' = 'baby'
+  ) {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const pitchScale =
+      stage === 'baby' || stage === 'egg' ? 1.24 :
+      stage === 'juvenile' ? 1.08 :
+      stage === 'teen' ? 0.96 : 0.84;
+
+    if (emoteId === 'squawk') {
+      // Expressive two-part barnyard squawk + airy beak burst
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.setValueAtTime(1450 * pitchScale, now);
+      f.Q.setValueAtTime(2.8, now);
+
+      osc.frequency.setValueAtTime(420 * pitchScale, now);
+      osc.frequency.exponentialRampToValueAtTime(860 * pitchScale, now + 0.08);
+      osc.frequency.exponentialRampToValueAtTime(520 * pitchScale, now + 0.22);
+      osc.frequency.exponentialRampToValueAtTime(760 * pitchScale, now + 0.3);
+      osc.frequency.exponentialRampToValueAtTime(380 * pitchScale, now + 0.44);
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.32, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.18, now + 0.22);
+      gain.gain.linearRampToValueAtTime(0.28, now + 0.28);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.46);
+
+      osc.connect(f);
+      f.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.48);
+
+      this.playNoiseBurst(0.12, 2200 * pitchScale, 'bandpass', 0.14, this.sfxGain, 0.02);
+    } else if (emoteId === 'happy_hop') {
+      // Bouncy joyful pentatonic chime + playful spring chirp
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      notes.forEach((freq, idx) => {
+        if (!this.ctx || !this.sfxGain) return;
+        const t = now + idx * 0.075;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq * (0.94 + pitchScale * 0.08), t);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.06 * (0.94 + pitchScale * 0.08), t + 0.055);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.24, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(t);
+        osc.stop(t + 0.22);
+      });
+    } else if (emoteId === 'angry_ruffle') {
+      // Furious feather-ruffle bursts + indignant low grumpy squawk
+      for (let i = 0; i < 4; i++) {
+        this.playNoiseBurst(0.075, 1150 + i * 240, 'bandpass', 0.22, this.sfxGain, i * 0.07);
+      }
+      [0, 0.18].forEach((offset, idx) => {
+        if (!this.ctx || !this.sfxGain) return;
+        const t = now + offset;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        const base = (idx === 0 ? 310 : 265) * pitchScale;
+        osc.frequency.setValueAtTime(base, t);
+        osc.frequency.exponentialRampToValueAtTime(base * 0.68, t + 0.14);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.24, t + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(t);
+        osc.stop(t + 0.17);
+      });
+    } else if (emoteId === 'heart_flutter') {
+      // Warm sparkling heart harp triad + gentle feather flutter
+      this.playNoiseBurst(0.11, 2400, 'bandpass', 0.11, this.sfxGain, 0);
+      this.playNoiseBurst(0.1, 2600, 'bandpass', 0.09, this.sfxGain, 0.14);
+      const chord = [587.33, 739.99, 880.0, 1174.66];
+      chord.forEach((freq, idx) => {
+        if (!this.ctx || !this.sfxGain) return;
+        const t = now + idx * 0.065;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.2, t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.36);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(t);
+        osc.stop(t + 0.38);
+      });
+    } else if (emoteId === 'royal_strut') {
+      // Regal trumpet-like mini fanfare with crystalline shimmer
+      const fanfare = [
+        { freq: 392.0, offset: 0, dur: 0.11 },
+        { freq: 523.25, offset: 0.1, dur: 0.11 },
+        { freq: 659.25, offset: 0.2, dur: 0.12 },
+        { freq: 783.99, offset: 0.31, dur: 0.34 },
+      ];
+      fanfare.forEach(({ freq, offset, dur }) => {
+        if (!this.ctx || !this.sfxGain) return;
+        const t = now + offset;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.25, t + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(t);
+        osc.stop(t + dur + 0.03);
+      });
+    } else {
+      // 'golden_crow': Iconic heroic sunrise cock-a-doodle-doo with golden bell shimmer
+      const crowNotes = [
+        { f1: 392, f2: 523.25, offset: 0, dur: 0.12 },
+        { f1: 523.25, f2: 659.25, offset: 0.12, dur: 0.1 },
+        { f1: 587.33, f2: 783.99, offset: 0.22, dur: 0.13 },
+        { f1: 783.99, f2: 1046.5, offset: 0.35, dur: 0.42 },
+      ];
+      crowNotes.forEach(({ f1, f2, offset, dur }) => {
+        if (!this.ctx || !this.sfxGain) return;
+        const t = now + offset;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(2400, t);
+
+        osc.frequency.setValueAtTime(f1 * pitchScale, t);
+        osc.frequency.exponentialRampToValueAtTime(f2 * pitchScale, t + dur * 0.7);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.22, t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(t);
+        osc.stop(t + dur + 0.03);
+      });
+      // Golden sunrise sparkle bell
+      const sparkle = this.ctx.createOscillator();
+      const sGain = this.ctx.createGain();
+      sparkle.type = 'sine';
+      sparkle.frequency.setValueAtTime(1567.98, now + 0.36);
+      sGain.gain.setValueAtTime(0.001, now + 0.36);
+      sGain.gain.linearRampToValueAtTime(0.16, now + 0.38);
+      sGain.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
+      sparkle.connect(sGain);
+      sGain.connect(this.sfxGain);
+      sparkle.start(now + 0.36);
+      sparkle.stop(now + 0.88);
+    }
+  }
+
+  public stopMusic(fadeDuration = 0.28, preserveTheme = false) {
+    if (!preserveTheme) {
+      this.currentMusicTheme = null;
+    }
+    if (this.activeTrack) {
+      const trackToStop = this.activeTrack;
+      this.activeTrack = null;
+      this.fadeOutTrack(trackToStop, fadeDuration);
+    }
+    if (fadeDuration <= 0.02) {
+      Array.from(this.fadingTracks).forEach(track => this.disposeTrack(track));
     }
   }
 }

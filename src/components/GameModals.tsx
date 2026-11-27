@@ -3,7 +3,7 @@ import {
   Play, RotateCcw, Menu as MenuIcon, Volume2, VolumeX, Music,
   Lock, Check, Trophy, Shield, Sword, X, ChevronRight, ChevronUp, ChevronDown,
   Flame, Zap, AlertTriangle, HelpCircle, Settings,
-  Star, Heart, Sparkles, Map, Scroll, Award, Store, ShoppingBag, Palette, BookOpen
+  Star, Heart, Sparkles, Map, Scroll, Award, Store, ShoppingBag, Palette, BookOpen, Smile
 } from 'lucide-react';
 import { GameScreen, SaveData, GrowthStage, ChickenGender, ArmorType, SwordType } from '../game/types';
 import { LEVELS } from '../game/levels';
@@ -12,6 +12,7 @@ import { getQuestsWithStatus, getBadgesWithStatus, countUnclaimedQuests } from '
 import { getBestiaryProgress } from '../game/bestiary';
 import { audio } from '../game/audio';
 import { CHICKEN_SKINS, getSkinDefinition } from '../game/skins';
+import { EMOTES, MAX_EMOTE_MILESTONE_PURCHASES, getNextEmoteMilestone, getShopPurchaseCount, getUnlockedEmotes, isEmoteUnlocked, getNewlyUnlockedEmotes } from '../game/emotes';
 import { BadgeItem } from '../game/types';
 import { 
   PixelQuestIcon, PixelChick, PixelJuvenile, PixelRooster, 
@@ -20,6 +21,7 @@ import {
 } from './PixelIcons';
 import { PrivacyPolicyModal } from './PrivacyPolicyModal';
 import { BestiaryView } from './BestiaryView';
+import { PixelEmoteIcon } from './PixelEmoteIcons';
 
 interface ModalProps {
   currentScreen: GameScreen;
@@ -1002,7 +1004,7 @@ export const GameModals: React.FC<ModalProps> = ({
   }, []);
   
   // Shop tabs & Appearance preview state
-  const [shopTab, setShopTab] = useState<'upgrades' | 'appearance'>('upgrades');
+  const [shopTab, setShopTab] = useState<'upgrades' | 'appearance' | 'emotes'>('upgrades');
   const [appearanceStage, setAppearanceStage] = useState<GrowthStage>('adult');
   const [previewSkinId, setPreviewSkinId] = useState<string>(saveData.selectedSkin || 'classic');
   const [skinRarityFilter, setSkinRarityFilter] = useState<'ALL' | 'Common' | 'Rare' | 'Epic' | 'Legendary' | 'Mythic' | 'Secret'>('ALL');
@@ -1850,15 +1852,17 @@ export const GameModals: React.FC<ModalProps> = ({
     );
   }
 
-  // --- Level Select (All 30 Levels) ---
+  // --- Level Select (All 40 Levels) ---
   if (currentScreen === 'LEVEL_SELECT') {
     const worlds = [
-      { id: 1, name: 'World 1: The Start', levels: [1, 2, 3, 4, 5], badge: 'Baby Chick' },
-      { id: 2, name: 'World 2: The Adventure Starts', levels: [6, 7, 8, 9], badge: 'Baby Chick' },
-      { id: 3, name: 'World 3: The Heat Up', levels: [10], badge: 'Juvenile' },
-      { id: 4, name: 'World 4: the Jungle lands', levels: [11, 12, 13, 14, 15, 16, 17, 18, 19], badge: 'Teen & Gold Armor' },
-      { id: 5, name: 'World 5: the Artic lands', levels: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29], badge: 'Adult & Bears' },
-      { id: 6, name: 'World 6: The End', levels: [30], badge: 'Grand Finale' },
+      { id: 1, name: 'World 1: The Start', levels: [1, 2, 3, 4, 5], badge: 'Baby Chick', biome: 'coop' },
+      { id: 2, name: 'World 2: The Adventure Starts', levels: [6, 7, 8, 9], badge: 'Baby Chick', biome: 'trail' },
+      { id: 3, name: 'World 3: The Heat Up', levels: [10], badge: 'Juvenile', biome: 'juvenile' },
+      { id: 4, name: 'World 4: the Jungle lands', levels: [11, 12, 13, 14, 15, 16, 17, 18, 19], badge: 'Teen & Gold Armor', biome: 'jungle' },
+      { id: 5, name: 'World 5: the Artic lands', levels: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29], badge: 'Adult & Bears', biome: 'storm' },
+      { id: 6, name: 'World 6: The End', levels: [30], badge: 'Cockatrice Boss', biome: 'fields' },
+      { id: 7, name: 'World 7: the Desert lands', levels: [31, 32, 33, 34, 35], badge: 'Shieldless & Falcons', biome: 'desert' },
+      { id: 8, name: 'World 8: Peckerin Coast', levels: [36, 37, 38, 39, 40], badge: 'Raft & Sharks', biome: 'coast' },
     ];
 
     return wrapWithPopup(
@@ -1870,7 +1874,7 @@ export const GameModals: React.FC<ModalProps> = ({
                 CAMPAIGN LEVEL SELECTION
               </h2>
               <p className="text-xs text-slate-400 font-body">
-                Survive all 30 levels from egg to adult chicken
+                Survive all 40 levels across 8 worlds — from coop hatchling to Peckerin Coast Captain
               </p>
             </div>
             <button
@@ -1886,7 +1890,12 @@ export const GameModals: React.FC<ModalProps> = ({
 
           <div className="space-y-6">
             {worlds.map(w => (
-              <div key={w.id} className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+              <div
+                key={w.id}
+                onMouseEnter={() => audio.playBiomeAmbient(w.biome, Boolean(saveData.hasCompletedGame), 1.35)}
+                onFocus={() => audio.playBiomeAmbient(w.biome, Boolean(saveData.hasCompletedGame), 1.35)}
+                className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 transition-colors hover:border-slate-700"
+              >
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-semibold text-slate-200 text-sm">
                     {w.name}
@@ -1976,11 +1985,11 @@ export const GameModals: React.FC<ModalProps> = ({
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 {[
-                  { key: 'A / D · ◀ ▶', action: 'Walk & Sprint' },
-                  { key: 'SPACE / W / ▲', action: 'Jump (Hold for Higher Arc)' },
-                  { key: 'X / K', action: 'Sword Slash / Peck Strike' },
-                  { key: 'C / S / ▼', action: 'Raise Royal Shield & Deflect' },
-                  { key: 'E', action: "Open Silkie Sam's Shop" },
+                  { key: 'A / D · ◀ ▶', action: 'Walk, Push Raft & Set Sea Speed' },
+                  { key: 'SPACE / W / ▲', action: 'Jump · Steer Raft Up at Sea' },
+                  { key: 'X / K', action: 'Sword Slash · Chop Trees with Axe' },
+                  { key: '▼ / S · C', action: 'Crouch (Desert) · Shield · Raft Down' },
+                  { key: 'E · T / 1–6', action: "Silkie Sam's Shop · Pixel Emotes" },
                   { key: 'ESC / P · R', action: 'Pause Menu · Quick Restart' },
                 ].map(item => (
                   <div
@@ -2016,9 +2025,25 @@ export const GameModals: React.FC<ModalProps> = ({
                   <p className="text-[11px] text-slate-300 leading-snug">Wields golden armor and blade across volcanic jungle temples.</p>
                 </div>
                 <div className="bg-slate-950/80 p-3 border border-slate-800">
-                  <div className="text-yellow-300 font-pixel-arcade text-[9px] mb-1">4. ADULT CHAMPION (STAGES 20–30)</div>
-                  <p className="text-[11px] text-slate-300 leading-snug">Peak speed and power to climb Arctic peaks and defeat the Cockatrice.</p>
+                  <div className="text-yellow-300 font-pixel-arcade text-[9px] mb-1">4. ADULT CHAMPION (STAGES 20–40)</div>
+                  <p className="text-[11px] text-slate-300 leading-snug">Conquer Arctic peaks, defeat the Cockatrice, brave the Desert Lands, and sail Peckerin Coast!</p>
                 </div>
+              </div>
+            </div>
+
+            {/* New Worlds Field Guide: World 7 (Desert Lands) & World 8 (Peckerin Coast) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+              <div className="bg-amber-950/35 p-3.5 border border-amber-500/60 space-y-1.5">
+                <span className="font-pixel-arcade text-[9px] text-amber-300 block">WORLD 7: THE DESERT LANDS (31–35)</span>
+                <p className="text-[11px] text-slate-200"><strong className="text-rose-300">Shield-Snatch Ambush:</strong> On Stage 31, a Desert Falcon swoops down in a cutscene and steals your Royal Shield—you must brave the dunes with no shield!</p>
+                <p className="text-[11px] text-slate-200"><strong className="text-amber-300">Desert Falcons (Enemy):</strong> Watch their red swoop arc and hold <strong className="text-yellow-300">Down Arrow (▼ / S)</strong> to <strong>Crouch</strong> low so they miss snatching you!</p>
+                <p className="text-[11px] text-slate-200"><strong className="text-yellow-200">Sand Cats &amp; Kittens (Wildlife):</strong> Innocent desert felines that prowl, curl up to rest, and nibble leftover meat on desert bones (includes baby Sand Kittens in the Bestiary).</p>
+              </div>
+              <div className="bg-sky-950/40 p-3.5 border border-sky-500/60 space-y-1.5">
+                <span className="font-pixel-arcade text-[9px] text-sky-300 block">WORLD 8: PECKERIN COAST (36–40)</span>
+                <p className="text-[11px] text-slate-200"><strong className="text-amber-300">Axe, Trees &amp; Raft:</strong> Pull the <strong>Axe</strong> from the beach stump, press <strong>X / K</strong> to chop coastal trees down (watch them topple!), gather logs to build your raft, and push it right into the sea.</p>
+                <p className="text-[11px] text-slate-200"><strong className="text-rose-300">Sea Rocks &amp; Sharks (Enemy):</strong> Steer your raft with <strong className="text-yellow-300">▲ / ▼</strong> to dodge jagged rocks that slowly crack your raft, and dodge or slash hungry <strong>Coastal Sharks</strong> lurking and lunging from the waves!</p>
+                <p className="text-[11px] text-slate-200"><strong className="text-sky-200">Coastal Seagulls (Wildlife):</strong> Innocent seabirds soaring overhead, diving to catch fish, and swooping down to rest peacefully on your raft before flying away.</p>
               </div>
             </div>
 
@@ -2027,17 +2052,15 @@ export const GameModals: React.FC<ModalProps> = ({
               <div className="bg-slate-950/80 p-3.5 border border-rose-900/60 space-y-1.5">
                 <span className="font-pixel-arcade text-[9px] text-rose-400 block">ENEMIES &amp; MINI-BOSS</span>
                 <p className="text-[11px] text-slate-300"><strong className="text-amber-300">Farmer Jed (Mini-Boss):</strong> Guards Stage 1! Peck his boots as a baby chick to injure him, then return as an adult for a full pitchfork rematch.</p>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Wolves:</strong> Timber, Arctic, Cinnamon &amp; Black coats—stomp or slash.</p>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Foxes:</strong> Red, Silver, Cross &amp; Arctic—leap early to dodge dashes.</p>
-                <p className="text-[11px] text-slate-300"><strong className="text-emerald-300">Snakes (Jungle Vipers):</strong> 4 rainforest colors in World 4 &amp; boss waves—venomous bites poison you and slowly drain half your health; shield blocks fangs &amp; heart chests cure poison.</p>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Bears:</strong> Grizzly, Kodiak, Polar &amp; Black—heavy reach in World 5.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Wolves &amp; Foxes:</strong> Timber Wolves and swift Foxes—stomp or slash after reading their turns.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-emerald-300">Snakes &amp; Bears:</strong> Venomous vipers poison you (heart chests cure venom); heavy Bears patrol World 5.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-amber-200">Falcons &amp; Sharks:</strong> Crouch under Desert Falcon dives (▼) and dodge/slash lunging Coastal Sharks at sea!</p>
               </div>
               <div className="bg-slate-950/80 p-3.5 border border-amber-900/60 space-y-1.5">
                 <span className="font-pixel-arcade text-[9px] text-amber-400 block">HAZARDS &amp; BESTIARY LOG</span>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Magma Vents:</strong> Medium volcanic vents in obsidian, sulfur, and scorched-slate styles—read tremor plumes before sprinting past.</p>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Temple Boulders:</strong> Bait overhead temple droppers or leap cleanly over oncoming granite spheres.</p>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Stormclouds:</strong> Varied storm cells that fire forked plasma lightning—step clear when the ground reticle charges.</p>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Bestiary:</strong> Every foe, mini-boss, and background animal logs automatically with coat &amp; baby previews!</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Magma Vents &amp; Boulders:</strong> Read volcanic tremor plumes and leap cleanly over rolling temple granite.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Stormclouds &amp; Sea Rocks:</strong> Dodge plasma lightning reticles in World 5 and steer clear of jagged sea rocks in World 8.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Bestiary:</strong> Every foe, mini-boss, and innocent animal (including Falcons, Sharks, Sand Cats + Kittens, and Seagulls) logs automatically!</p>
               </div>
             </div>
 
@@ -2195,7 +2218,7 @@ export const GameModals: React.FC<ModalProps> = ({
                 <Music className="w-4 h-4 text-yellow-400" />
                 <div>
                   <span className="text-xs font-pixel-arcade text-slate-100 font-bold block">BIOME SOUNDTRACK</span>
-                  <span className="text-[9px] text-slate-400 font-body">6 world themes, boss symphony &amp; lounge</span>
+                  <span className="text-[9px] text-slate-400 font-body">8 world themes, boss symphony &amp; lounge</span>
                 </div>
               </div>
               <button
@@ -2305,7 +2328,7 @@ export const GameModals: React.FC<ModalProps> = ({
           <h2 className="font-pixel-arcade text-xl sm:text-2xl text-yellow-400 mb-1 drop-shadow-[0_2px_0_#3b1302]">
             GAME PAUSED
           </h2>
-          <p className="text-[10px] text-yellow-400/80 mb-5 font-pixel-arcade">STAGE {activeLevelId} / 30</p>
+          <p className="text-[10px] text-yellow-400/80 mb-5 font-pixel-arcade">STAGE {activeLevelId} / 40</p>
 
           <div className="w-full space-y-2.5">
             <button
@@ -2456,6 +2479,16 @@ export const GameModals: React.FC<ModalProps> = ({
         accent: 'border-rose-400 text-rose-300',
         tip: 'Hold Block (S / Down) with the Royal Shield to deflect the Ancient Cockatrice’s fireballs back at it!',
       },
+      7: {
+        gradient: 'from-amber-950 via-orange-950 to-slate-950',
+        accent: 'border-amber-400 text-amber-300',
+        tip: 'A Desert Falcon will snatch your shield! Hold Down Arrow (▼ / S) to CROUCH low beneath swooping Falcons, and watch gentle Sand Cats & kittens nibble desert bones.',
+      },
+      8: {
+        gradient: 'from-sky-950 via-cyan-950 to-slate-950',
+        accent: 'border-sky-400 text-sky-300',
+        tip: 'Grab the Axe from the beach stump, chop trees for wood, build & push your raft into Peckerin Coast, then dodge jagged sea rocks & hungry Sharks while Seagulls hitch a ride!',
+      },
     };
     const wt = worldThemes[targetLevel.world] || worldThemes[1];
     const filledSegments = Math.round((worldLoadPercent / 100) * 12);
@@ -2480,7 +2513,7 @@ export const GameModals: React.FC<ModalProps> = ({
             {targetLevel.worldName}
           </h2>
           <p className="font-pixel text-xs text-sky-200 mb-5">
-            STAGE {targetLevel.id} / 30 · {targetLevel.title}
+            STAGE {targetLevel.id} / 40 · {targetLevel.title}
           </p>
 
           {/* Percentage Readout */}
@@ -2693,13 +2726,21 @@ export const GameModals: React.FC<ModalProps> = ({
   if (currentScreen === 'LEVEL_CLEAR') {
     const currentLevel = LEVELS.find(l => l.id === activeLevelId);
     const nextLevel = LEVELS.find(l => l.id === activeLevelId + 1);
-    const isMaxLevel = activeLevelId >= 30;
+    const isMaxLevel = activeLevelId >= 40;
     const maxHearts = 3 + (saveData.upgrades?.extraHearts || 0);
 
     let stageName = 'Baby Chick';
     let nextMilestone = 'Level 10 (Juvenile Chicken)';
     let progressPercent = (activeLevelId / 10) * 100;
-    if (activeLevelId >= 20) {
+    if (activeLevelId >= 36) {
+      stageName = 'Peckerin Coast Sea Captain';
+      nextMilestone = 'Level 40 (Peckerin Coast Finale)';
+      progressPercent = ((activeLevelId - 35) / 5) * 100;
+    } else if (activeLevelId >= 31) {
+      stageName = 'Shieldless Desert Survivor';
+      nextMilestone = 'Level 36 (Peckerin Coast)';
+      progressPercent = ((activeLevelId - 30) / 5) * 100;
+    } else if (activeLevelId >= 20) {
       stageName = 'Mighty Adult Chicken';
       nextMilestone = 'Level 30 (Mount Cluckmore Summit)';
       progressPercent = ((activeLevelId - 20) / 10) * 100;
@@ -2730,7 +2771,7 @@ export const GameModals: React.FC<ModalProps> = ({
             LEVEL {activeLevelId} CLEARED!
           </h2>
           <p className="text-[10px] sm:text-xs text-yellow-400/80 font-pixel-arcade mb-4 text-center">
-            WORLD {currentLevel?.world || 1} • STAGE {activeLevelId} / 30
+            WORLD {currentLevel?.world || 1} • STAGE {activeLevelId} / 40
           </p>
 
           {/* 3 Golden Pixel Stars */}
@@ -2802,7 +2843,7 @@ export const GameModals: React.FC<ModalProps> = ({
                   {nextLevel.worldName}
                 </span>
               </div>
-              <h4 className="font-pixel-arcade text-[11px] text-yellow-400 mb-1 drop-shadow-[0_2px_0_#3b1302]">STAGE {nextLevel.id} / 30</h4>
+              <h4 className="font-pixel-arcade text-[11px] text-yellow-400 mb-1 drop-shadow-[0_2px_0_#3b1302]">STAGE {nextLevel.id} / 40</h4>
               <p className="text-[10px] text-yellow-300/90 font-pixel leading-relaxed">
                 {nextLevel.hint || nextLevel.subtitle || 'Prepare your jumps! Safe resting spots are fewer ahead.'}
               </p>
@@ -2931,8 +2972,9 @@ export const GameModals: React.FC<ModalProps> = ({
     );
   }
 
-  // --- Grand Victory Screen (Level 30 Cleared) ---
+  // --- Grand Victory Screen (Level 30 Cockatrice Victory OR Level 40 Full 8-World Voyage Victory) ---
   if (currentScreen === 'VICTORY') {
+    const isFullVoyageComplete = activeLevelId >= 40;
     return wrapWithPopup(
       <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-4 z-40 overflow-y-auto">
         <div className="w-full max-w-lg bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-amber-400 rounded-3xl p-6 sm:p-8 flex flex-col items-center text-center shadow-[0_0_60px_rgba(245,158,11,0.3)]">
@@ -2944,11 +2986,15 @@ export const GameModals: React.FC<ModalProps> = ({
             CONGRATULATIONS!
           </h1>
           <p className="font-pixel text-xs sm:text-sm text-emerald-400 mb-4 tracking-wide">
-            YOU SURVIVED ALL 30 LEVELS!
+            {isFullVoyageComplete
+              ? 'YOU CONQUERED ALL 40 LEVELS & 8 WORLDS!'
+              : 'THE ANCIENT COCKATRICE IS DEFEATED!'}
           </p>
 
           <p className="font-body text-slate-200 text-sm mb-6 leading-relaxed max-w-md">
-            Your journey from a tiny egg to a mighty adult chicken is complete. Welcome to the Green Fields!
+            {isFullVoyageComplete
+              ? 'From a tiny coop hatchling to conquering the Desert Lands without a shield and sailing Peckerin Coast past sharks and reefs—you are a true legend!'
+              : 'Peace has returned to the Green Fields! Now two uncharted expeditions await: the Desert lands and the ocean waves of Peckerin Coast.'}
           </p>
 
           {/* Stats Box */}
@@ -2959,12 +3005,16 @@ export const GameModals: React.FC<ModalProps> = ({
             </div>
             <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
               <span className="text-[11px] text-slate-400 font-body block">Levels Completed</span>
-              <span className="font-pixel text-base text-emerald-400 font-bold">30 / 30 Finished</span>
+              <span className="font-pixel text-base text-emerald-400 font-bold">
+                {isFullVoyageComplete ? '40 / 40 Finished' : '30 / 40 (2 New Worlds!)'}
+              </span>
             </div>
             <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 col-span-2 flex items-center justify-between">
               <div>
-                <span className="text-[11px] text-slate-400 font-body block">Final Growth State</span>
-                <span className="font-pixel text-sm text-amber-300 font-bold">Armored Adult Hero Chicken</span>
+                <span className="text-[11px] text-slate-400 font-body block">Hero Rank</span>
+                <span className="font-pixel text-sm text-amber-300 font-bold">
+                  {isFullVoyageComplete ? 'Grand Captain of Peckerin Coast' : 'Armored Adult Hero Chicken'}
+                </span>
               </div>
               <Shield className="w-6 h-6 text-amber-400" />
             </div>
@@ -2972,17 +3022,26 @@ export const GameModals: React.FC<ModalProps> = ({
 
           {/* Final Navigation Actions */}
           <div className="w-full flex flex-col gap-2.5">
-            <button
-              onClick={() => onStartGame(30, false)}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold font-pixel text-xs tracking-wide shadow-lg transition-all cursor-pointer"
-            >
-              REPLAY LEVEL 30 (GREEN FIELDS)
-            </button>
+            {!isFullVoyageComplete ? (
+              <button
+                onClick={() => onSelectLevel(31)}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold font-pixel text-xs tracking-wide shadow-lg transition-all cursor-pointer"
+              >
+                VENTURE TO WORLD 7: THE DESERT LANDS!
+              </button>
+            ) : (
+              <button
+                onClick={() => onStartGame(40, false)}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-500 hover:from-sky-300 hover:to-cyan-400 text-slate-950 font-bold font-pixel text-xs tracking-wide shadow-lg transition-all cursor-pointer"
+              >
+                REPLAY LEVEL 40 (PECKERIN COAST)
+              </button>
+            )}
             <button
               onClick={() => onOpenScreen('LEVEL_SELECT')}
               className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
             >
-              Explore Earlier Levels
+              Explore All 8 Worlds (Level Select)
             </button>
             <button
               onClick={() => {
@@ -3154,9 +3213,15 @@ export const GameModals: React.FC<ModalProps> = ({
       if (saveData.totalCoins < item.cost) {
         return;
       }
+      const prevPurchases = getShopPurchaseCount(saveData);
       const success = onPurchaseUpgrade?.(item.cost, item.type, (item as any).tierValue);
       if (success) {
-        speakDialogue("Thanks for your purchase!", 'purchase');
+        const unlockedNow = getNewlyUnlockedEmotes(prevPurchases, prevPurchases + 1);
+        if (unlockedNow.length > 0) {
+          speakDialogue(`Shop milestone reached! You unlocked the ${unlockedNow[0].name} Emote!`, 'purchase');
+        } else {
+          speakDialogue("Thanks for your purchase!", 'purchase');
+        }
       }
     };
 
@@ -3313,41 +3378,90 @@ export const GameModals: React.FC<ModalProps> = ({
           </div>
 
           {/* ═══════════════════════════════════════════════════════════════
-              SHOP TABS SWITCHER: [ UPGRADES ] vs [ APPEARANCE ]
+              SHOP TABS SWITCHER: [ UPGRADES ] vs [ APPEARANCE ] vs [ EMOTES ]
               ═══════════════════════════════════════════════════════════════ */}
-          <div className="flex items-center gap-2 mb-3 select-none">
-            <button
-              type="button"
-              onClick={() => {
-                setShopTab('upgrades');
-                speakDialogue("Need combat armor or charms? Browse our sturdy masterwork gear!", 'talk');
-              }}
-              className={`flex-1 py-2 sm:py-2.5 px-3 rounded-2xl font-pixel-arcade text-[10px] sm:text-xs font-bold border-2 transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm ${
-                shopTab === 'upgrades'
-                  ? 'bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 text-slate-950 border-amber-600 shadow-[0_3px_0_#78350f,0_0_15px_rgba(245,158,11,0.35)]'
-                  : 'bg-slate-900/90 text-yellow-400/80 border-yellow-500/40 hover:bg-slate-800 hover:text-yellow-300'
-              }`}
-            >
-              <Zap className="w-4 h-4 stroke-[2.5]" />
-              <span>UPGRADES</span>
-            </button>
+          {(() => {
+            const unlockedEmoteCount = getUnlockedEmotes(saveData).length;
+            const totalShopBuys = getShopPurchaseCount(saveData);
+            const nextMilestone = getNextEmoteMilestone(saveData);
+            return (
+              <>
+                <div className="flex items-center gap-2 mb-3 select-none">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShopTab('upgrades');
+                      speakDialogue("Need combat armor or charms? Browse our sturdy masterwork gear!", 'talk');
+                    }}
+                    className={`flex-1 py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-2xl font-pixel-arcade text-[9.5px] sm:text-xs font-bold border-2 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm ${
+                      shopTab === 'upgrades'
+                        ? 'bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 text-slate-950 border-amber-600 shadow-[0_3px_0_#78350f,0_0_15px_rgba(245,158,11,0.35)]'
+                        : 'bg-slate-900/90 text-yellow-400/80 border-yellow-500/40 hover:bg-slate-800 hover:text-yellow-300'
+                    }`}
+                  >
+                    <Zap className="w-4 h-4 stroke-[2.5] shrink-0" />
+                    <span>UPGRADES</span>
+                  </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setShopTab('appearance');
-                speakDialogue("Trying on new plumage? Our feathers are dyed with enchanted elderberries!", 'talk');
-              }}
-              className={`flex-1 py-2 sm:py-2.5 px-3 rounded-2xl font-pixel-arcade text-[10px] sm:text-xs font-bold border-2 transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm ${
-                shopTab === 'appearance'
-                  ? 'bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 text-slate-950 border-amber-600 shadow-[0_3px_0_#78350f,0_0_15px_rgba(245,158,11,0.35)]'
-                  : 'bg-slate-900/90 text-yellow-400/80 border-yellow-500/40 hover:bg-slate-800 hover:text-yellow-300'
-              }`}
-            >
-              <Palette className="w-4 h-4 stroke-[2.5]" />
-              <span>APPEARANCE</span>
-            </button>
-          </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShopTab('appearance');
+                      speakDialogue("Trying on new plumage? Our feathers are dyed with enchanted elderberries!", 'talk');
+                    }}
+                    className={`flex-1 py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-2xl font-pixel-arcade text-[9.5px] sm:text-xs font-bold border-2 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm ${
+                      shopTab === 'appearance'
+                        ? 'bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 text-slate-950 border-amber-600 shadow-[0_3px_0_#78350f,0_0_15px_rgba(245,158,11,0.35)]'
+                        : 'bg-slate-900/90 text-yellow-400/80 border-yellow-500/40 hover:bg-slate-800 hover:text-yellow-300'
+                    }`}
+                  >
+                    <Palette className="w-4 h-4 stroke-[2.5] shrink-0" />
+                    <span>APPEARANCE</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShopTab('emotes');
+                      speakDialogue("Shop with me to unlock expressive pixel Emotes! Press T or keys 1-6 in-game!", 'talk');
+                    }}
+                    className={`flex-1 py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-2xl font-pixel-arcade text-[9.5px] sm:text-xs font-bold border-2 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm ${
+                      shopTab === 'emotes'
+                        ? 'bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 text-slate-950 border-amber-600 shadow-[0_3px_0_#78350f,0_0_15px_rgba(245,158,11,0.35)]'
+                        : 'bg-slate-900/90 text-yellow-400/80 border-yellow-500/40 hover:bg-slate-800 hover:text-yellow-300'
+                    }`}
+                  >
+                    <Smile className="w-4 h-4 stroke-[2.5] shrink-0" />
+                    <span>EMOTES ({unlockedEmoteCount}/{EMOTES.length})</span>
+                  </button>
+                </div>
+
+                {/* Compact Next Emote Milestone Banner inside Upgrades/Appearance */}
+                {shopTab !== 'emotes' && (
+                  <button
+                    type="button"
+                    onClick={() => setShopTab('emotes')}
+                    className="w-full mb-2.5 px-3 py-2 bg-slate-950/90 hover:bg-slate-900 border-2 border-amber-500/50 hover:border-yellow-400 transition-all cursor-pointer flex items-center justify-between gap-2 text-left"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <PixelEmoteIcon
+                        emoteId={nextMilestone ? nextMilestone.emote.id : 'golden_crow'}
+                        className="w-5 h-5 shrink-0"
+                      />
+                      <span className="font-pixel-arcade text-[8.5px] sm:text-[9.5px] text-amber-200 truncate">
+                        {nextMilestone
+                          ? `NEXT EMOTE MILESTONE: ${nextMilestone.emote.name} (${nextMilestone.remaining} more shop buy${nextMilestone.remaining === 1 ? '' : 's'})`
+                          : `ALL ${EMOTES.length} SHOP MILESTONE EMOTES UNLOCKED!`}
+                      </span>
+                    </div>
+                    <span className="font-pixel-arcade text-[8px] text-yellow-400 shrink-0 tabular-nums">
+                      {totalShopBuys}/{MAX_EMOTE_MILESTONE_PURCHASES} BUYS →
+                    </span>
+                  </button>
+                )}
+              </>
+            );
+          })()}
 
           {/* ═══════════════════════════════════════════════════════════════
               TAB 1: UPGRADE CARDS GRID
@@ -3697,6 +3811,127 @@ export const GameModals: React.FC<ModalProps> = ({
               <TabletScrollButtons containerRef={appearanceScrollRef} className="my-2" />
             </div>
           )}
+
+          {/* ═══════════════════════════════════════════════════════════════
+              TAB 3: SHOP MILESTONE EMOTES
+              ═══════════════════════════════════════════════════════════════ */}
+          {shopTab === 'emotes' && (() => {
+            const totalShopBuys = getShopPurchaseCount(saveData);
+            const overallPct = Math.min(100, Math.round((totalShopBuys / MAX_EMOTE_MILESTONE_PURCHASES) * 100));
+            return (
+              <div className="flex flex-col mb-3">
+                {/* Milestone Track Header */}
+                <div className="p-3 bg-slate-950/90 border-2 border-yellow-500/60 mb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                    <span className="font-pixel-arcade text-[10px] text-yellow-300 font-bold">
+                      SHOP MILESTONE EMOTES
+                    </span>
+                    <span className="font-pixel-arcade text-[9px] text-amber-300 tabular-nums">
+                      {totalShopBuys} / {MAX_EMOTE_MILESTONE_PURCHASES} SHOP PURCHASES
+                    </span>
+                  </div>
+                  <div className="w-full h-2.5 bg-slate-900 border border-slate-700 overflow-hidden mb-2">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-emerald-400 transition-all duration-300"
+                      style={{ width: `${overallPct}%` }}
+                    />
+                  </div>
+                  <p className="text-[9.5px] text-slate-300 font-body">
+                    Buy upgrades or skins in Silkie&apos;s Emporium to unlock expressive pixel-art world emotes! Press <span className="text-yellow-300 font-semibold">T</span> or number keys <span className="text-yellow-300 font-semibold">1–6</span> during gameplay to trigger them.
+                  </p>
+                </div>
+
+                {/* Emote Cards Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[42vh] overflow-y-auto pr-1 scrollbar-thin">
+                  {EMOTES.map(emote => {
+                    const unlocked = isEmoteUnlocked(emote.id, saveData);
+                    const remaining = Math.max(0, emote.requiredPurchases - totalShopBuys);
+                    const progressPct = emote.requiredPurchases === 0
+                      ? 100
+                      : Math.min(100, Math.round((totalShopBuys / emote.requiredPurchases) * 100));
+
+                    return (
+                      <div
+                        key={emote.id}
+                        className={`p-3 border-2 flex flex-col justify-between transition-all ${
+                          unlocked
+                            ? 'bg-gradient-to-b from-slate-900 to-emerald-950/30 border-emerald-500/75 shadow-[0_3px_0_#000000]'
+                            : 'bg-slate-950/80 border-slate-800 opacity-90'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5 mb-2.5">
+                          <div
+                            className={`w-11 h-11 border-2 flex items-center justify-center shrink-0 ${
+                              unlocked
+                                ? 'bg-amber-500/15 border-yellow-400/80'
+                                : 'bg-slate-900 border-slate-700 grayscale opacity-70'
+                            }`}
+                          >
+                            <PixelEmoteIcon emoteId={emote.id} className="w-7 h-7" />
+                          </div>
+                          <div className="text-left flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <h4 className={`font-pixel-arcade text-[10px] sm:text-[11px] font-bold truncate ${unlocked ? 'text-yellow-300' : 'text-slate-300'}`}>
+                                {emote.name}
+                              </h4>
+                              <span className="font-pixel-arcade text-[8px] px-1.5 py-0.5 bg-slate-900 border border-slate-700 text-amber-300 shrink-0">
+                                KEY {emote.hotkey}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-300 font-body leading-snug mt-1">
+                              {emote.description}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                          {unlocked ? (
+                            <>
+                              <span className="font-pixel-arcade text-[8.5px] text-emerald-300 font-bold">
+                                ✓ {emote.milestoneLabel}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  audio.playEmote(emote.id, saveData.unlockedLevel >= 20 ? 'adult' : saveData.unlockedLevel >= 10 ? 'juvenile' : 'baby');
+                                  speakDialogue(`${emote.bubbleText} Try pressing Key ${emote.hotkey} in-game!`, 'talk');
+                                }}
+                                className="px-2.5 py-1.5 bg-amber-400 hover:bg-yellow-300 text-slate-950 border-2 border-amber-700 font-pixel-arcade text-[8px] font-bold shadow-[0_2px_0_#78350f] active:translate-y-0.5 active:shadow-none cursor-pointer"
+                              >
+                                PREVIEW SFX
+                              </button>
+                            </>
+                          ) : (
+                            <div className="w-full flex items-center justify-between gap-2">
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between text-[8px] font-pixel-arcade text-amber-300/90 mb-1">
+                                  <span>{emote.milestoneLabel}</span>
+                                  <span>{totalShopBuys}/{emote.requiredPurchases}</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-900 border border-slate-700 overflow-hidden">
+                                  <div
+                                    className="h-full bg-amber-400"
+                                    style={{ width: `${progressPct}%` }}
+                                  />
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setShopTab('upgrades')}
+                                className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-yellow-300 border border-yellow-500/60 font-pixel-arcade text-[7.5px] font-bold cursor-pointer shrink-0"
+                              >
+                                +{remaining} BUY{remaining === 1 ? '' : 'S'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Bottom Navigation */}
           <button

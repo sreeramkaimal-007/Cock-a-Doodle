@@ -1,7 +1,9 @@
 import React from 'react';
-import { Volume2, VolumeX, Music, Pause, Shield, Sword, Gamepad2, Home, LogOut, Maximize2, Minimize2 } from 'lucide-react';
-import { GrowthStage, ArmorType, SwordType } from '../game/types';
+import { Volume2, VolumeX, Music, Pause, Shield, Sword, Gamepad2, Home, LogOut, Maximize2, Minimize2, Lock, Smile } from 'lucide-react';
+import { GrowthStage, ArmorType, SwordType, EmoteId } from '../game/types';
+import { EMOTES } from '../game/emotes';
 import { PixelChick, PixelJuvenile, PixelRooster, PixelCrown } from './PixelIcons';
+import { PixelEmoteIcon } from './PixelEmoteIcons';
 
 interface GameHUDProps {
   levelNumber: number;
@@ -27,6 +29,12 @@ interface GameHUDProps {
   onPause: () => void;
   onReturnToMenu: () => void;
   onLogOut?: () => void;
+  unlockedEmotes?: EmoteId[];
+  activeEmote?: EmoteId | null;
+  shopPurchases?: number;
+  emoteTrayOpen?: boolean;
+  onToggleEmoteTray?: () => void;
+  onTriggerEmote?: (emoteId: EmoteId) => void;
 }
 
 // Retro 8-bit Pixelated Flame Icon Component
@@ -305,6 +313,12 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onPause,
   onReturnToMenu,
   onLogOut,
+  unlockedEmotes = ['squawk'],
+  activeEmote = null,
+  shopPurchases = 0,
+  emoteTrayOpen = false,
+  onToggleEmoteTray,
+  onTriggerEmote,
 }) => {
   const isFireResistActive = fireResistTimer > 0;
   const isPoisoned = poisonTimer > 0;
@@ -497,71 +511,150 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         </div>
       </div>
 
-      {/* Row 2: MOVED DOWN for Tablet & Mobile - Stage Button on Top */}
-      <div className="w-full flex flex-col items-start gap-2 sm:gap-2.5 pointer-events-auto mt-2.5 sm:mt-3.5 md:mt-4.5">
-        {/* Stage Button with Chunky Pixelated Border & 3D Shadow */}
-        <div className="bg-slate-900 border-[3px] border-black px-3 sm:px-3.5 py-1.5 shadow-[3px_3px_0_#000000] flex items-center gap-2">
-          <span className="w-2 h-2 bg-yellow-400 animate-pulse shrink-0" />
-          <div className="shrink-0">
-            {stage === 'baby' ? (
-              <PixelChick className="w-4 h-4" />
-            ) : stage === 'juvenile' ? (
-              <PixelJuvenile className="w-4 h-4" />
-            ) : stage === 'teen' ? (
-              <PixelRooster className="w-4 h-4" />
-            ) : (
-              <PixelCrown className="w-4 h-4" />
-            )}
-          </div>
-          <span className="font-pixel-arcade text-[8px] sm:text-[9.5px] text-yellow-400 font-bold tracking-wider drop-shadow-[0_1px_0_#3b1302]">
-            Stage: {stage === 'adult' ? 'adult chicken' : (stage === 'baby' ? 'baby chick' : (stage === 'juvenile' ? 'juvenile chicken' : 'teen chicken'))}
-          </span>
-        </div>
-
-        {/* DIRECTLY UNDER THE STAGE BUTTON: Armor and Sword Buttons Stacked Vertically with 8-Bit Style */}
-        <div className="flex flex-col items-start gap-1.5 sm:gap-2">
-          {/* Button that shows our armor / shield status */}
-          <div className={`border-[3px] border-black px-3 sm:px-3.5 py-1.5 shadow-[3px_3px_0_#000000] flex items-center gap-1.5 text-[8px] sm:text-[9.5px] font-pixel-arcade transition-all ${
-            isFireResistActive
-              ? 'bg-gradient-to-r from-orange-950 to-amber-950 text-orange-200 border-amber-600 ring-1 ring-orange-500'
-              : (armor === 'diamond'
-                ? 'bg-cyan-950 text-cyan-300 drop-shadow-[0_1px_0_#083344]'
-                : (armor === 'gold'
-                  ? 'bg-yellow-950 text-yellow-400 drop-shadow-[0_1px_0_#3b1302]'
-                  : (armor === 'iron'
-                    ? 'bg-slate-800 text-slate-200 drop-shadow-[0_1px_0_#1e293b]'
-                    : 'bg-slate-900 text-slate-400')))
-          }`}>
-            <PixelHUDShield type={armor} className="w-3.5 h-3.5" />
-            <span>
-              Armor: {armor === 'diamond' ? 'diamond armor' : (armor === 'gold' ? 'gold armor' : (armor === 'iron' ? 'iron armor' : 'none'))}
+      {/* Row 2: Stage/Gear Stack on Left, Interactive Pixel Emote Quickbar on Right */}
+      <div className="w-full flex items-start justify-between gap-2 pointer-events-none mt-2.5 sm:mt-3.5 md:mt-4.5">
+        <div className="flex flex-col items-start gap-2 sm:gap-2.5 pointer-events-auto">
+          {/* Stage Button with Chunky Pixelated Border & 3D Shadow */}
+          <div className="bg-slate-900 border-[3px] border-black px-3 sm:px-3.5 py-1.5 shadow-[3px_3px_0_#000000] flex items-center gap-2">
+            <span className="w-2 h-2 bg-yellow-400 animate-pulse shrink-0" />
+            <div className="shrink-0">
+              {stage === 'baby' ? (
+                <PixelChick className="w-4 h-4" />
+              ) : stage === 'juvenile' ? (
+                <PixelJuvenile className="w-4 h-4" />
+              ) : stage === 'teen' ? (
+                <PixelRooster className="w-4 h-4" />
+              ) : (
+                <PixelCrown className="w-4 h-4" />
+              )}
+            </div>
+            <span className="font-pixel-arcade text-[8px] sm:text-[9.5px] text-yellow-400 font-bold tracking-wider drop-shadow-[0_1px_0_#3b1302]">
+              Stage: {stage === 'adult' ? 'adult chicken' : (stage === 'baby' ? 'baby chick' : (stage === 'juvenile' ? 'juvenile chicken' : 'teen chicken'))}
             </span>
-            {isFireResistActive && (
-              <span className="flex items-center gap-0.5 ml-1 text-orange-400">
-                <PixelFlameIcon className="w-3 h-3" />
-                <span className="text-[7.5px] text-yellow-300 font-bold">FIRE-RESIST</span>
+          </div>
+
+          {/* DIRECTLY UNDER THE STAGE BUTTON: Armor and Sword Buttons Stacked Vertically with 8-Bit Style */}
+          <div className="flex flex-col items-start gap-1.5 sm:gap-2">
+            {/* Button that shows our armor / shield status */}
+            <div className={`border-[3px] border-black px-3 sm:px-3.5 py-1.5 shadow-[3px_3px_0_#000000] flex items-center gap-1.5 text-[8px] sm:text-[9.5px] font-pixel-arcade transition-all ${
+              isFireResistActive
+                ? 'bg-gradient-to-r from-orange-950 to-amber-950 text-orange-200 border-amber-600 ring-1 ring-orange-500'
+                : (armor === 'diamond'
+                  ? 'bg-cyan-950 text-cyan-300 drop-shadow-[0_1px_0_#083344]'
+                  : (armor === 'gold'
+                    ? 'bg-yellow-950 text-yellow-400 drop-shadow-[0_1px_0_#3b1302]'
+                    : (armor === 'iron'
+                      ? 'bg-slate-800 text-slate-200 drop-shadow-[0_1px_0_#1e293b]'
+                      : 'bg-slate-900 text-slate-400')))
+            }`}>
+              <PixelHUDShield type={armor} className="w-3.5 h-3.5" />
+              <span>
+                Armor: {armor === 'diamond' ? 'diamond armor' : (armor === 'gold' ? 'gold armor' : (armor === 'iron' ? 'iron armor' : 'none'))}
               </span>
-            )}
-          </div>
+              {isFireResistActive && (
+                <span className="flex items-center gap-0.5 ml-1 text-orange-400">
+                  <PixelFlameIcon className="w-3 h-3" />
+                  <span className="text-[7.5px] text-yellow-300 font-bold">FIRE-RESIST</span>
+                </span>
+              )}
+            </div>
 
-          {/* Button that shows our sword */}
-          <div className={`border-[3px] border-black px-3 sm:px-3.5 py-1.5 shadow-[3px_3px_0_#000000] flex items-center gap-1.5 text-[8px] sm:text-[9.5px] font-pixel-arcade transition-all ${
-            sword === 'netherite'
-              ? 'bg-purple-950 text-purple-300 drop-shadow-[0_1px_0_#3b0764] ring-1 ring-purple-500/50'
-              : (sword === 'diamond'
-                ? 'bg-cyan-950 text-cyan-300 drop-shadow-[0_1px_0_#083344]'
-                : (sword === 'gold'
-                  ? 'bg-yellow-950 text-yellow-400 drop-shadow-[0_1px_0_#3b1302]'
-                  : (sword === 'iron'
-                    ? 'bg-slate-800 text-slate-200 drop-shadow-[0_1px_0_#1e293b]'
-                    : 'bg-slate-900 text-slate-400')))
-          }`}>
-            <PixelHUDSword type={sword} className="w-3.5 h-3.5" />
-            <span>
-              Sword: {sword === 'netherite' ? 'netherite sword' : (sword === 'diamond' ? 'diamond sword' : (sword === 'gold' ? 'gold sword' : (sword === 'iron' ? 'iron sword' : 'none')))}
-            </span>
+            {/* Button that shows our sword */}
+            <div className={`border-[3px] border-black px-3 sm:px-3.5 py-1.5 shadow-[3px_3px_0_#000000] flex items-center gap-1.5 text-[8px] sm:text-[9.5px] font-pixel-arcade transition-all ${
+              sword === 'netherite'
+                ? 'bg-purple-950 text-purple-300 drop-shadow-[0_1px_0_#3b0764] ring-1 ring-purple-500/50'
+                : (sword === 'diamond'
+                  ? 'bg-cyan-950 text-cyan-300 drop-shadow-[0_1px_0_#083344]'
+                  : (sword === 'gold'
+                    ? 'bg-yellow-950 text-yellow-400 drop-shadow-[0_1px_0_#3b1302]'
+                    : (sword === 'iron'
+                      ? 'bg-slate-800 text-slate-200 drop-shadow-[0_1px_0_#1e293b]'
+                      : 'bg-slate-900 text-slate-400')))
+            }`}>
+              <PixelHUDSword type={sword} className="w-3.5 h-3.5" />
+              <span>
+                Sword: {sword === 'netherite' ? 'netherite sword' : (sword === 'diamond' ? 'diamond sword' : (sword === 'gold' ? 'gold sword' : (sword === 'iron' ? 'iron sword' : 'none')))}
+              </span>
+            </div>
           </div>
         </div>
+
+        {/* Right Side: Interactive Pixel Emote Trigger & Quickbar */}
+        {onTriggerEmote && (
+          <div
+            onClick={e => e.stopPropagation()}
+            onPointerDown={e => e.stopPropagation()}
+            className="flex flex-col items-end gap-1.5 pointer-events-auto"
+          >
+            <button
+              type="button"
+              onClick={onToggleEmoteTray}
+              className={`h-8 sm:h-9 px-2.5 sm:px-3 border-[2.5px] border-black shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center gap-1.5 ${
+                emoteTrayOpen || activeEmote
+                  ? 'bg-amber-950 text-yellow-300 ring-1 ring-yellow-400/70'
+                  : 'bg-slate-900 hover:bg-slate-800 text-yellow-400'
+              }`}
+              aria-label="Toggle Emotes Bar"
+              title="Toggle Emotes (Hotkey: T | Quick Emotes: Keys 1-6)"
+            >
+              {activeEmote ? (
+                <PixelEmoteIcon emoteId={activeEmote} className="w-4 h-4 shrink-0 animate-bounce" />
+              ) : (
+                <Smile className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400 shrink-0" />
+              )}
+              <span className="font-pixel-arcade text-[8px] sm:text-[9px] font-bold tracking-tight">
+                EMOTES ({unlockedEmotes.length}/{EMOTES.length})
+              </span>
+              <span className="hidden sm:inline font-pixel-arcade text-[7.5px] text-amber-300/80">
+                [T]
+              </span>
+            </button>
+
+            {emoteTrayOpen && (
+              <div className="bg-slate-950/95 border-[3px] border-black p-1.5 shadow-[4px_4px_0_#000000] grid grid-cols-3 gap-1.5 max-w-[235px] sm:max-w-[265px]">
+                {EMOTES.map(emote => {
+                  const unlocked = unlockedEmotes.includes(emote.id);
+                  const isActive = activeEmote === emote.id;
+                  const remainingBuys = Math.max(0, emote.requiredPurchases - shopPurchases);
+
+                  return (
+                    <button
+                      key={emote.id}
+                      type="button"
+                      onClick={() => onTriggerEmote(emote.id)}
+                      className={`relative px-1.5 py-1.5 border-2 flex flex-col items-center justify-center gap-0.5 transition-all select-none ${
+                        unlocked
+                          ? isActive
+                            ? 'bg-amber-500/25 border-yellow-300 text-yellow-200 shadow-[0_0_10px_rgba(250,204,21,0.45)] cursor-pointer'
+                            : 'bg-slate-900 hover:bg-slate-800 border-slate-700 hover:border-yellow-400 text-yellow-300 cursor-pointer active:translate-y-[1px]'
+                          : 'bg-slate-900/60 border-slate-800 text-slate-500 opacity-75 cursor-not-allowed'
+                      }`}
+                      title={
+                        unlocked
+                          ? `${emote.name} (Key ${emote.hotkey}) — ${emote.description}`
+                          : `Locked: Make ${remainingBuys} more shop purchase${remainingBuys === 1 ? '' : 's'} (${shopPurchases}/${emote.requiredPurchases}) to unlock ${emote.name}`
+                      }
+                    >
+                      <span className="absolute top-0.5 left-1 font-pixel-arcade text-[6.5px] text-slate-400">
+                        {emote.hotkey}
+                      </span>
+                      {unlocked ? (
+                        <PixelEmoteIcon emoteId={emote.id} className="w-5 h-5 mt-1" />
+                      ) : (
+                        <div className="w-5 h-5 mt-1 flex items-center justify-center">
+                          <Lock className="w-3.5 h-3.5 text-slate-500" />
+                        </div>
+                      )}
+                      <span className="font-pixel-arcade text-[7px] font-bold tracking-tight truncate max-w-full">
+                        {unlocked ? emote.shortLabel : `${emote.requiredPurchases} BUY${emote.requiredPurchases === 1 ? '' : 'S'}`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       </div>
     </>

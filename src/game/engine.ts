@@ -1,8 +1,9 @@
 import { 
-  PlayerState, LevelConfig, Camera, Particle, FloatingText, Platform, SaveData, Enemy, TreasureChest, ChickenGender, CockatriceBoss, ArmorType, SwordType, FarmerMiniBoss
+  PlayerState, LevelConfig, Camera, Particle, FloatingText, Platform, SaveData, Enemy, TreasureChest, ChickenGender, CockatriceBoss, ArmorType, SwordType, FarmerMiniBoss, EmoteId, ShieldSnatchCutscene
 } from './types';
 import { getLevelConfig } from './levels';
 import { audio } from './audio';
+import { getEmoteDefinition } from './emotes';
 
 export interface GameEngineCallbacks {
   onLevelClear: (levelId: number, coinsEarned: number) => void;
@@ -35,12 +36,14 @@ export class GameEngine {
     jump: false,
     attack: false,
     block: false,
+    down: false,
   };
   private canvasWidth = 960;
   private canvasHeight = 540;
   public swordType: SwordType = 'none';
   public armorType: ArmorType = 'none';
   public hasShield: boolean = false;
+  public shieldSnatchCutscene: ShieldSnatchCutscene | null = null;
   private stepTimer = 0;
   private farmerStepTimer = 0;
   private bossStepTimer = 0;
@@ -60,6 +63,7 @@ export class GameEngine {
   public samLevel1State: 'idle' | 'line1' | 'line2' | 'done' = 'idle';
   public samLevel1Timer = 0;
   private reportedEncounters = new Set<string>();
+  private emoteParticleTimer = 0;
 
   public setDifficulty(diff: 'easy' | 'normal' | 'hard') {
     this.saveData.difficulty = diff;
@@ -141,7 +145,44 @@ export class GameEngine {
       poisonTickTimer: 0,
       poisonTickInterval: 1.6,
       poisonDrainRemaining: 0,
+      activeEmote: null,
+      emoteTimer: 0,
+      emoteDuration: 0,
+      isCrouching: false,
+      standingHeight: size.h,
+      shieldSnatched: this.level.theme === 'desert',
+      hasAxe: false,
+      woodCount: 0,
+      woodTarget: this.level.woodTarget || 0,
+      onRaft: false,
+      raftPushProgress: 0,
     };
+
+    // World 7: the Desert lands — Falcon snatches the Royal Shield in Level 31 cutscene,
+    // and player must traverse the Desert Lands without a shield using crouch (Down Arrow / S)!
+    if (this.level.theme === 'desert') {
+      if (this.level.hasShieldSnatchCutscene) {
+        // Show shield briefly in cutscene before Falcon snatches it!
+        this.hasShield = true;
+        this.player.hasShield = true;
+        this.player.shieldSnatched = false;
+        this.shieldSnatchCutscene = {
+          active: true,
+          completed: false,
+          timer: 0,
+          phase: 'approach',
+          falconX: this.level.spawnPoint.x + 560,
+          falconY: 75,
+          falconFacing: 'left',
+          carryingShield: false,
+          speechText: 'WAIT — A DESERT FALCON IS DIVING FROM THE SUN!',
+        };
+      } else {
+        this.hasShield = false;
+        this.player.hasShield = false;
+        this.player.shieldSnatched = true;
+      }
+    }
 
     this.currentCheckpoint = { ...this.level.spawnPoint };
 
@@ -461,11 +502,12 @@ export class GameEngine {
   private coyoteTimer = 0;
   private jumpBufferTimer = 0;
 
-  public setInput(controls: { left?: boolean; right?: boolean; jump?: boolean; attack?: boolean; block?: boolean }) {
+  public setInput(controls: { left?: boolean; right?: boolean; jump?: boolean; attack?: boolean; block?: boolean; down?: boolean }) {
     if (controls.left !== undefined) this.input.left = controls.left;
     if (controls.right !== undefined) this.input.right = controls.right;
+    if (controls.down !== undefined) this.input.down = controls.down;
     if (controls.jump !== undefined) {
-      if (controls.jump) {
+      if (controls.jump && !this.player.onRaft) {
         this.jumpBufferTimer = 0.16; // Jump buffer window
         if (this.player.isGrounded || this.coyoteTimer > 0) {
           this.startJump();
@@ -480,14 +522,136 @@ export class GameEngine {
       this.input.attack = controls.attack;
     }
     if (controls.block !== undefined) {
+      const shieldAllowed = this.hasShield && this.level.theme !== 'desert' && !this.player.onRaft;
       if (controls.block && !this.input.block) {
-        if (this.hasShield) {
+        if (shieldAllowed) {
           audio.playShieldBlock();
         }
       }
-      const canBlock = controls.block && this.hasShield;
+      const canBlock = controls.block && shieldAllowed;
       this.input.block = canBlock;
       this.player.isBlocking = canBlock;
+    }
+  }
+
+  public triggerEmote(emoteId: EmoteId) {
+    const def = getEmoteDefinition(emoteId);
+    this.player.activeEmote = emoteId;
+    this.player.emoteDuration = def.duration;
+    this.player.emoteTimer = def.duration;
+    this.emoteParticleTimer = 0;
+    audio.playEmote(emoteId, this.player.stage);
+
+    // Playful micro-hop when triggering Happy Hop on solid ground
+    if (emoteId === 'happy_hop' && this.player.isGrounded && this.player.knockbackTimer <= 0) {
+      this.player.vy = -165;
+      this.player.isGrounded = false;
+    }
+
+    // Immediate celebratory burst of pixel-art emote particles in world space
+    const cx = this.player.x + this.player.width / 2;
+    const cy = this.player.y + this.player.height * 0.35;
+    const palette: Record<EmoteId, string[]> = {
+      squawk: ['#fde047', '#fb923c', '#ffffff'],
+      happy_hop: ['#4ade80', '#fde047', '#38bdf8', '#f472b6'],
+      angry_ruffle: ['#ef4444', '#f97316', '#f8fafc', '#cbd5e1'],
+      heart_flutter: ['#f472b6', '#fb7185', '#fbcfe8'],
+      royal_strut: ['#facc15', '#fde047', '#38bdf8', '#ffffff'],
+      golden_crow: ['#fde047', '#f59e0b', '#fef08a', '#ffffff'],
+    };
+    const colors = palette[emoteId];
+    const count = emoteId === 'angry_ruffle' ? 12 : 9;
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
+      const spd = emoteId === 'angry_ruffle' ? 65 + Math.random() * 85 : 42 + Math.random() * 55;
+      this.particles.push({
+        x: cx + (Math.random() - 0.5) * 10,
+        y: cy + (Math.random() - 0.5) * 8,
+        vx: Math.cos(angle) * spd,
+        vy: Math.sin(angle) * spd - (emoteId === 'heart_flutter' ? 45 : 30),
+        size: emoteId === 'angry_ruffle' ? 3.5 : 3,
+        color: colors[i % colors.length],
+        life: 0.55 + Math.random() * 0.3,
+        maxLife: 0.85,
+        gravity: emoteId === 'heart_flutter' || emoteId === 'golden_crow' ? -22 : 110,
+      });
+    }
+  }
+
+  private updateEmote(dt: number) {
+    const emote = this.player.activeEmote;
+    if (!emote || !this.player.emoteTimer || this.player.emoteTimer <= 0) {
+      this.player.activeEmote = null;
+      this.player.emoteTimer = 0;
+      this.player.emoteDuration = 0;
+      return;
+    }
+
+    this.player.emoteTimer = Math.max(0, this.player.emoteTimer - dt);
+    if (this.player.emoteTimer <= 0) {
+      this.player.activeEmote = null;
+      this.player.emoteDuration = 0;
+      return;
+    }
+
+    this.emoteParticleTimer += dt;
+    const emitInterval = emote === 'angry_ruffle' ? 0.14 : 0.22;
+    if (this.emoteParticleTimer >= emitInterval) {
+      this.emoteParticleTimer = 0;
+      const cx = this.player.x + this.player.width / 2;
+      const topY = this.player.y;
+
+      if (emote === 'angry_ruffle') {
+        // Flying ruffled down feathers + steam specks
+        this.particles.push({
+          x: cx + (Math.random() - 0.5) * 20,
+          y: topY + Math.random() * this.player.height * 0.6,
+          vx: (Math.random() - 0.5) * 95,
+          vy: -35 - Math.random() * 40,
+          size: 3,
+          color: Math.random() < 0.5 ? '#f8fafc' : '#fca5a5',
+          life: 0.55,
+          maxLife: 0.55,
+          gravity: 90,
+        });
+      } else if (emote === 'happy_hop' || emote === 'royal_strut' || emote === 'golden_crow') {
+        this.particles.push({
+          x: cx + (Math.random() - 0.5) * 26,
+          y: topY + (Math.random() - 0.5) * 12,
+          vx: (Math.random() - 0.5) * 32,
+          vy: -28 - Math.random() * 28,
+          size: 3,
+          color: emote === 'happy_hop' ? (Math.random() < 0.5 ? '#4ade80' : '#fde047') : '#fde047',
+          life: 0.6,
+          maxLife: 0.6,
+          gravity: -15,
+        });
+      } else if (emote === 'heart_flutter') {
+        this.particles.push({
+          x: cx + (Math.random() - 0.5) * 22,
+          y: topY - 2,
+          vx: (Math.random() - 0.5) * 24,
+          vy: -36 - Math.random() * 18,
+          size: 3,
+          color: Math.random() < 0.5 ? '#f472b6' : '#fb7185',
+          life: 0.7,
+          maxLife: 0.7,
+          gravity: -18,
+        });
+      } else if (emote === 'squawk') {
+        const dir = this.player.facing === 'right' ? 1 : -1;
+        this.particles.push({
+          x: cx + dir * (this.player.width * 0.45),
+          y: topY + 5,
+          vx: dir * (55 + Math.random() * 35),
+          vy: -22 - Math.random() * 20,
+          size: 2.5,
+          color: '#fde047',
+          life: 0.42,
+          maxLife: 0.42,
+          gravity: 0,
+        });
+      }
     }
   }
 
@@ -648,6 +812,103 @@ export class GameEngine {
         }
       }
     });
+
+    // World 7: Strike swooping Desert Falcons with sword/peck
+    if (this.level.falcons) {
+      for (const falcon of this.level.falcons) {
+        if (falcon.state === 'defeated' || falcon.hurtTimer > 0) continue;
+        if (
+          hitX < falcon.x + falcon.width + 12 &&
+          hitX + hitW > falcon.x - 12 &&
+          hitY < falcon.y + falcon.height + 14 &&
+          hitY + hitH > falcon.y - 14
+        ) {
+          const ironBeakBonus = this.saveData.upgrades?.ironBeak || 0;
+          const baseDmg = this.swordType === 'netherite' ? 5 : this.swordType === 'diamond' ? 4 : 2;
+          const dmg = baseDmg + ironBeakBonus;
+          falcon.health -= dmg;
+          falcon.hurtTimer = 0.3;
+          audio.playFalconScreech();
+          this.addFloatingText(`-${dmg}`, falcon.x + falcon.width / 2, falcon.y - 10, '#f87171');
+          if (falcon.health <= 0) {
+            falcon.state = 'defeated';
+            this.addDefeatExplosion(falcon.x + falcon.width / 2, falcon.y + falcon.height / 2);
+            this.callbacks.onActionStat?.('enemiesDefeated');
+            this.reportEncounter('falcon');
+            this.callbacks.onEnemyDefeated?.('falcon');
+            this.triggerScreenShake(5, 0.2);
+          }
+        }
+      }
+    }
+
+    // World 8: Chop coastal trees with the stump axe!
+    if (this.level.choppableTrees && this.player.hasAxe && !this.player.onRaft) {
+      const pCenter = this.player.x + this.player.width / 2;
+      for (const tree of this.level.choppableTrees) {
+        if (tree.state !== 'standing') continue;
+        if (Math.abs(pCenter - tree.x) < 68 && Math.abs(this.player.y + this.player.height - tree.y) < 42) {
+          tree.hp -= 1;
+          tree.shakeTimer = 0.24;
+          audio.playTreeChop();
+          this.triggerScreenShake(3, 0.12);
+          for (let i = 0; i < 8; i++) {
+            this.particles.push({
+              x: tree.x + (Math.random() - 0.5) * 16,
+              y: tree.y - 26 - Math.random() * 24,
+              vx: (Math.random() - 0.5) * 140,
+              vy: -50 - Math.random() * 90,
+              size: 3 + Math.random() * 2.5,
+              color: i % 3 === 0 ? '#22c55e' : '#b45309',
+              life: 0.45,
+              maxLife: 0.45,
+              gravity: 340,
+            });
+          }
+          if (tree.hp > 0) {
+            this.addFloatingText(`CHOP! (${tree.hp} LEFT)`, tree.x, tree.y - 64, '#fde047');
+          } else {
+            tree.state = 'falling';
+            tree.fallDir = pCenter <= tree.x ? 1 : -1;
+            tree.fallVel = 0.85;
+            audio.playTreeFall();
+            this.addFloatingText('TIMBER!!', tree.x, tree.y - 80, '#fbbf24');
+          }
+          break;
+        }
+      }
+    }
+
+    // World 8: Slash lunging Coastal Sharks!
+    if (this.level.sharks) {
+      for (const shark of this.level.sharks) {
+        if (shark.state === 'defeated' || shark.hurtTimer > 0) continue;
+        const dist = Math.hypot(
+          (this.player.x + this.player.width / 2) - shark.x,
+          (this.player.y + this.player.height / 2) - shark.y
+        );
+        if (dist < 94 && (shark.state === 'lunging' || shark.state === 'telegraph' || shark.state === 'submerging')) {
+          const ironBeakBonus = this.saveData.upgrades?.ironBeak || 0;
+          const baseDmg = this.swordType === 'netherite' ? 5 : this.swordType === 'diamond' ? 4 : 3;
+          const dmg = baseDmg + ironBeakBonus;
+          shark.health -= dmg;
+          shark.hurtTimer = 0.35;
+          audio.playEnemyDefeat();
+          this.addFloatingText(`-${dmg} SHARK!`, shark.x, shark.y - 24, '#38bdf8');
+          if (shark.health <= 0) {
+            shark.state = 'defeated';
+            this.addDefeatExplosion(shark.x, shark.y);
+            this.callbacks.onActionStat?.('enemiesDefeated');
+            this.reportEncounter('shark');
+            this.callbacks.onEnemyDefeated?.('shark');
+            this.triggerScreenShake(5.5, 0.22);
+          } else {
+            shark.state = 'submerging';
+            shark.vy = 160;
+          }
+        }
+      }
+    }
   }
 
   private damageEnemy(enemy: Enemy, amount: number) {
@@ -697,10 +958,15 @@ export class GameEngine {
     }
 
     this.updateMovingPlatforms(delta);
+    this.updateDesertShieldSnatch(delta);
     this.updatePlayer(delta);
+    this.updateEmote(delta);
     this.updatePoison(delta);
     this.updateHazards(delta);
     this.updateEnemies(delta);
+    this.updateDesertFalcons(delta);
+    this.updateSandCats(delta);
+    this.updatePeckerinCoast(delta);
     this.updateFarmer(delta);
     this.updateCockatrice(delta);
     this.updateSilkieSam(delta);
@@ -1209,6 +1475,24 @@ export class GameEngine {
       }
     }
 
+    if (this.level.falcons) {
+      for (const f of this.level.falcons) {
+        if (f.state !== 'defeated' && f.x + f.width >= viewLeft && f.x <= viewRight) {
+          this.reportEncounter('falcon');
+          break;
+        }
+      }
+    }
+
+    if (this.level.sharks) {
+      for (const s of this.level.sharks) {
+        if (s.state !== 'defeated' && s.x + 50 >= viewLeft && s.x - 50 <= viewRight) {
+          this.reportEncounter('shark');
+          break;
+        }
+      }
+    }
+
     // Background Wildlife Discoveries by Biome
     if (this.level.id <= 10) {
       this.reportEncounter('sheep');
@@ -1216,6 +1500,11 @@ export class GameEngine {
       this.reportEncounter('monkey');
     } else if (this.level.world === 5) {
       this.reportEncounter('hare');
+    } else if (this.level.world === 7 || this.level.theme === 'desert') {
+      this.reportEncounter('sand_cat');
+      this.reportEncounter('falcon');
+    } else if (this.level.world === 8 || this.level.theme === 'coast') {
+      this.reportEncounter('seagull');
     } else if (
       this.level.id === 30 &&
       (this.saveData.hasCompletedGame || this.level.cockatrice?.state === 'defeated')
@@ -1331,12 +1620,52 @@ export class GameEngine {
       }
     }
 
-    // Movement speed & acceleration (shield slows advance while guarding)
+    // Freeze movement gently during the brief Desert Shield-Snatch intro cutscene
+    if (this.shieldSnatchCutscene?.active) {
+      p.vx = 0;
+      p.vy += 980 * dt;
+      if (p.vy > 680) p.vy = 680;
+      const prevY = p.y;
+      p.y += p.vy * dt;
+      this.resolveVerticalCollisions(prevY);
+      p.animState = 'idle';
+      p.animTimer += dt;
+      return;
+    }
+
+    // While sailing the wooden raft in Peckerin Coast, raft physics control position
+    if (p.onRaft && this.level.raft && this.level.raft.state === 'sailing') {
+      p.isCrouching = false;
+      p.isBlocking = false;
+      p.isGrounded = true;
+      p.animTimer += dt;
+      p.animState = 'idle';
+      return;
+    }
+
+    // Crouch handling (Down Arrow / S when shieldless or in the Desert Lands!)
+    const standingH = p.standingHeight || p.height;
+    const crouchH = Math.max(16, Math.round(standingH * 0.54));
+    const canCrouch = !this.hasShield || this.level.theme === 'desert';
+    const wantsCrouch = canCrouch && this.input.down && p.isGrounded && !p.isAttacking;
+
+    if (wantsCrouch && !p.isCrouching) {
+      p.isCrouching = true;
+      p.y += (p.height - crouchH);
+      p.height = crouchH;
+    } else if (!wantsCrouch && p.isCrouching) {
+      p.y -= (standingH - p.height);
+      p.height = standingH;
+      p.isCrouching = false;
+    }
+
+    // Movement speed & acceleration (shield or crouching slows advance)
     let baseSpeed = p.stage === 'adult' ? 270 : p.stage === 'teen' ? 250 : p.stage === 'juvenile' ? 230 : 210;
     if (this.saveData.upgrades?.speedBoost) {
       baseSpeed *= (1 + this.saveData.upgrades.speedBoost * 0.15);
     }
     if (p.isBlocking) baseSpeed *= 0.55;
+    if (p.isCrouching) baseSpeed *= 0.42;
     const accel = 3400;
     const friction = 4200;
 
@@ -2038,6 +2367,722 @@ export class GameEngine {
       if (plat.type === 'grass') return this.level.theme === 'jungle' ? 'jungle' : 'grass';
     }
     return this.level.theme === 'jungle' ? 'jungle' : 'grass';
+  }
+
+  // --- World 7: The Desert Lands (Shield-Snatch Cutscene, Swooping Falcons & Sand Cat Wildlife) ---
+
+  private updateDesertShieldSnatch(dt: number) {
+    const cs = this.shieldSnatchCutscene;
+    if (!cs || !cs.active) return;
+
+    cs.timer += dt;
+    const p = this.player;
+    const targetX = p.x + p.width / 2;
+    const targetY = p.y + p.height * 0.35;
+
+    if (cs.phase === 'approach') {
+      const progress = Math.min(1, cs.timer / 1.15);
+      const startX = this.level.spawnPoint.x + 560;
+      const startY = 72;
+      cs.falconX = startX + (targetX - startX) * progress;
+      cs.falconY = startY + (targetY - startY) * (progress * progress);
+      cs.falconFacing = 'left';
+      if (progress >= 0.45 && cs.timer - dt < 0.52) {
+        audio.playFalconScreech();
+      }
+      if (progress >= 1) {
+        cs.phase = 'snatch';
+        cs.timer = 0;
+        cs.carryingShield = true;
+        this.hasShield = false;
+        this.player.hasShield = false;
+        this.player.shieldSnatched = true;
+        audio.playFalconScreech();
+        this.triggerScreenShake(7.5, 0.32);
+        cs.speechText = 'OH NO! THE FALCON SNATCHED YOUR ROYAL SHIELD! USE ▼ DOWN TO CROUCH!';
+        this.addFloatingText('SHIELD SNATCHED! PRESS ▼ TO CROUCH!', targetX, p.y - 34, '#fbbf24');
+        for (let i = 0; i < 16; i++) {
+          this.particles.push({
+            x: targetX,
+            y: targetY,
+            vx: (Math.random() - 0.5) * 200,
+            vy: -60 - Math.random() * 110,
+            size: 3.5,
+            color: i % 2 === 0 ? '#38bdf8' : '#fde047',
+            life: 0.6,
+            maxLife: 0.6,
+            gravity: 220,
+          });
+        }
+      }
+    } else if (cs.phase === 'snatch') {
+      cs.falconX -= 190 * dt;
+      cs.falconY -= 125 * dt;
+      if (cs.timer >= 0.65) {
+        cs.phase = 'escape';
+        cs.timer = 0;
+      }
+    } else if (cs.phase === 'escape') {
+      cs.falconX += 270 * dt;
+      cs.falconY -= 165 * dt;
+      cs.falconFacing = 'right';
+      if (cs.timer >= 1.75) {
+        cs.phase = 'done';
+        cs.active = false;
+        cs.completed = true;
+      }
+    }
+  }
+
+  private updateDesertFalcons(dt: number) {
+    const falcons = this.level.falcons;
+    if (!falcons || falcons.length === 0) return;
+    if (this.shieldSnatchCutscene?.active) return;
+
+    const p = this.player;
+    const pCenterX = p.x + p.width / 2;
+    const pCenterY = p.y + p.height / 2;
+    const diffMult = this.saveData.difficulty === 'easy' ? 0.8 : this.saveData.difficulty === 'hard' ? 1.2 : 1.0;
+
+    for (const f of falcons) {
+      if (f.state === 'defeated') continue;
+      f.wingPhase += dt * (f.state === 'swooping' ? 14 : 7.5);
+      if (f.hurtTimer > 0) f.hurtTimer = Math.max(0, f.hurtTimer - dt);
+
+      if (f.state === 'soaring') {
+        f.timer -= dt;
+        const speed = 78 * diffMult;
+        f.x += (f.facing === 'right' ? speed : -speed) * dt;
+        f.y = f.homeY + Math.sin(this.time * 2.4 + f.homeX * 0.01) * 14;
+
+        if (f.x > f.homeX + f.patrolRange) f.facing = 'left';
+        if (f.x < f.homeX - f.patrolRange) f.facing = 'right';
+
+        // Lock onto player if within horizontal hunting range
+        const dx = pCenterX - (f.x + f.width / 2);
+        if (f.timer <= 0 && Math.abs(dx) < 330 && Math.abs(dx) > 45) {
+          f.state = 'telegraph';
+          f.timer = 0.72;
+          f.facing = dx >= 0 ? 'right' : 'left';
+          f.targetX = pCenterX;
+          f.targetY = p.y + p.height;
+          f.swoopStartX = f.x;
+          f.swoopStartY = f.y;
+          // Aim right through standing head-height so crouching cleanly ducks underneath!
+          const standingH = p.standingHeight || 42;
+          f.swoopLowY = Math.min(440, (p.y + p.height) - standingH * 0.72);
+          f.dodgedThisSwoop = false;
+          audio.playFalconScreech();
+        }
+      } else if (f.state === 'telegraph') {
+        f.timer -= dt;
+        f.y = f.swoopStartY - Math.sin(f.timer * 18) * 3;
+        f.targetX = f.targetX * 0.92 + pCenterX * 0.08;
+        if (f.timer <= 0) {
+          f.state = 'swooping';
+          f.timer = 0;
+        }
+      } else if (f.state === 'swooping') {
+        const swoopDuration = 1.15 / diffMult;
+        f.timer += dt;
+        const t = Math.min(1, f.timer / swoopDuration);
+        const dir = f.facing === 'right' ? 1 : -1;
+        const spanX = Math.max(240, Math.abs(f.targetX - f.swoopStartX) * 2.05);
+        f.x = f.swoopStartX + dir * spanX * t;
+        // Parabolic dive peaking at swoopLowY at t = 0.5
+        const dip = Math.sin(t * Math.PI);
+        f.y = f.swoopStartY + (f.swoopLowY - f.swoopStartY) * dip;
+
+        // Check snatch hit vs crouch-dodge!
+        const fCenterX = f.x + f.width / 2;
+        const fBottom = f.y + f.height;
+        const horizontalOverlap = Math.abs(fCenterX - pCenterX) < 30;
+
+        if (horizontalOverlap && t > 0.25 && t < 0.78) {
+          if (p.isCrouching) {
+            if (!f.dodgedThisSwoop) {
+              f.dodgedThisSwoop = true;
+              this.addFloatingText('✓ CROUCH DODGE!', pCenterX, p.y - 22, '#4ade80');
+              this.addDustPuff(pCenterX, p.y + p.height, 6);
+            }
+          } else if (
+            p.invulnerableTimer <= 0 &&
+            fBottom > p.y + 4 &&
+            f.y < p.y + p.height - 4
+          ) {
+            this.takeDamage(1.5, dir);
+            this.addFloatingText('SNATCHED BY FALCON! CROUCH (▼)!', pCenterX, p.y - 28, '#f87171');
+            f.state = 'recovering';
+            f.timer = 0;
+          }
+        }
+
+        if (t >= 1) {
+          f.state = 'recovering';
+          f.timer = 0;
+        }
+      } else if (f.state === 'recovering') {
+        f.timer += dt;
+        f.x += (f.homeX - f.x) * Math.min(1, dt * 1.9);
+        f.y += (f.homeY - f.y) * Math.min(1, dt * 2.5);
+        if (f.timer >= 1.2) {
+          f.state = 'soaring';
+          f.timer = 1.6 + Math.random() * 1.0;
+        }
+      }
+    }
+  }
+
+  private updateSandCats(dt: number) {
+    const cats = this.level.sandCats;
+    if (!cats || cats.length === 0) return;
+
+    const bones = this.level.desertBones || [];
+    for (const cat of cats) {
+      cat.animTimer += dt;
+      cat.stateTimer -= dt;
+
+      const bone = bones.find(b => b.id === cat.targetBoneId) || bones[0];
+
+      if (cat.state === 'walk') {
+        const spd = cat.isBaby ? 38 : 32;
+        cat.x += (cat.facing === 'right' ? spd : -spd) * dt;
+        if (cat.x <= cat.patrolLeft) {
+          cat.x = cat.patrolLeft;
+          cat.facing = 'right';
+        } else if (cat.x >= cat.patrolRight) {
+          cat.x = cat.patrolRight;
+          cat.facing = 'left';
+        }
+        if (cat.stateTimer <= 0) {
+          // Pick either rest in warm sand or walk to eat leftover meat on desert bones
+          if (bone && Math.abs(cat.x - bone.x) < 95 && Math.random() < 0.62) {
+            cat.state = 'eat';
+            cat.facing = bone.x >= cat.x ? 'right' : 'left';
+            cat.stateTimer = 3.2 + Math.random() * 2.4;
+          } else {
+            cat.state = 'rest';
+            cat.stateTimer = 3.0 + Math.random() * 2.8;
+          }
+        }
+      } else if (cat.state === 'eat') {
+        if (bone && Math.abs(cat.x - bone.x) > 18) {
+          const dir = bone.x > cat.x ? 1 : -1;
+          cat.facing = dir > 0 ? 'right' : 'left';
+          cat.x += dir * 36 * dt;
+        } else if (Math.random() < 0.06) {
+          // Tiny meat crumb sparkle while nibbling desert bones
+          this.particles.push({
+            x: (bone ? bone.x : cat.x) + (Math.random() - 0.5) * 10,
+            y: cat.y - 6,
+            vx: (Math.random() - 0.5) * 28,
+            vy: -18 - Math.random() * 22,
+            size: 2,
+            color: '#ef4444',
+            life: 0.35,
+            maxLife: 0.35,
+            gravity: 160,
+          });
+        }
+        if (cat.stateTimer <= 0) {
+          cat.state = Math.random() < 0.55 ? 'rest' : 'walk';
+          cat.stateTimer = 2.6 + Math.random() * 2.2;
+        }
+      } else {
+        // Resting / napping in the sand
+        if (cat.stateTimer <= 0) {
+          cat.state = 'walk';
+          cat.facing = Math.random() < 0.5 ? 'left' : 'right';
+          cat.stateTimer = 2.4 + Math.random() * 2.5;
+        }
+      }
+    }
+  }
+
+  // --- World 8: Peckerin Coast (Axe Stump, Tree Chopping/Falling, Raft Build/Push/Sail, Rocks, Sharks & Seagulls) ---
+
+  private updatePeckerinCoast(dt: number) {
+    if (this.level.theme !== 'coast') return;
+    const p = this.player;
+    const pCenterX = p.x + p.width / 2;
+    const waterStartX = this.level.waterStartX ?? 840;
+    const waterLevelY = this.level.waterLevelY ?? 426;
+
+    // 1. Axe in Tree Stump Pickup
+    const stump = this.level.axeStump;
+    if (stump && !stump.axeTaken) {
+      if (Math.abs(pCenterX - stump.x) < 44 && Math.abs((p.y + p.height) - stump.y) < 42) {
+        stump.axeTaken = true;
+        p.hasAxe = true;
+        audio.playChest();
+        this.addFloatingText('🪓 AXE EQUIPPED! PRESS X/K TO CHOP TREES!', stump.x, stump.y - 54, '#fde047');
+        for (let i = 0; i < 12; i++) {
+          this.particles.push({
+            x: stump.x,
+            y: stump.y - 24,
+            vx: (Math.random() - 0.5) * 140,
+            vy: -40 - Math.random() * 90,
+            size: 3,
+            color: i % 2 === 0 ? '#fde047' : '#e2e8f0',
+            life: 0.45,
+            maxLife: 0.45,
+            gravity: 220,
+          });
+        }
+      }
+    }
+
+    // 2. Choppable Trees Falling Animation & Wood Log Spawning
+    if (this.level.choppableTrees) {
+      for (const tree of this.level.choppableTrees) {
+        if (tree.shakeTimer > 0) tree.shakeTimer = Math.max(0, tree.shakeTimer - dt);
+        if (tree.state === 'falling') {
+          tree.fallVel += 5.2 * dt;
+          tree.fallAngle += tree.fallDir * tree.fallVel * dt;
+          if (Math.abs(tree.fallAngle) >= Math.PI / 2) {
+            tree.fallAngle = tree.fallDir * (Math.PI / 2);
+            tree.state = 'fallen';
+            this.triggerScreenShake(5.5, 0.24);
+            // Burst of coastal leaves & sand dust on timber impact
+            const tipX = tree.x + tree.fallDir * (tree.height * 0.72);
+            for (let i = 0; i < 16; i++) {
+              this.particles.push({
+                x: tipX + (Math.random() - 0.5) * 44,
+                y: tree.y - 6,
+                vx: (Math.random() - 0.5) * 140,
+                vy: -55 - Math.random() * 95,
+                size: 3.5,
+                color: i % 2 === 0 ? '#22c55e' : '#eab308',
+                life: 0.55,
+                maxLife: 0.55,
+                gravity: 280,
+              });
+            }
+            // Spawn collectible wood log right on the beach
+            if (!this.level.woodLogs) this.level.woodLogs = [];
+            this.level.woodLogs.push({
+              id: `log_${tree.id}`,
+              x: tree.x + tree.fallDir * 44,
+              y: tree.y - 16,
+              vx: tree.fallDir * 42,
+              vy: -130,
+              collected: false,
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Collectible Wood Logs
+    if (this.level.woodLogs) {
+      for (const log of this.level.woodLogs) {
+        if (log.collected) continue;
+        log.vy += 480 * dt;
+        log.x += log.vx * dt;
+        log.y += log.vy * dt;
+        if (log.y >= 446) {
+          log.y = 446;
+          log.vy = 0;
+          log.vx *= 0.7;
+        }
+        // Keep wood logs on the beach shore
+        log.x = Math.max(40, Math.min(waterStartX - 40, log.x));
+        if (Math.hypot(pCenterX - log.x, (p.y + p.height / 2) - log.y) < 52) {
+          log.collected = true;
+          p.woodCount = (p.woodCount || 0) + 1;
+          const target = p.woodTarget || this.level.woodTarget || 3;
+          audio.playCoin();
+          if (p.woodCount >= target) {
+            this.addFloatingText(`🪵 WOOD READY (${p.woodCount}/${target})! BUILD RAFT AT SHORE →`, log.x, log.y - 34, '#4ade80');
+          } else {
+            this.addFloatingText(`🪵 +1 WOOD (${p.woodCount}/${target})`, log.x, log.y - 26, '#fde047');
+          }
+        }
+      }
+    }
+
+    // 4. Raft Building, Pushing into Sea & Sailing
+    const raft = this.level.raft;
+    if (raft) {
+      raft.bobPhase += dt * 3.2;
+      if (raft.invulnTimer > 0) raft.invulnTimer = Math.max(0, raft.invulnTimer - dt);
+      const woodTarget = this.level.woodTarget || 3;
+      const raftCenterX = raft.x + raft.width / 2;
+
+      if (raft.state === 'unbuilt') {
+        if ((p.woodCount || 0) >= woodTarget && Math.abs(pCenterX - raftCenterX) < 92) {
+          raft.state = 'building';
+          raft.buildProgress = 0;
+          audio.playRaftBuild();
+          this.addFloatingText('🔨 BUILDING WOODEN RAFT...', raftCenterX, raft.y - 34, '#fde047');
+        }
+      } else if (raft.state === 'building') {
+        raft.buildProgress = Math.min(1, raft.buildProgress + dt * 1.25);
+        if (Math.random() < 0.35) {
+          this.particles.push({
+            x: raftCenterX + (Math.random() - 0.5) * raft.width,
+            y: raft.y + 6,
+            vx: (Math.random() - 0.5) * 90,
+            vy: -40 - Math.random() * 70,
+            size: 3,
+            color: Math.random() > 0.5 ? '#d97706' : '#fef08a',
+            life: 0.38,
+            maxLife: 0.38,
+            gravity: 240,
+          });
+        }
+        if (raft.buildProgress >= 1) {
+          raft.state = 'built_on_shore';
+          audio.playChest();
+          this.addFloatingText('RAFT COMPLETE! PUSH IT RIGHT INTO THE SEA! →', raftCenterX, raft.y - 40, '#4ade80');
+        }
+      } else if (raft.state === 'built_on_shore' || raft.state === 'pushing') {
+        // Player pushes the raft along the sandy beach into the waves
+        const playerPushing =
+          this.input.right &&
+          p.x + p.width >= raft.x - 16 &&
+          p.x <= raft.x + raft.width * 0.6 &&
+          Math.abs((p.y + p.height) - 460) < 28;
+
+        if (playerPushing) {
+          raft.state = 'pushing';
+          raft.x += 92 * dt;
+          p.x = raft.x - p.width + 6;
+          raft.pushProgress = Math.min(1, (raft.x - 695) / Math.max(1, (waterStartX + 26) - 695));
+          p.raftPushProgress = raft.pushProgress;
+
+          if (Math.random() < 0.35) {
+            this.particles.push({
+              x: raft.x + raft.width,
+              y: 458,
+              vx: 30 + Math.random() * 45,
+              vy: -25 - Math.random() * 45,
+              size: 3,
+              color: raft.x > waterStartX - 30 ? '#bae6fd' : '#fde68a',
+              life: 0.35,
+              maxLife: 0.35,
+              gravity: 220,
+            });
+          }
+
+          if (raft.x >= waterStartX + 24) {
+            raft.state = 'sailing';
+            raft.y = waterLevelY;
+            raft.laneOffsetY = 0;
+            p.onRaft = true;
+            p.facing = 'right';
+            audio.playSharkLunge();
+            this.triggerScreenShake(4, 0.2);
+            this.addFloatingText('⛵ ALL ABOARD! ▲▼ STEER TO DODGE ROCKS & SHARKS!', raft.x + 50, raft.y - 54, '#38bdf8');
+            for (let i = 0; i < 18; i++) {
+              this.particles.push({
+                x: raft.x + Math.random() * raft.width,
+                y: waterLevelY + 10,
+                vx: (Math.random() - 0.5) * 140,
+                vy: -55 - Math.random() * 95,
+                size: 3.5,
+                color: i % 2 === 0 ? '#ffffff' : '#38bdf8',
+                life: 0.55,
+                maxLife: 0.55,
+                gravity: 260,
+              });
+            }
+          }
+        } else {
+          raft.state = 'built_on_shore';
+        }
+      } else if (raft.state === 'sailing') {
+        // Horizontal sailing speed (gentle forward breeze + player control)
+        const targetVx = this.input.right ? 215 : this.input.left ? 58 : 138;
+        raft.vx += (targetVx - raft.vx) * Math.min(1, dt * 6);
+        raft.x += raft.vx * dt;
+
+        // Vertical wave-lane steering (Up/Space steers up, Down/S steers down!)
+        const steerDir = (this.input.jump ? -1 : 0) + (this.input.down ? 1 : 0);
+        const targetVy = steerDir * 148;
+        raft.vy += (targetVy - raft.vy) * Math.min(1, dt * 9);
+        raft.laneOffsetY = Math.max(-56, Math.min(56, raft.laneOffsetY + raft.vy * dt));
+        raft.y = waterLevelY + raft.laneOffsetY + Math.sin(raft.bobPhase) * 3.5;
+
+        // Keep hero perched cleanly on the raft deck
+        p.x = raft.x + raft.width * 0.36;
+        p.y = raft.y - p.height + 6;
+        p.vx = raft.vx;
+        p.vy = 0;
+        p.facing = this.input.left ? 'left' : 'right';
+
+        // Sea foam wake behind raft
+        if (Math.random() < 0.38) {
+          this.particles.push({
+            x: raft.x + 4,
+            y: raft.y + raft.height - 4,
+            vx: -40 - Math.random() * 30,
+            vy: (Math.random() - 0.5) * 16,
+            size: 3,
+            color: '#e0f2fe',
+            life: 0.4,
+            maxLife: 0.4,
+          });
+        }
+
+        // Check Sea Rock collisions (slowly break the raft!)
+        if (this.level.seaRocks) {
+          for (const rock of this.level.seaRocks) {
+            if (rock.hitCooldown > 0) rock.hitCooldown = Math.max(0, rock.hitCooldown - dt);
+            rock.foamPhase += dt * 3;
+            const rockY = waterLevelY + rock.laneY;
+            const overlapX = raft.x + raft.width - 10 > rock.x - rock.width / 2 && raft.x + 10 < rock.x + rock.width / 2;
+            const overlapY = Math.abs((raft.y + 8) - rockY) < 25;
+
+            if (overlapX && overlapY && raft.invulnTimer <= 0 && rock.hitCooldown <= 0) {
+              raft.health = Math.max(0, raft.health - 1);
+              raft.invulnTimer = 1.25;
+              rock.hitCooldown = 1.4;
+              audio.playRockCrunch();
+              this.triggerScreenShake(7.5, 0.28);
+
+              // Wood splinter burst
+              for (let i = 0; i < 14; i++) {
+                this.particles.push({
+                  x: raft.x + raft.width * 0.7,
+                  y: raft.y + 8,
+                  vx: (Math.random() - 0.5) * 170,
+                  vy: -60 - Math.random() * 100,
+                  size: 3.5,
+                  color: i % 2 === 0 ? '#92400e' : '#fcd34d',
+                  life: 0.55,
+                  maxLife: 0.55,
+                  gravity: 290,
+                });
+              }
+
+              if (raft.health <= 0) {
+                // Raft broke apart! Lose 1 heart and reset raft ready at shore launch so player can retry cleanly
+                this.addFloatingText('💥 YOUR RAFT BROKE APART!', raft.x + 40, raft.y - 36, '#f87171');
+                this.takeDamage(1, 0);
+                if (this.player.health > 0) {
+                  raft.x = waterStartX - 110;
+                  raft.y = 438;
+                  raft.laneOffsetY = 0;
+                  raft.vx = 0;
+                  raft.vy = 0;
+                  raft.health = raft.maxHealth;
+                  raft.state = 'built_on_shore';
+                  p.onRaft = false;
+                  p.x = raft.x - p.width - 14;
+                  p.y = 460 - p.height;
+                }
+              } else {
+                this.addFloatingText(`🪵 CRACK! RAFT HP ${raft.health}/${raft.maxHealth}`, raft.x + 40, raft.y - 34, '#fb923c');
+              }
+            }
+          }
+        }
+
+        // Dock onto destination island!
+        if (raft.x >= raft.dockX) {
+          raft.x = raft.dockX;
+          raft.state = 'docked';
+          p.onRaft = false;
+          p.x = raft.dockX + raft.width + 18;
+          p.y = 460 - p.height - 6;
+          p.vy = -170;
+          p.vx = 90;
+          audio.playChest();
+          this.addFloatingText('🏝️ LAND HO! REACH THE PORTAL!', p.x, p.y - 34, '#4ade80');
+        }
+      }
+    }
+
+    // 5. Watching & Lunging Sea Sharks
+    if (this.level.sharks) {
+      const diffMult = this.saveData.difficulty === 'easy' ? 0.8 : this.saveData.difficulty === 'hard' ? 1.2 : 1.0;
+      for (const shark of this.level.sharks) {
+        if (shark.state === 'defeated') continue;
+        shark.animTimer += dt;
+        if (shark.hurtTimer > 0) shark.hurtTimer = Math.max(0, shark.hurtTimer - dt);
+
+        if (shark.state === 'stalking') {
+          shark.timer -= dt;
+          const spd = 72 * diffMult;
+          shark.x += (shark.facing === 'right' ? spd : -spd) * dt;
+          shark.y = shark.baseY + Math.sin(this.time * 3 + shark.x * 0.02) * 5;
+          if (shark.x <= shark.patrolLeft) shark.facing = 'right';
+          if (shark.x >= shark.patrolRight) shark.facing = 'left';
+
+          // Watch player on raft — when close, boil water and prepare lunge!
+          if (p.onRaft && raft && raft.state === 'sailing') {
+            const dx = (raft.x + raft.width / 2) - shark.x;
+            if (Math.abs(dx) < 175 && shark.timer <= 0) {
+              shark.facing = dx >= 0 ? 'right' : 'left';
+              shark.state = 'telegraph';
+              shark.timer = 0.68;
+              shark.baseY = Math.max(waterLevelY - 46, Math.min(waterLevelY + 52, raft.y + 18));
+              shark.y = shark.baseY;
+            }
+          }
+        } else if (shark.state === 'telegraph') {
+          shark.timer -= dt;
+          // Track raft horizontally slightly while boiling bubbles
+          if (raft) {
+            shark.x += ((raft.x + raft.width * 0.65) - shark.x) * Math.min(1, dt * 2.2);
+          }
+          if (Math.random() < 0.45) {
+            this.particles.push({
+              x: shark.x + (Math.random() - 0.5) * 32,
+              y: shark.y - 6,
+              vx: (Math.random() - 0.5) * 30,
+              vy: -35 - Math.random() * 45,
+              size: 3,
+              color: '#e0f2fe',
+              life: 0.32,
+              maxLife: 0.32,
+            });
+          }
+          if (shark.timer <= 0) {
+            shark.state = 'lunging';
+            shark.vy = -315 * diffMult;
+            shark.timer = 0.85;
+            audio.playSharkLunge();
+          }
+        } else if (shark.state === 'lunging') {
+          shark.timer -= dt;
+          shark.vy += 640 * dt;
+          shark.y += shark.vy * dt;
+          shark.x += (shark.facing === 'right' ? 68 : -68) * dt;
+
+          // Check bite against player on raft!
+          const dist = Math.hypot((p.x + p.width / 2) - shark.x, (p.y + p.height / 2) - shark.y);
+          if (dist < 40 && p.invulnerableTimer <= 0) {
+            this.takeDamage(1.5, 0);
+            this.addFloatingText('🦈 SHARK BITE! STEER ▲▼ OR SLASH (X)!', p.x, p.y - 32, '#f87171');
+            shark.state = 'submerging';
+            shark.vy = 140;
+          }
+
+          if (shark.y >= shark.baseY + 24 && shark.vy > 0) {
+            shark.state = 'submerging';
+          }
+        } else if (shark.state === 'submerging') {
+          shark.y += (waterLevelY + 22 - shark.y) * Math.min(1, dt * 4);
+          if (Math.abs(shark.y - (waterLevelY + 22)) < 6) {
+            shark.state = 'stalking';
+            shark.timer = 2.0 + Math.random() * 1.2;
+          }
+        }
+      }
+    }
+
+    // 6. Innocent Coastal Seagulls (flying, diving to catch fish, resting on your raft, flying away!)
+    if (this.level.seagulls) {
+      const anyGullOnRaft = this.level.seagulls.some(
+        g => g.state === 'approaching_raft' || g.state === 'resting_on_raft'
+      );
+      for (const gull of this.level.seagulls) {
+        gull.animTimer += dt;
+        gull.stateTimer -= dt;
+
+        if (gull.state === 'flying') {
+          gull.x += gull.vx * dt;
+          gull.y = gull.homeY + Math.sin(this.time * 2.2 + gull.homeX * 0.01) * 16;
+          if (gull.x < 120) {
+            gull.vx = Math.abs(gull.vx);
+            gull.facing = 'right';
+          } else if (gull.x > this.level.worldWidth - 140) {
+            gull.vx = -Math.abs(gull.vx);
+            gull.facing = 'left';
+          }
+
+          if (gull.stateTimer <= 0) {
+            // If raft is sailing nearby and nobody is perched yet, swoop down to rest on the raft!
+            if (
+              raft &&
+              raft.state === 'sailing' &&
+              !anyGullOnRaft &&
+              Math.abs(gull.x - (raft.x + raft.width / 2)) < 260 &&
+              Math.random() < 0.65
+            ) {
+              gull.state = 'approaching_raft';
+              gull.hasFish = false;
+              gull.stateTimer = 4.5;
+            } else if (gull.x > waterStartX + 80 && gull.x < this.level.worldWidth - 380) {
+              // Dive into the sparkling waves to catch a fish!
+              gull.state = 'diving_fish';
+              gull.hasFish = false;
+              gull.stateTimer = 2.0;
+            } else {
+              gull.stateTimer = 2.5 + Math.random() * 2.5;
+            }
+          }
+        } else if (gull.state === 'diving_fish') {
+          gull.x += (gull.facing === 'right' ? 75 : -75) * dt;
+          gull.y += 185 * dt;
+          if (gull.y >= waterLevelY - 8) {
+            gull.hasFish = true;
+            gull.state = 'carrying_fish';
+            gull.stateTimer = 3.2;
+            audio.playSeagullCall();
+            // Small splash where seagull catches a fish
+            for (let i = 0; i < 8; i++) {
+              this.particles.push({
+                x: gull.x,
+                y: waterLevelY,
+                vx: (Math.random() - 0.5) * 80,
+                vy: -40 - Math.random() * 55,
+                size: 2.5,
+                color: '#e0f2fe',
+                life: 0.4,
+                maxLife: 0.4,
+                gravity: 220,
+              });
+            }
+          }
+        } else if (gull.state === 'carrying_fish') {
+          gull.x += (gull.facing === 'right' ? 68 : -68) * dt;
+          gull.y += (gull.homeY - gull.y) * Math.min(1, dt * 2.4);
+          if (gull.stateTimer <= 0) {
+            gull.hasFish = false;
+            gull.state = 'flying';
+            gull.stateTimer = 3.0 + Math.random() * 2.5;
+          }
+        } else if (gull.state === 'approaching_raft') {
+          if (!raft || raft.state !== 'sailing') {
+            gull.state = 'taking_off';
+            gull.stateTimer = 1.6;
+          } else {
+            const perchX = raft.x + gull.raftOffsetX;
+            const perchY = raft.y - 10;
+            gull.facing = perchX >= gull.x ? 'right' : 'left';
+            gull.x += (perchX - gull.x) * Math.min(1, dt * 4.5);
+            gull.y += (perchY - gull.y) * Math.min(1, dt * 4.5);
+            if (Math.hypot(perchX - gull.x, perchY - gull.y) < 10) {
+              gull.state = 'resting_on_raft';
+              gull.stateTimer = 4.2 + Math.random() * 2.6;
+              gull.facing = 'right';
+              audio.playSeagullCall();
+            }
+          }
+        } else if (gull.state === 'resting_on_raft') {
+          if (!raft || raft.state !== 'sailing' || gull.stateTimer <= 0) {
+            gull.state = 'taking_off';
+            gull.stateTimer = 1.8;
+            gull.vx = 95;
+            gull.facing = 'right';
+          } else {
+            gull.x = raft.x + gull.raftOffsetX;
+            gull.y = raft.y - 10;
+          }
+        } else if (gull.state === 'taking_off') {
+          gull.x += (gull.facing === 'right' ? 95 : -95) * dt;
+          gull.y -= 105 * dt;
+          if (gull.y <= gull.homeY || gull.stateTimer <= 0) {
+            gull.state = 'flying';
+            gull.vx = (gull.facing === 'right' ? 1 : -1) * 60;
+            gull.stateTimer = 3.5 + Math.random() * 2.5;
+          }
+        }
+      }
+    }
   }
 
   // --- Boss Fight: The Ancient Cockatrice ---
@@ -4163,13 +5208,13 @@ export class GameEngine {
       this.callbacks.onActionStat?.('levelsClearedWithoutDamage');
     }
 
-    if (this.level.id === 30) {
-      // Golden sword is featured exclusively in the end cutscene, retaining the player's real sword in inventory
+    if (this.level.id === 30 || this.level.id === 40) {
+      // Level 30 celebrates defeating the Cockatrice (and unlocks World 7: the Desert lands);
+      // Level 40 celebrates completing Peckerin Coast (all 40 stages)!
       audio.playVictory();
       this.callbacks.onVictory(this.coinsEarnedThisLevel);
     } else {
       // Level 15 triggers Teen Chicken evolution inside World 4
-      // World transitions (Levels 5, 9, 10, 19, 29) route to onLevelClear for automatic world waiting screen!
       const nextLevel = this.level.id + 1;
       if (nextLevel === 15) {
         this.callbacks.onEvolution('teen');

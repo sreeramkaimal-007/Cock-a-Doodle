@@ -1,5 +1,6 @@
 export type GrowthStage = 'egg' | 'baby' | 'juvenile' | 'teen' | 'adult';
 export type ChickenGender = 'rooster' | 'hen';
+export type EmoteId = 'squawk' | 'happy_hop' | 'angry_ruffle' | 'heart_flutter' | 'royal_strut' | 'golden_crow';
 
 export type GameScreen = 
   | 'MENU'
@@ -66,6 +67,17 @@ export interface PlayerState {
   poisonTickTimer?: number;
   poisonTickInterval?: number;
   poisonDrainRemaining?: number;
+  activeEmote?: EmoteId | null;
+  emoteTimer?: number;
+  emoteDuration?: number;
+  isCrouching?: boolean;
+  standingHeight?: number;
+  shieldSnatched?: boolean;
+  hasAxe?: boolean;
+  woodCount?: number;
+  woodTarget?: number;
+  onRaft?: boolean;
+  raftPushProgress?: number;
 }
 
 export type PlatformType = 'wood' | 'grass' | 'stone' | 'ruins' | 'bridge' | 'fence';
@@ -190,6 +202,164 @@ export interface ThundercloudHazard {
 }
 
 export type EnemyType = 'wolf' | 'fox' | 'bear' | 'snake';
+
+export interface DesertFalcon {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  width: number;
+  height: number;
+  homeX: number;
+  homeY: number;
+  patrolRange: number;
+  facing: 'left' | 'right';
+  state: 'soaring' | 'telegraph' | 'swooping' | 'recovering' | 'defeated';
+  timer: number;
+  targetX: number;
+  targetY: number;
+  swoopStartX: number;
+  swoopStartY: number;
+  swoopLowY: number;
+  wingPhase: number;
+  health: number;
+  maxHealth: number;
+  hurtTimer: number;
+  variantIndex: number;
+  dodgedThisSwoop?: boolean;
+}
+
+export interface DesertBonePile {
+  id: string;
+  x: number;
+  y: number;
+  meatRemaining: number;
+}
+
+export interface SandCatWildlife {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  patrolLeft: number;
+  patrolRight: number;
+  facing: 'left' | 'right';
+  state: 'walk' | 'rest' | 'eat';
+  stateTimer: number;
+  animTimer: number;
+  isBaby: boolean;
+  variantIndex: number;
+  targetBoneId?: string;
+}
+
+export interface ShieldSnatchCutscene {
+  active: boolean;
+  completed: boolean;
+  timer: number;
+  phase: 'approach' | 'snatch' | 'escape' | 'done';
+  falconX: number;
+  falconY: number;
+  falconFacing: 'left' | 'right';
+  carryingShield: boolean;
+  speechText: string;
+}
+
+export interface AxeStump {
+  x: number;
+  y: number;
+  axeTaken: boolean;
+}
+
+export interface ChoppableTree {
+  id: string;
+  x: number;
+  y: number;
+  height: number;
+  hp: number;
+  maxHp: number;
+  state: 'standing' | 'falling' | 'fallen';
+  fallAngle: number;
+  fallVel: number;
+  fallDir: 1 | -1;
+  shakeTimer: number;
+  variant: 'palm' | 'coastal_pine';
+}
+
+export interface WoodLogPickup {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  collected: boolean;
+}
+
+export interface CoastalRaft {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  state: 'unbuilt' | 'building' | 'built_on_shore' | 'pushing' | 'sailing' | 'docked' | 'broken';
+  buildProgress: number;
+  pushProgress: number;
+  health: number;
+  maxHealth: number;
+  invulnTimer: number;
+  bobPhase: number;
+  laneOffsetY: number;
+  vx: number;
+  vy: number;
+  dockX: number;
+}
+
+export interface SeaRock {
+  id: string;
+  x: number;
+  y: number;
+  laneY: number;
+  width: number;
+  height: number;
+  hitCooldown: number;
+  variant: number;
+  foamPhase: number;
+}
+
+export interface SeaShark {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  baseY: number;
+  patrolLeft: number;
+  patrolRight: number;
+  facing: 'left' | 'right';
+  state: 'stalking' | 'telegraph' | 'lunging' | 'submerging' | 'defeated';
+  timer: number;
+  animTimer: number;
+  health: number;
+  maxHealth: number;
+  hurtTimer: number;
+  variantIndex: number;
+}
+
+export interface CoastalSeagull {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  homeX: number;
+  homeY: number;
+  facing: 'left' | 'right';
+  state: 'flying' | 'diving_fish' | 'carrying_fish' | 'approaching_raft' | 'resting_on_raft' | 'taking_off';
+  stateTimer: number;
+  animTimer: number;
+  hasFish: boolean;
+  raftOffsetX: number;
+  variantIndex: number;
+}
 
 export interface Enemy {
   id: string;
@@ -413,7 +583,7 @@ export interface LevelConfig {
   worldHeight: number;
   spawnPoint: { x: number; y: number };
   exitPoint: { x: number; y: number };
-  theme: 'coop' | 'trail' | 'juvenile' | 'jungle' | 'storm' | 'snowy' | 'fields';
+  theme: 'coop' | 'trail' | 'juvenile' | 'jungle' | 'storm' | 'snowy' | 'fields' | 'desert' | 'coast';
   platforms: Platform[];
   coins: Coin[];
   chests: TreasureChest[];
@@ -427,6 +597,22 @@ export interface LevelConfig {
   spikes?: { x: number; y: number; width: number; height: number }[];
   hint?: string;
   silkieSam?: SilkieSamFriend;
+  // World 7: The Desert Lands
+  falcons?: DesertFalcon[];
+  sandCats?: SandCatWildlife[];
+  desertBones?: DesertBonePile[];
+  hasShieldSnatchCutscene?: boolean;
+  // World 8: Peckerin Coast
+  axeStump?: AxeStump;
+  choppableTrees?: ChoppableTree[];
+  woodLogs?: WoodLogPickup[];
+  raft?: CoastalRaft;
+  seaRocks?: SeaRock[];
+  sharks?: SeaShark[];
+  seagulls?: CoastalSeagull[];
+  waterStartX?: number;
+  waterLevelY?: number;
+  woodTarget?: number;
 }
 
 export interface QuestItem {
@@ -502,4 +688,5 @@ export interface SaveData {
   openedChestIds?: string[];
   encounteredEnemies?: string[];
   enemyDefeatCounts?: Record<string, number>;
+  unlockedEmotes?: EmoteId[];
 }
