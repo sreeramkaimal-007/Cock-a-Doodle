@@ -359,6 +359,8 @@ export interface SeaRock {
   variant: number;
   foamPhase: number;
   hasChest?: boolean;
+  hasCrab?: boolean;
+  crabVariant?: number;
 }
 
 export interface SeaShark {

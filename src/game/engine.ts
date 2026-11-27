@@ -187,6 +187,14 @@ export class GameEngine {
       }
     }
 
+    // World 8 (Levels 37-40): Continue sailing directly aboard your already-built raft!
+    if (this.level.theme === 'coast' && this.level.raft && this.level.raft.state === 'sailing') {
+      this.player.onRaft = true;
+      this.player.x = this.level.raft.x + this.level.raft.width * 0.36;
+      this.player.y = this.level.raft.y - this.player.height + 6;
+      this.player.facing = 'right';
+    }
+
     this.currentCheckpoint = { ...this.level.spawnPoint };
 
     // Auto-equip defaults only if no armor or sword is currently equipped
@@ -1571,6 +1579,8 @@ export class GameEngine {
     } else if (this.level.world === 8 || this.level.theme === 'coast') {
       this.reportEncounter('seagull');
       this.reportEncounter('sea_fish');
+      this.reportEncounter('rock_crab');
+      this.reportEncounter('sea_starfish');
       this.reportEncounter('coastal_tree');
       this.reportEncounter('sea_kelp_coral');
     }
@@ -2954,8 +2964,9 @@ export class GameEngine {
             if (rock.hitCooldown > 0) rock.hitCooldown = Math.max(0, rock.hitCooldown - dt);
             rock.foamPhase += dt * 3;
             const rockY = waterLevelY + rock.laneY;
-            const overlapX = raft.x + raft.width - 10 > rock.x - rock.width / 2 && raft.x + 10 < rock.x + rock.width / 2;
-            const overlapY = Math.abs((raft.y + 8) - rockY) < 25;
+            // Accurate hitbox aligned with rendered rock bounds (rock.x is left edge, rock.y is top edge)
+            const overlapX = raft.x + raft.width - 12 > rock.x + 4 && raft.x + 12 < rock.x + rock.width - 4;
+            const overlapY = Math.abs((raft.y + raft.height * 0.5) - (rockY + rock.height * 0.55)) < 24;
 
             if (overlapX && overlapY && raft.invulnTimer <= 0 && rock.hitCooldown <= 0) {
               if (this.armorType === 'coral' && Math.random() < 0.5) {
@@ -3000,20 +3011,34 @@ export class GameEngine {
               }
 
               if (raft.health <= 0) {
-                // Raft broke apart! Lose 1 heart and reset raft ready at shore launch so player can retry cleanly
+                // Raft broke apart! Lose 1 heart and recover cleanly (shore launch on Level 36, open sea repair on Levels 37-40)
                 this.addFloatingText('💥 YOUR RAFT BROKE APART!', raft.x + 40, raft.y - 36, '#f87171');
                 this.takeDamage(1, 0);
                 if (this.player.health > 0) {
-                  raft.x = waterStartX - 110;
-                  raft.y = 438;
-                  raft.laneOffsetY = 0;
-                  raft.vx = 0;
-                  raft.vy = 0;
-                  raft.health = raft.maxHealth;
-                  raft.state = 'built_on_shore';
-                  p.onRaft = false;
-                  p.x = raft.x - p.width - 14;
-                  p.y = 460 - p.height;
+                  if (this.level.id === 36) {
+                    raft.x = waterStartX - 110;
+                    raft.y = 438;
+                    raft.laneOffsetY = 0;
+                    raft.vx = 0;
+                    raft.vy = 0;
+                    raft.health = raft.maxHealth;
+                    raft.state = 'built_on_shore';
+                    p.onRaft = false;
+                    p.x = raft.x - p.width - 14;
+                    p.y = 460 - p.height;
+                  } else {
+                    raft.x = Math.max(90, raft.x - 160);
+                    raft.laneOffsetY = 0;
+                    raft.y = waterLevelY;
+                    raft.vx = 60;
+                    raft.vy = 0;
+                    raft.health = raft.maxHealth;
+                    raft.invulnTimer = 2.0;
+                    raft.state = 'sailing';
+                    p.onRaft = true;
+                    p.x = raft.x + raft.width * 0.36;
+                    p.y = raft.y - p.height + 6;
+                  }
                 }
               } else {
                 this.addFloatingText(`🪵 CRACK! RAFT HP ${raft.health}/${raft.maxHealth}`, raft.x + 40, raft.y - 34, '#fb923c');
@@ -3022,17 +3047,21 @@ export class GameEngine {
           }
         }
 
-        // Dock onto destination island!
+        // Dock cleanly onto the floating destination island!
         if (raft.x >= raft.dockX) {
           raft.x = raft.dockX;
+          raft.y = 438;
+          raft.laneOffsetY = 438 - waterLevelY;
+          raft.vx = 0;
+          raft.vy = 0;
           raft.state = 'docked';
           p.onRaft = false;
-          p.x = raft.dockX + raft.width + 18;
+          p.x = raft.dockX + raft.width + 14;
           p.y = 460 - p.height - 6;
           p.vy = -170;
-          p.vx = 90;
+          p.vx = 85;
           audio.playChest();
-          this.addFloatingText('🏝️ LAND HO! REACH THE PORTAL!', p.x, p.y - 34, '#4ade80');
+          this.addFloatingText('🏝️ LAND HO! OPEN THE CHEST & FINISH!', p.x, p.y - 34, '#4ade80');
         }
       }
     }
@@ -5714,10 +5743,34 @@ export class GameEngine {
       }
     }
 
-    // Respawn at safe checkpoint with firm footing & cure lingering pit poison
-    const cp = this.currentCheckpoint || this.level.spawnPoint;
-    this.player.x = cp.x;
-    this.player.y = cp.y;
+    // Respawn safely on coast island or raft for Peckerin Coast levels without a starting shore
+    if (this.level.theme === 'coast' && this.level.raft) {
+      const raft = this.level.raft;
+      if (raft.state === 'docked') {
+        const endIsland = this.level.platforms[this.level.platforms.length - 1];
+        this.player.onRaft = false;
+        this.player.x = (endIsland ? endIsland.x : raft.dockX + raft.width) + 32;
+        this.player.y = 460 - this.player.height - 6;
+      } else if (this.level.id > 36) {
+        raft.state = 'sailing';
+        raft.laneOffsetY = 0;
+        raft.y = this.level.waterLevelY ?? 385;
+        raft.vx = 60;
+        raft.vy = 0;
+        this.player.onRaft = true;
+        this.player.x = raft.x + raft.width * 0.36;
+        this.player.y = raft.y - this.player.height + 6;
+      } else {
+        const cp = this.currentCheckpoint || this.level.spawnPoint;
+        this.player.x = cp.x;
+        this.player.y = cp.y;
+      }
+    } else {
+      // Respawn at safe checkpoint with firm footing & cure lingering pit poison
+      const cp = this.currentCheckpoint || this.level.spawnPoint;
+      this.player.x = cp.x;
+      this.player.y = cp.y;
+    }
     this.player.vx = 0;
     this.player.vy = 0;
     this.player.poisonTimer = 0;

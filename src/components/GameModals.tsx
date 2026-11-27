@@ -2482,12 +2482,12 @@ export const GameModals: React.FC<ModalProps> = ({
       7: {
         gradient: 'from-amber-950 via-orange-950 to-slate-950',
         accent: 'border-amber-400 text-amber-300',
-        tip: 'A Desert Falcon will snatch your shield! Hold Down Arrow (▼ / S) to CROUCH low beneath swooping Falcons, and watch gentle Sand Cats & kittens nibble desert bones.',
+        tip: 'oh hey!',
       },
       8: {
         gradient: 'from-sky-950 via-cyan-950 to-slate-950',
         accent: 'border-sky-400 text-sky-300',
-        tip: 'Grab the Axe from the beach stump, chop trees for wood, build & push your raft into Peckerin Coast, then dodge jagged sea rocks & hungry Sharks while Seagulls hitch a ride!',
+        tip: 'oh hey!',
       },
     };
     const wt = worldThemes[targetLevel.world] || worldThemes[1];

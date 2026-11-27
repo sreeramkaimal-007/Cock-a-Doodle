@@ -1791,130 +1791,134 @@ export const LEVELS: LevelConfig[] = [
     {
       id: 37,
       title: 'Barnacle Reef',
-      subtitle: 'Weave your raft past jagged reef rocks while Sharks prowl below',
-      worldWidth: 3450,
-      treeXs: [310, 425, 540],
-      woodTarget: 3,
+      subtitle: 'Stay aboard your raft and weave past jagged reef rocks & prowling Sharks!',
+      worldWidth: 3250,
+      treeXs: [],
+      woodTarget: 0,
       rockSpecs: [
-        { x: 1140, laneY: 72 },
-        { x: 1390, laneY: -86 },
-        { x: 1620, laneY: 14 },
-        { x: 1880, laneY: -94 },
-        { x: 2100, laneY: 84 },
-        { x: 2360, laneY: -30 },
-        { x: 2610, laneY: 92 },
-        { x: 2870, laneY: -70 },
+        { x: 640, laneY: 72 },
+        { x: 910, laneY: -86 },
+        { x: 1160, laneY: 14 },
+        { x: 1430, laneY: -94 },
+        { x: 1680, laneY: 84 },
+        { x: 1950, laneY: -30 },
+        { x: 2220, laneY: 92 },
+        { x: 2510, laneY: -70 },
       ],
       sharkRanges: [
-        { left: 1180, right: 1660 },
-        { left: 1780, right: 2340 },
-        { left: 2420, right: 2940 },
+        { left: 700, right: 1220 },
+        { left: 1340, right: 1920 },
+        { left: 2040, right: 2620 },
       ],
       seagullCount: 5,
     },
     {
       id: 38,
       title: 'Pelican Shoals',
-      subtitle: 'Chop 4 coastal trees for a sturdy voyage across rocky shoals',
-      worldWidth: 3650,
-      treeXs: [295, 395, 495, 590],
-      woodTarget: 4,
+      subtitle: 'Sail your raft across rocky shoals with crabs perched on the reefs!',
+      worldWidth: 3450,
+      treeXs: [],
+      woodTarget: 0,
       rockSpecs: [
-        { x: 1160, laneY: -88 },
-        { x: 1380, laneY: 68 },
-        { x: 1620, laneY: -34 },
-        { x: 1850, laneY: 94 },
-        { x: 2080, laneY: -92 },
-        { x: 2300, laneY: 26 },
-        { x: 2530, laneY: -80 },
-        { x: 2770, laneY: 88 },
-        { x: 3020, laneY: -36 },
+        { x: 640, laneY: -88 },
+        { x: 890, laneY: 68 },
+        { x: 1150, laneY: -34 },
+        { x: 1400, laneY: 94 },
+        { x: 1650, laneY: -92 },
+        { x: 1900, laneY: 26 },
+        { x: 2160, laneY: -80 },
+        { x: 2430, laneY: 88 },
+        { x: 2720, laneY: -36 },
       ],
       sharkRanges: [
-        { left: 1200, right: 1680 },
-        { left: 1760, right: 2240 },
-        { left: 2320, right: 2780 },
-        { left: 2820, right: 3180 },
+        { left: 720, right: 1240 },
+        { left: 1320, right: 1840 },
+        { left: 1920, right: 2440 },
+        { left: 2480, right: 2880 },
       ],
       seagullCount: 5,
     },
     {
       id: 39,
       title: 'Sharkfin Strait',
-      subtitle: 'Keen sharks stalk the strait — steer ▲▼ or slash lunging fins!',
-      worldWidth: 3850,
-      treeXs: [295, 395, 495, 590],
-      woodTarget: 4,
+      subtitle: 'Keen sharks stalk the strait — steer ▲▼ on your raft or slash lunging fins!',
+      worldWidth: 3650,
+      treeXs: [],
+      woodTarget: 0,
       rockSpecs: [
-        { x: 1140, laneY: 0 },
-        { x: 1360, laneY: -94 },
-        { x: 1560, laneY: 88 },
-        { x: 1780, laneY: -50 },
-        { x: 2000, laneY: 76 },
-        { x: 2210, laneY: -96 },
-        { x: 2420, laneY: 32 },
-        { x: 2640, laneY: -84 },
-        { x: 2860, laneY: 92 },
-        { x: 3080, laneY: -38 },
-        { x: 3290, laneY: 68 },
+        { x: 620, laneY: 0 },
+        { x: 860, laneY: -94 },
+        { x: 1090, laneY: 88 },
+        { x: 1330, laneY: -50 },
+        { x: 1580, laneY: 76 },
+        { x: 1810, laneY: -96 },
+        { x: 2050, laneY: 32 },
+        { x: 2290, laneY: -84 },
+        { x: 2540, laneY: 92 },
+        { x: 2790, laneY: -38 },
+        { x: 3020, laneY: 68 },
       ],
       sharkRanges: [
-        { left: 1160, right: 1620 },
-        { left: 1680, right: 2160 },
-        { left: 2220, right: 2700 },
-        { left: 2740, right: 3220 },
-        { left: 3120, right: 3420 },
+        { left: 680, right: 1180 },
+        { left: 1260, right: 1780 },
+        { left: 1840, right: 2360 },
+        { left: 2400, right: 2900 },
+        { left: 2800, right: 3180 },
       ],
       seagullCount: 6,
     },
     {
       id: 40,
       title: 'Peckerin Horizon',
-      subtitle: 'Sail the final stretch of Peckerin Coast to the Golden Lighthouse!',
-      worldWidth: 4100,
-      treeXs: [295, 395, 495, 590],
-      woodTarget: 4,
+      subtitle: 'Sail your raft across the final stretch of Peckerin Coast to the treasure island!',
+      worldWidth: 3850,
+      treeXs: [],
+      woodTarget: 0,
       rockSpecs: [
-        { x: 1140, laneY: -88 },
-        { x: 1350, laneY: 82 },
-        { x: 1560, laneY: -18 },
-        { x: 1760, laneY: -96 },
-        { x: 1960, laneY: 88 },
-        { x: 2170, laneY: 12 },
-        { x: 2390, laneY: -92 },
-        { x: 2590, laneY: 80 },
-        { x: 2810, laneY: -46 },
-        { x: 3020, laneY: 92 },
-        { x: 3240, laneY: -82 },
-        { x: 3460, laneY: 28 },
+        { x: 620, laneY: -88 },
+        { x: 860, laneY: 82 },
+        { x: 1090, laneY: -18 },
+        { x: 1320, laneY: -96 },
+        { x: 1550, laneY: 88 },
+        { x: 1790, laneY: 12 },
+        { x: 2030, laneY: -92 },
+        { x: 2260, laneY: 80 },
+        { x: 2500, laneY: -46 },
+        { x: 2740, laneY: 92 },
+        { x: 2980, laneY: -82 },
+        { x: 3220, laneY: 28 },
       ],
       sharkRanges: [
-        { left: 1180, right: 1660 },
-        { left: 1720, right: 2220 },
-        { left: 2280, right: 2780 },
-        { left: 2820, right: 3320 },
-        { left: 3300, right: 3680 },
+        { left: 700, right: 1220 },
+        { left: 1300, right: 1820 },
+        { left: 1880, right: 2400 },
+        { left: 2460, right: 2980 },
+        { left: 2960, right: 3380 },
       ],
       seagullCount: 6,
     },
   ].map((spec, idx): LevelConfig => {
+    const isFirstCoastLevel = spec.id === 36;
     const w = spec.worldWidth;
-    const waterStartX = 840;
+    // Level 36 has the raft-making beach shore (0..840); Levels 37-40 start directly at sea already aboard your raft!
+    const waterStartX = isFirstCoastLevel ? 840 : 0;
     // Spacious wide open ocean! Water spans from y=240 down to y=540 (300px tall sea), center sailing lane at y=385!
     const waterLevelY = 385;
     const islandStartX = w - 340;
 
     const platforms: LevelConfig['platforms'] = [
-      // Starting sandy beach shore
-      { id: `c${spec.id}_shore`, x: 0, y: 460, width: waterStartX, height: 80, type: 'grass' },
-      // Destination coastal island
-      { id: `c${spec.id}_island`, x: islandStartX, y: 460, width: 340, height: 80, type: 'grass' },
+      ...(isFirstCoastLevel
+        ? [{ id: `c${spec.id}_shore`, x: 0, y: 460, width: waterStartX, height: 80, type: 'grass' as const }]
+        : []),
+      // Floating destination island with treasure chest sitting cleanly above the water at the end of every coast level!
+      { id: `c${spec.id}_island`, x: islandStartX, y: 460, width: 340, height: 80, type: 'grass' as const },
     ];
 
     const coins: LevelConfig['coins'] = [];
-    // Shore coins + wide ocean lane coins
-    for (let cx = 340; cx < islandStartX - 100; cx += 210) {
-      const seaLaneY = cx < waterStartX ? 416 : waterLevelY + ((cx % 5) - 2) * 44;
+    // Shore coins (Level 36) + wide ocean lane coins
+    const firstCoinX = isFirstCoastLevel ? 340 : 360;
+    for (let cx = firstCoinX; cx < islandStartX - 100; cx += 210) {
+      const seaLaneY = (isFirstCoastLevel && cx < waterStartX) ? 416 : waterLevelY + ((cx % 5) - 2) * 44;
       coins.push({
         id: `c_co${spec.id}_${cx}`,
         x: cx,
@@ -1925,34 +1929,43 @@ export const LEVELS: LevelConfig[] = [
       });
     }
 
-    const choppableTrees = spec.treeXs.map((tx, tIdx) => ({
-      id: `tree_${spec.id}_${tIdx}`,
-      x: tx,
-      y: 460,
-      height: 112 + (tIdx % 2) * 16,
-      hp: 3,
-      maxHp: 3,
-      state: 'standing' as const,
-      fallAngle: 0,
-      fallVel: 0,
-      fallDir: (tIdx % 2 === 0 ? 1 : -1) as 1 | -1,
-      shakeTimer: 0,
-      variant: (tIdx % 2 === 0 ? 'palm' : 'coastal_pine') as 'palm' | 'coastal_pine',
-    }));
+    const choppableTrees = isFirstCoastLevel
+      ? spec.treeXs.map((tx, tIdx) => ({
+          id: `tree_${spec.id}_${tIdx}`,
+          x: tx,
+          y: 460,
+          height: 112 + (tIdx % 2) * 16,
+          hp: 3,
+          maxHp: 3,
+          state: 'standing' as const,
+          fallAngle: 0,
+          fallVel: 0,
+          fallDir: (tIdx % 2 === 0 ? 1 : -1) as 1 | -1,
+          shakeTimer: 0,
+          variant: (tIdx % 2 === 0 ? 'palm' : 'coastal_pine') as 'palm' | 'coastal_pine',
+        }))
+      : [];
 
     const chestRockIndex = Math.min(2, Math.max(0, spec.rockSpecs.length - 1));
-    const seaRocks = spec.rockSpecs.map((rs, rIdx) => ({
-      id: `rock_${spec.id}_${rIdx}`,
-      x: rs.x,
-      y: waterLevelY + rs.laneY,
-      laneY: rs.laneY,
-      width: 44 + (rIdx % 2) * 10,
-      height: 30 + (rIdx % 2) * 6,
-      hitCooldown: 0,
-      variant: rIdx % 3,
-      foamPhase: rIdx * 1.1,
-      hasChest: rIdx === chestRockIndex,
-    }));
+    const seaRocks = spec.rockSpecs.map((rs, rIdx) => {
+      const hasChest = rIdx === chestRockIndex;
+      // Only SOME sea rocks (never the chest rock, roughly ~40% of rocks) have a detailed coastal crab perched on top!
+      const hasCrab = !hasChest && ((rIdx + idx) % 3 === 0 || (rIdx === 1 && idx % 2 === 1));
+      return {
+        id: `rock_${spec.id}_${rIdx}`,
+        x: rs.x,
+        y: waterLevelY + rs.laneY,
+        laneY: rs.laneY,
+        width: 44 + (rIdx % 2) * 10,
+        height: 30 + (rIdx % 2) * 6,
+        hitCooldown: 0,
+        variant: rIdx % 3,
+        foamPhase: rIdx * 1.1,
+        hasChest,
+        hasCrab,
+        crabVariant: (rIdx + idx) % 3,
+      };
+    });
     const chestRock = seaRocks[chestRockIndex];
 
     const sharks = spec.sharkRanges.map((sr, sIdx) => ({
@@ -2011,7 +2024,7 @@ export const LEVELS: LevelConfig[] = [
     });
 
     const seagulls = Array.from({ length: spec.seagullCount }).map((_, gIdx) => {
-      const gx = 520 + gIdx * Math.floor((w - 860) / spec.seagullCount);
+      const gx = (isFirstCoastLevel ? 520 : 280) + gIdx * Math.floor((w - 760) / spec.seagullCount);
       const gy = 68 + (gIdx % 3) * 34;
       return {
         id: `gull_${spec.id}_${gIdx}`,
@@ -2039,8 +2052,8 @@ export const LEVELS: LevelConfig[] = [
       subtitle: spec.subtitle,
       worldWidth: w,
       worldHeight: 540,
-      spawnPoint: { x: 80, y: 400 },
-      exitPoint: { x: w - 110, y: 392 },
+      spawnPoint: isFirstCoastLevel ? { x: 80, y: 400 } : { x: 120, y: waterLevelY - 40 },
+      exitPoint: { x: w - 80, y: 392 },
       theme: 'coast',
       platforms,
       coins,
@@ -2060,7 +2073,7 @@ export const LEVELS: LevelConfig[] = [
         }] : []),
         {
           id: `ch_co${spec.id}_1`,
-          x: islandStartX + 75,
+          x: islandStartX + 95,
           y: 428,
           width: 36,
           height: 32,
@@ -2070,34 +2083,56 @@ export const LEVELS: LevelConfig[] = [
           animProgress: 0,
         },
       ],
-      checkpoints: [
-        { id: `cp_co${spec.id}_1`, x: 650, y: 460, reached: false },
-      ],
+      checkpoints: isFirstCoastLevel
+        ? [{ id: `cp_co${spec.id}_1`, x: 650, y: 460, reached: false }]
+        : [],
       enemies: [],
-      axeStump: {
-        x: 205,
-        y: 460,
-        axeTaken: false,
-      },
+      ...(isFirstCoastLevel
+        ? {
+            axeStump: {
+              x: 205,
+              y: 460,
+              axeTaken: false,
+            },
+          }
+        : {}),
       choppableTrees,
       woodLogs: [],
-      raft: {
-        x: 695,
-        y: 438,
-        width: 102,
-        height: 22,
-        state: 'unbuilt',
-        buildProgress: 0,
-        pushProgress: 0,
-        health: 5,
-        maxHealth: 5,
-        invulnTimer: 0,
-        bobPhase: 0,
-        laneOffsetY: 0,
-        vx: 0,
-        vy: 0,
-        dockX: islandStartX - 88,
-      },
+      raft: isFirstCoastLevel
+        ? {
+            x: 695,
+            y: 438,
+            width: 102,
+            height: 22,
+            state: 'unbuilt',
+            buildProgress: 0,
+            pushProgress: 0,
+            health: 5,
+            maxHealth: 5,
+            invulnTimer: 0,
+            bobPhase: 0,
+            laneOffsetY: 0,
+            vx: 0,
+            vy: 0,
+            dockX: islandStartX - 88,
+          }
+        : {
+            x: 90,
+            y: waterLevelY,
+            width: 102,
+            height: 22,
+            state: 'sailing',
+            buildProgress: 1,
+            pushProgress: 1,
+            health: 5,
+            maxHealth: 5,
+            invulnTimer: 0,
+            bobPhase: 0,
+            laneOffsetY: 0,
+            vx: 110,
+            vy: 0,
+            dockX: islandStartX - 88,
+          },
       seaRocks,
       sharks,
       seagulls,
@@ -2105,7 +2140,9 @@ export const LEVELS: LevelConfig[] = [
       waterStartX,
       waterLevelY,
       woodTarget: spec.woodTarget,
-      hint: 'Pick up the Axe in the stump, press X/K to chop trees, build & push your Raft into the wide sea, then steer ▲▼ to dodge rocks & Sharks!',
+      hint: isFirstCoastLevel
+        ? 'Pick up the Axe in the stump, press X/K to chop trees, build & push your Raft into the wide sea, then steer ▲▼ to dodge rocks & Sharks!'
+        : 'You are sailing aboard your Raft! Steer ▲▼ across the open sea to dodge rocks & Sharks, then dock at the floating island to claim the chest!',
     };
   }),
 ];

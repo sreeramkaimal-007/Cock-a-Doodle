@@ -49,6 +49,15 @@ export default function App() {
   const [activePlayerEmote, setActivePlayerEmote] = useState<EmoteId | null>(null);
   const [playerOnRaft, setPlayerOnRaft] = useState<boolean>(false);
   const [activeHasShield, setActiveHasShield] = useState<boolean>(false);
+  // Refs to prevent redundant React state updates every animation frame
+  const hudSyncRef = useRef({
+    fireResist: 0,
+    emote: null as EmoteId | null,
+    onRaft: false,
+    hasShield: false,
+    poison: 0,
+    poisonMax: 0,
+  });
   const [showTouchControls, setShowTouchControls] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024;
@@ -1065,31 +1074,25 @@ export default function App() {
     }
   }, [screen, activeLevelId, saveData.unlockedLevel, saveData.hasCompletedGame, updateMusicForLevel]);
 
-  // Trigger AdMob popup interstitial only when reaching in-game achievements (never on losing a life)
+  // Trigger AdMob popup interstitial only for mid-world achievements (never when moving to the next world or at the end of the game)
   useEffect(() => {
     if (screen === 'LEVEL_CLEAR') {
-      void showAdMobInterstitial({
-        reason: 'achievement_level_clear',
-        title: `Stage ${activeLevelId} Cleared!`,
-        subtitle: 'Level completion achievement unlocked',
-      });
-    } else if (screen === 'WORLD_LOADING') {
-      void showAdMobInterstitial({
-        reason: 'achievement_world',
-        title: 'New World Reached!',
-        subtitle: 'Advancing to the next realm',
-      });
+      const currLvl = LEVELS.find(l => l.id === activeLevelId);
+      const nextLvl = LEVELS.find(l => l.id === activeLevelId + 1);
+      const isWorldBoundaryOrGameEnd =
+        activeLevelId >= 40 || !nextLvl || (currLvl && nextLvl.world !== currLvl.world);
+      if (!isWorldBoundaryOrGameEnd) {
+        void showAdMobInterstitial({
+          reason: 'achievement_level_clear',
+          title: `Stage ${activeLevelId} Cleared!`,
+          subtitle: 'Level completion achievement unlocked',
+        });
+      }
     } else if (screen === 'EVOLUTION') {
       void showAdMobInterstitial({
         reason: 'achievement_evolution',
         title: 'Chicken Evolved!',
         subtitle: 'Major growth milestone unlocked',
-      });
-    } else if (screen === 'VICTORY') {
-      void showAdMobInterstitial({
-        reason: 'achievement_victory',
-        title: 'Ancient Cockatrice Defeated!',
-        subtitle: 'Grand Victory Achievement Unlocked',
       });
     }
   }, [screen, activeLevelId]);
@@ -1297,7 +1300,8 @@ export default function App() {
     const renderer = rendererRef.current;
 
     const loop = (timestamp: number) => {
-      const dt = Math.min((timestamp - lastTimeRef.current) / 1000, 0.1);
+      const rawDt = lastTimeRef.current > 0 ? (timestamp - lastTimeRef.current) / 1000 : 0.016;
+      const dt = Math.max(0.001, Math.min(rawDt, 0.05));
       lastTimeRef.current = timestamp;
 
       if (screen === 'INTRO_CINEMATIC') {
@@ -1337,7 +1341,27 @@ export default function App() {
         const isSkyBlue = engine.level.id === 30
           ? isBossNormalized
           : Boolean(saveData.hasCompletedGame);
-        renderer.renderBackground(engine.level.theme, engine.camera, engine.time, engine.level.id, isSkyBlue);
+        // Background animals cheer after defeating the Boss, then stop cheering once you advance on through the 2 new worlds (Desert Lands & Peckerin Coast)
+        const shouldAnimalsCheer =
+          isSkyBlue &&
+          engine.level.world <= 6 &&
+          (saveData.unlockedLevel || 1) < 36;
+        renderer.renderBackground(engine.level.theme, engine.camera, engine.time, engine.level.id, isSkyBlue, shouldAnimalsCheer);
+
+        // World 8: Peckerin Coast Ocean Water, Underwater Kelp/Starfish & Swimming Sea Fish rendered BEFORE platforms & chests
+        // so both the starting raft shore and the floating end treasure-chest land sit cleanly ABOVE the water!
+        if (engine.level.theme === 'coast' && engine.level.waterStartX !== undefined && engine.level.waterLevelY !== undefined) {
+          renderer.renderCoastalWater(
+            engine.level.waterStartX,
+            engine.level.waterLevelY,
+            engine.level.worldWidth,
+            engine.camera,
+            engine.time
+          );
+          if (engine.level.seaFish) {
+            renderer.renderSeaFish(engine.level.seaFish, engine.camera, engine.time);
+          }
+        }
 
         // Starting Chicken Coop: ONLY appears on Level 1, and never floats (firmly on ground platform)
         if (engine.level.id === 1) {
@@ -1392,20 +1416,6 @@ export default function App() {
         // Enemies (biome-authentic coat variants; Level 30 Cockatrice lair enemies appear infected in red & black)
         if (engine.level.enemies) {
           engine.level.enemies.forEach(e => renderer.renderEnemy(e, engine.camera, engine.level.theme, engine.level.id));
-        }
-
-        // World 8: Peckerin Coast Ocean Water & Swimming Multi-Species Sea Fish (rendered before sea rocks, sharks, raft & player)
-        if (engine.level.theme === 'coast' && engine.level.waterStartX !== undefined && engine.level.waterLevelY !== undefined) {
-          renderer.renderCoastalWater(
-            engine.level.waterStartX,
-            engine.level.waterLevelY,
-            engine.level.worldWidth,
-            engine.camera,
-            engine.time
-          );
-          if (engine.level.seaFish) {
-            renderer.renderSeaFish(engine.level.seaFish, engine.camera, engine.time);
-          }
         }
 
         // World 8: Coastal Axe Stump, Choppable Trees, Wood Logs, Sea Rocks, Sharks & Wooden Raft
@@ -1491,36 +1501,51 @@ export default function App() {
           renderer.renderBossBar(engine.level.cockatrice, engine.time);
         }
 
-        // Sync fire resist & snake poison timers to HUD
+        // Sync HUD state ONLY when values actually change (prevents unnecessary 60fps React re-checks)
+        const hud = hudSyncRef.current;
         const currentFireResist = engine.player.fireResistTimer ?? 0;
-        setPlayerFireResistTimer(prev => {
-          if (prev === 0 && currentFireResist === 0) return prev;
-          if (Math.abs(prev - currentFireResist) < 0.05 && Math.ceil(prev) === Math.ceil(currentFireResist)) {
-            return prev;
-          }
-          return currentFireResist;
-        });
+        if (
+          (hud.fireResist === 0 && currentFireResist > 0) ||
+          (hud.fireResist > 0 && currentFireResist === 0) ||
+          Math.abs(hud.fireResist - currentFireResist) >= 0.1 ||
+          Math.ceil(hud.fireResist) !== Math.ceil(currentFireResist)
+        ) {
+          hud.fireResist = currentFireResist;
+          setPlayerFireResistTimer(currentFireResist);
+        }
 
         const currentEmote = engine.player.activeEmote ?? null;
-        setActivePlayerEmote(prev => (prev === currentEmote ? prev : currentEmote));
+        if (hud.emote !== currentEmote) {
+          hud.emote = currentEmote;
+          setActivePlayerEmote(currentEmote);
+        }
 
         const isNowOnRaft = Boolean(engine.player.onRaft);
-        setPlayerOnRaft(prev => (prev === isNowOnRaft ? prev : isNowOnRaft));
+        if (hud.onRaft !== isNowOnRaft) {
+          hud.onRaft = isNowOnRaft;
+          setPlayerOnRaft(isNowOnRaft);
+        }
 
         const nowHasShield = Boolean(engine.hasShield);
-        setActiveHasShield(prev => (prev === nowHasShield ? prev : nowHasShield));
+        if (hud.hasShield !== nowHasShield) {
+          hud.hasShield = nowHasShield;
+          setActiveHasShield(nowHasShield);
+        }
 
         const currentPoison = engine.player.poisonTimer ?? 0;
         const currentPoisonMax = engine.player.poisonMaxDuration ?? 0;
-        setPlayerPoisonTimer(prev => {
-          if (prev === 0 && currentPoison === 0) return prev;
-          if (currentPoison === 0 || prev === 0) return currentPoison;
-          if (Math.floor(prev * 10) === Math.floor(currentPoison * 10)) {
-            return prev;
-          }
-          return currentPoison;
-        });
-        setPlayerPoisonMaxDuration(prev => (prev === currentPoisonMax ? prev : currentPoisonMax));
+        if (
+          (hud.poison === 0 && currentPoison > 0) ||
+          (hud.poison > 0 && currentPoison === 0) ||
+          Math.floor(hud.poison * 10) !== Math.floor(currentPoison * 10)
+        ) {
+          hud.poison = currentPoison;
+          setPlayerPoisonTimer(currentPoison);
+        }
+        if (hud.poisonMax !== currentPoisonMax) {
+          hud.poisonMax = currentPoisonMax;
+          setPlayerPoisonMaxDuration(currentPoisonMax);
+        }
       }
 
       reqAnimRef.current = requestAnimationFrame(loop);
@@ -1541,6 +1566,7 @@ export default function App() {
     saveData.sword,
     saveData.selectedSkin,
     saveData.hasCompletedGame,
+    saveData.unlockedLevel,
     saveData.unlockedSkins,
     saveData.shopClosedUntil,
     saveData.hasVisitedShop,

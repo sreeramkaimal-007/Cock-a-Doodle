@@ -13,7 +13,10 @@ export class GameRenderer {
   private canvas: HTMLCanvasElement;
   private fenceGateStates: Map<string, { angle: number; vel: number; lastTime: number; isOpen: boolean; lastLatchSoundTime: number }> = new Map();
   private outlineSrcCanvas: HTMLCanvasElement | null = null;
+  private outlineSrcCtx: CanvasRenderingContext2D | null = null;
   private outlineTintCanvas: HTMLCanvasElement | null = null;
+  private outlineTintCtx: CanvasRenderingContext2D | null = null;
+  private spriteStampCache: Map<string, { canvas: HTMLCanvasElement; anchorX: number; anchorY: number }> = new Map();
   private isInsideOutline: boolean = false;
   private lastRenderTime: number = 0;
 
@@ -39,13 +42,17 @@ export class GameRenderer {
     if (typeof document === 'undefined') return null;
     if (!this.outlineSrcCanvas) {
       this.outlineSrcCanvas = document.createElement('canvas');
-      this.outlineSrcCanvas.width = 256;
-      this.outlineSrcCanvas.height = 256;
+      this.outlineSrcCanvas.width = Math.max(256, w);
+      this.outlineSrcCanvas.height = Math.max(256, h);
+      this.outlineSrcCtx = this.outlineSrcCanvas.getContext('2d');
+      if (this.outlineSrcCtx) this.outlineSrcCtx.imageSmoothingEnabled = false;
     }
     if (!this.outlineTintCanvas) {
       this.outlineTintCanvas = document.createElement('canvas');
-      this.outlineTintCanvas.width = 256;
-      this.outlineTintCanvas.height = 256;
+      this.outlineTintCanvas.width = Math.max(256, w);
+      this.outlineTintCanvas.height = Math.max(256, h);
+      this.outlineTintCtx = this.outlineTintCanvas.getContext('2d');
+      if (this.outlineTintCtx) this.outlineTintCtx.imageSmoothingEnabled = false;
     }
     if (this.outlineSrcCanvas.width < w || this.outlineSrcCanvas.height < h) {
       const nw = Math.max(this.outlineSrcCanvas.width, w);
@@ -54,18 +61,66 @@ export class GameRenderer {
       this.outlineSrcCanvas.height = nh;
       this.outlineTintCanvas.width = nw;
       this.outlineTintCanvas.height = nh;
+      if (this.outlineSrcCtx) this.outlineSrcCtx.imageSmoothingEnabled = false;
+      if (this.outlineTintCtx) this.outlineTintCtx.imageSmoothingEnabled = false;
     }
-    const srcCtx = this.outlineSrcCanvas.getContext('2d');
-    const tintCtx = this.outlineTintCanvas.getContext('2d');
-    if (!srcCtx || !tintCtx) return null;
-    srcCtx.imageSmoothingEnabled = false;
-    tintCtx.imageSmoothingEnabled = false;
+    if (!this.outlineSrcCtx || !this.outlineTintCtx) return null;
     return {
       srcCanvas: this.outlineSrcCanvas,
-      srcCtx,
+      srcCtx: this.outlineSrcCtx,
       tintCanvas: this.outlineTintCanvas,
-      tintCtx,
+      tintCtx: this.outlineTintCtx,
     };
+  }
+
+  /**
+   * Renders & caches a pre-outlined sprite stamp so repeated animated plants & starfish draw in 1 blit instead of 10!
+   */
+  private drawCachedOutlinedStamp(
+    targetCtx: CanvasRenderingContext2D,
+    cacheKey: string,
+    boxW: number,
+    boxH: number,
+    anchorX: number,
+    anchorY: number,
+    drawFn: (ctx: CanvasRenderingContext2D) => void,
+    thickness: number = 1.75
+  ) {
+    if (this.isInsideOutline || typeof document === 'undefined') {
+      drawFn(targetCtx);
+      return;
+    }
+    let cached = this.spriteStampCache.get(cacheKey);
+    if (!cached) {
+      const pad = Math.ceil(thickness) + 2;
+      const bw = Math.max(16, Math.ceil(boxW));
+      const bh = Math.max(16, Math.ceil(boxH));
+      const cw = bw + pad * 2;
+      const ch = bh + pad * 2;
+      const stampCanvas = document.createElement('canvas');
+      stampCanvas.width = cw;
+      stampCanvas.height = ch;
+      const stampCtx = stampCanvas.getContext('2d');
+      if (!stampCtx) {
+        this.drawCartoonOutlined(targetCtx, bw, bh, anchorX, anchorY, drawFn, thickness);
+        return;
+      }
+      stampCtx.imageSmoothingEnabled = false;
+      stampCtx.save();
+      stampCtx.translate(anchorX + pad, anchorY + pad);
+      this.drawCartoonOutlined(stampCtx, bw, bh, anchorX, anchorY, drawFn, thickness);
+      stampCtx.restore();
+
+      if (this.spriteStampCache.size >= 180) {
+        const oldestKey = this.spriteStampCache.keys().next().value;
+        if (oldestKey !== undefined) {
+          this.spriteStampCache.delete(oldestKey);
+        }
+      }
+      cached = { canvas: stampCanvas, anchorX: anchorX + pad, anchorY: anchorY + pad };
+      this.spriteStampCache.set(cacheKey, cached);
+    }
+    targetCtx.drawImage(cached.canvas, Math.round(-cached.anchorX), Math.round(-cached.anchorY));
   }
 
   /**
@@ -118,10 +173,10 @@ export class GameRenderer {
     tintCtx.fillRect(0, 0, bw, bh);
     tintCtx.globalCompositeOperation = 'source-over';
 
-    const t = thickness;
-    const d = t * 0.72;
-    const ox = -anchorX;
-    const oy = -anchorY;
+    const t = Math.max(1, Math.round(thickness));
+    const d = Math.max(1, Math.round(thickness * 0.72));
+    const ox = Math.round(-anchorX);
+    const oy = Math.round(-anchorY);
     targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox - t, oy, bw, bh);
     targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox + t, oy, bw, bh);
     targetCtx.drawImage(tintCanvas, 0, 0, bw, bh, ox, oy - t, bw, bh);
@@ -140,7 +195,8 @@ export class GameRenderer {
     camera: Camera, 
     time: number, 
     levelId: number = 1, 
-    isBossDefeated: boolean = false
+    isBossDefeated: boolean = false,
+    isCheering: boolean = isBossDefeated
   ) {
     this.lastRenderTime = time;
     if (theme === 'fields' || levelId === 30) {
@@ -150,16 +206,16 @@ export class GameRenderer {
     } else if (theme === 'coast') {
       this.renderCoastBackground(camera, time, levelId);
     } else if (theme === 'jungle') {
-      this.renderJungleBackground(camera, time, levelId, isBossDefeated);
+      this.renderJungleBackground(camera, time, levelId, isBossDefeated, isCheering);
     } else if (theme === 'snowy' || theme === 'storm') {
-      this.renderSnowyBackground(camera, time, levelId, isBossDefeated);
+      this.renderSnowyBackground(camera, time, levelId, isBossDefeated, isCheering);
     } else {
-      this.renderMeadowBackground(theme, camera, time, levelId, isBossDefeated);
+      this.renderMeadowBackground(theme, camera, time, levelId, isBossDefeated, isCheering);
     }
   }
 
   // World 4: Lush Tropical Jungle Biome with Sunbeams, Giant Ferns, Hanging Vines & Exotic Flora
-  private renderJungleBackground(camera: Camera, time: number, levelId: number = 11, isBossDefeated: boolean = false) {
+  private renderJungleBackground(camera: Camera, time: number, levelId: number = 11, isBossDefeated: boolean = false, isCheering: boolean = isBossDefeated) {
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
@@ -276,11 +332,11 @@ export class GameRenderer {
         const isScared = levelId === 19 && !isBossDefeated;
         const hasBaby = i === 0 || i === 3 || i === 4;
 
-        if (isScared || isBossDefeated) {
-          this.renderJungleMonkey(tx, ty - 22, time, isScared, i, isBossDefeated, i % 4);
+        if (isScared || isCheering) {
+          this.renderJungleMonkey(tx, ty - 22, time, isScared, i, isCheering, i % 4);
           if (hasBaby) {
             const babyOffsetX = (i % 2 === 0) ? -14 : 14;
-            this.renderJungleMonkey(tx + babyOffsetX, ty - 16, time + 0.4, isScared, i + 1, isBossDefeated, i % 4, {
+            this.renderJungleMonkey(tx + babyOffsetX, ty - 16, time + 0.4, isScared, i + 1, isCheering, i % 4, {
               isBaby: true,
               activity: 'squeak',
               skipBranchOffset: true,
@@ -975,7 +1031,7 @@ export class GameRenderer {
   }
 
   // World 5: Freezing Arctic Alpine Snowy Mountain Biome with Aurora Borealis & Falling Snowflakes
-  private renderSnowyBackground(camera: Camera, time: number, levelId: number = 20, isBossDefeated: boolean = false) {
+  private renderSnowyBackground(camera: Camera, time: number, levelId: number = 20, isBossDefeated: boolean = false, isCheering: boolean = isBossDefeated) {
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
@@ -1140,7 +1196,7 @@ export class GameRenderer {
     if (levelId === 29 && !isBossDefeated) {
       this.renderSnowyBearHareChase(w, h, camera, time);
     } else {
-      this.renderSnowshoeHares(w, h, camera, time, isBossDefeated);
+      this.renderSnowshoeHares(w, h, camera, time, isCheering);
     }
 
     // 6. Dynamic Animated Snowflakes (Multi-layered parallax snowfall)
@@ -2235,7 +2291,7 @@ export class GameRenderer {
   }
 
   // World 1, 2, 3: Sunny Meadows, Barn, and Grassy Trail
-  private renderMeadowBackground(theme: LevelConfig['theme'], camera: Camera, time: number, levelId: number = 1, isBossDefeated: boolean = false) {
+  private renderMeadowBackground(theme: LevelConfig['theme'], camera: Camera, time: number, levelId: number = 1, isBossDefeated: boolean = false, isCheering: boolean = isBossDefeated) {
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
@@ -2373,7 +2429,7 @@ export class GameRenderer {
         seed: number,
         roamRange: number
       ): { dx: number; facing: 'left' | 'right'; activity: 'walk' | 'graze' | 'rest' } => {
-        if (isBossDefeated) {
+        if (isCheering) {
           return { dx: 0, facing: seed % 2 === 0 ? 'right' : 'left', activity: 'graze' };
         }
         const period = 20.0;
@@ -2409,7 +2465,7 @@ export class GameRenderer {
         this.renderGrazingSheep(s1ScreenX, s1Y, time, {
           facing: s1State.facing,
           animOffset: 0.6,
-          isCheering: isBossDefeated,
+          isCheering,
           variantIndex: 0,
           activity: s1State.activity,
         });
@@ -2422,7 +2478,7 @@ export class GameRenderer {
           facing: s1State.facing,
           isLamb: true,
           animOffset: 2.1,
-          isCheering: isBossDefeated,
+          isCheering,
           variantIndex: 0,
           activity: s1State.activity,
         });
@@ -2437,7 +2493,7 @@ export class GameRenderer {
         this.renderGrazingSheep(s2ScreenX, s2Y, time, {
           facing: s2State.facing,
           animOffset: 2.3,
-          isCheering: isBossDefeated,
+          isCheering,
           variantIndex: 1,
           activity: s2State.activity,
         });
@@ -2453,7 +2509,7 @@ export class GameRenderer {
           facing: s3State.facing,
           scale: 1.05,
           animOffset: 1.1,
-          isCheering: isBossDefeated,
+          isCheering,
           variantIndex: 2,
           activity: s3State.activity,
         });
@@ -2469,7 +2525,7 @@ export class GameRenderer {
           facing: s3State.activity === 'walk' ? s3State.facing : (s3State.facing === 'right' ? 'left' : 'right'),
           isLamb: true,
           animOffset: 3.5,
-          isCheering: isBossDefeated,
+          isCheering,
           variantIndex: 1,
           activity: s3State.activity,
         });
@@ -2485,7 +2541,7 @@ export class GameRenderer {
           facing: s4State.facing,
           scale: 1.0,
           animOffset: 4.2,
-          isCheering: isBossDefeated,
+          isCheering,
           variantIndex: 3,
           activity: s4State.activity,
         });
@@ -4044,6 +4100,13 @@ export class GameRenderer {
       ctx.strokeStyle = '#09090b';
       ctx.lineWidth = 2.6;
       ctx.strokeRect(sx, sy, plat.width, plat.height);
+
+      // Gentle sparkling white sea foam hugging the floating land's ocean waterline!
+      const foamWave = Math.sin(this.lastRenderTime * 4.2 + plat.x * 0.02) * 3;
+      ctx.fillStyle = 'rgba(224, 242, 254, 0.85)';
+      ctx.fillRect(Math.round(sx - 6 + foamWave), Math.round(sy + plat.height - 5), plat.width + 12, 5);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.round(sx - 4 - foamWave * 0.6), Math.round(sy + 4), 4, Math.min(plat.height - 8, 22));
       return;
     }
 
@@ -14970,7 +15033,7 @@ export class GameRenderer {
 
       ctx.save();
       if (f.hurtTimer > 0 && Math.floor(time * 24) % 2 === 0) {
-        ctx.filter = 'brightness(2.2)';
+        ctx.globalAlpha = 0.55;
       }
       ctx.translate(sx + f.width / 2, sy + f.height / 2);
       if (f.state === 'swooping') {
@@ -15509,6 +15572,18 @@ export class GameRenderer {
       ctx.save();
       ctx.translate(kx, floorY);
       this.drawPlantSprite(ctx, 'sea_kelp_coral', time + k * 0.65, 1.32, Math.abs(k) % 3, false);
+
+      // Colorful real-life Sea Starfish clinging inside ONLY SOME of the ocean kelp beds!
+      if (Math.abs(k * 7 + 3) % 3 === 0) {
+        const swayX = Math.sin((time + k * 0.65) * 2.2) * 2.8;
+        const starSide = k % 2 === 0 ? -10 : 11;
+        const starLift = k % 2 === 0 ? -24 : -17;
+        ctx.save();
+        ctx.translate(Math.round(starSide + swayX), starLift);
+        ctx.rotate((k % 2 === 0 ? -0.24 : 0.28) + Math.sin(time * 1.6 + k) * 0.05);
+        this.drawStarfishSprite(ctx, time + k, 0.95, Math.abs(k) % 4);
+        ctx.restore();
+      }
       ctx.restore();
     }
     ctx.restore();
@@ -15742,7 +15817,7 @@ export class GameRenderer {
     const ry = Math.round(sy + bob);
 
     if (hitFlash) {
-      ctx.filter = 'brightness(1.9)';
+      ctx.globalAlpha = 0.62;
     }
 
     // Wooden mast & billowing cream sail with crisp black cartoon outline
@@ -15812,7 +15887,7 @@ export class GameRenderer {
       ctx.fillRect(sx - 30, ry + raft.height - 2, 10, 3);
     }
 
-    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
 
     // Action prompt when built on shore or being pushed
     if (raft.state === 'built_on_shore' || raft.state === 'pushing') {
@@ -15893,6 +15968,15 @@ export class GameRenderer {
       ctx.fillRect(Math.round(sx - 6 + foamOffset), Math.round(sy + rock.height - 4), rock.width + 12, 5);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(Math.round(sx + 2 - foamOffset), Math.round(sy + rock.height - 6), rock.width - 4, 3);
+
+      // Detailed coastal Rock Crab perched & gently scuttling on top of ONLY SOME sea rocks!
+      if (rock.hasCrab && !rock.hasChest) {
+        const scuttleX = Math.sin(time * 2.2 + rock.foamPhase) * 4.5;
+        ctx.save();
+        ctx.translate(Math.round(sx + rock.width * 0.48 + scuttleX), Math.round(sy - 1));
+        this.drawRockCrabSprite(ctx, time + rock.foamPhase, 0.92, rock.crabVariant ?? 0);
+        ctx.restore();
+      }
       ctx.restore();
     });
   }
@@ -16160,7 +16244,7 @@ export class GameRenderer {
 
       ctx.save();
       if (s.hurtTimer > 0 && Math.floor(time * 24) % 2 === 0) {
-        ctx.filter = 'brightness(2.2)';
+        ctx.globalAlpha = 0.55;
       }
 
       if (s.state === 'stalking' || s.state === 'submerging') {
@@ -16864,6 +16948,244 @@ export class GameRenderer {
     });
   }
 
+  // Detailed Real-Life Coastal Rock Crab (3 natural species palettes, scuttling legs, snapping claws, stalked eyes!)
+  public drawRockCrabSprite(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(46 * s);
+    const bh = Math.ceil(36 * s);
+    this.drawCartoonOutlined(
+      ctx,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh * 0.68),
+      (octx) => this._drawRockCrabBody(octx, animTime, scale, variantIndex),
+      Math.max(1.3, Math.min(2.2, 1.55 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawRockCrabBody(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    const palettes = [
+      { shell: '#dc2626', light: '#f97316', belly: '#fed7aa', claw: '#ef4444', tip: '#fef3c7', leg: '#b91c1c' }, // Scarlet Rock Crab
+      { shell: '#0284c7', light: '#38bdf8', belly: '#e0f2fe', claw: '#0369a1', tip: '#f43f5e', leg: '#334155' }, // Atlantic Blue Crab
+      { shell: '#d97706', light: '#fbbf24', belly: '#fef3c7', claw: '#ea580c', tip: '#fffbeb', leg: '#92400e' }, // Golden Dungeness Crab
+    ];
+    const pal = palettes[Math.abs(variantIndex) % palettes.length];
+
+    ctx.save();
+    ctx.scale(scale, scale);
+
+    const legStep = Math.sin(animTime * 9.5) * 1.8;
+    const clawSnap = Math.sin(animTime * 4.2) * 0.14;
+
+    // 6 jointed scuttling legs (3 left, 3 right)
+    ctx.strokeStyle = pal.leg;
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const dir of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const w = (i % 2 === 0 ? legStep : -legStep) * dir;
+        const baseX = dir * (6 + i * 1.4);
+        const baseY = -2 + i * 2.2;
+        const kneeX = dir * (12.5 + i * 1.2);
+        const kneeY = -3 + i * 2.4 + w * 0.5;
+        const footX = dir * (15 + i * 1.2);
+        const footY = 4 + i * 1.4 + w;
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.lineTo(kneeX, kneeY);
+        ctx.lineTo(footX, footY);
+        ctx.stroke();
+      }
+    }
+
+    // Two raised curved pincer claws (chelae)
+    for (const dir of [-1, 1]) {
+      ctx.save();
+      ctx.translate(dir * 9.5, -5.5);
+      ctx.rotate(dir * (0.28 + clawSnap));
+      // Claw arm
+      ctx.strokeStyle = pal.leg;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(dir * 3.5, -4.5);
+      ctx.stroke();
+      // Plump pincer claw body
+      ctx.fillStyle = pal.claw;
+      ctx.beginPath();
+      ctx.ellipse(dir * 4.5, -7.2, 4.0, 2.8, dir * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Ivory/tipped pincer scissor jaws
+      ctx.fillStyle = pal.tip;
+      ctx.beginPath();
+      ctx.moveTo(dir * 3.0, -8.5);
+      ctx.lineTo(dir * 0.8, -11.5);
+      ctx.lineTo(dir * 4.5, -9.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(dir * 5.8, -8.2);
+      ctx.lineTo(dir * 7.8, -11.2);
+      ctx.lineTo(dir * 6.5, -6.8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Broad oval coastal carapace
+    ctx.fillStyle = pal.shell;
+    ctx.beginPath();
+    ctx.ellipse(0, -3.5, 10.5, 6.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Sunlit dorsal shell ridge & natural speckles
+    ctx.fillStyle = pal.light;
+    ctx.beginPath();
+    ctx.ellipse(0, -5.2, 7.6, 3.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = pal.belly;
+    ctx.beginPath();
+    ctx.ellipse(0, 0.8, 6.5, 1.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = pal.tip;
+    ctx.fillRect(-4.5, -5.8, 1.8, 1.4);
+    ctx.fillRect(2.6, -5.6, 1.8, 1.4);
+    ctx.fillRect(-0.8, -7.0, 1.6, 1.2);
+
+    // Pair of alert stalked eyes
+    for (const dir of [-1, 1]) {
+      ctx.fillStyle = pal.leg;
+      ctx.fillRect(dir * 3.2 - 0.8, -11.2, 1.6, 3.6);
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(dir * 3.2, -11.6, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(dir * 3.2 - 0.6, -12.3, 1.0, 1.0);
+    }
+
+    ctx.restore();
+  }
+
+  // Detailed Real-Life Reef Sea Starfish (4 vibrant species palettes, 5 plump arms, ossicle dots, cached for zero lag!)
+  public drawStarfishSprite(
+    ctx: CanvasRenderingContext2D,
+    animTime: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(36 * s);
+    const bh = Math.ceil(36 * s);
+    const scaleBucket = Math.round(s * 20);
+    const v = Math.abs(variantIndex) % 4;
+    const cacheKey = `starfish_${v}_${scaleBucket}`;
+    this.drawCachedOutlinedStamp(
+      ctx,
+      cacheKey,
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh / 2),
+      (octx) => this._drawStarfishBody(octx, animTime, scale, v),
+      Math.max(1.3, Math.min(2.1, 1.5 * Math.sqrt(s)))
+    );
+  }
+
+  private _drawStarfishBody(
+    ctx: CanvasRenderingContext2D,
+    _animTime: number,
+    scale: number = 1,
+    variantIndex: number = 0
+  ) {
+    const palettes = [
+      { body: '#f97316', ridge: '#fbbf24', dots: '#fef3c7', center: '#ea580c' }, // Ochre Sunset Sea Star
+      { body: '#7e22ce', ridge: '#c084fc', dots: '#f5d0fe', center: '#581c87' }, // Royal Purple Sea Star
+      { body: '#e11d48', ridge: '#fb7185', dots: '#ffe4e6', center: '#9f1239' }, // Crimson Reef Starfish
+      { body: '#0284c7', ridge: '#38bdf8', dots: '#e0f2fe', center: '#075985' }, // Cobalt Blue Linckia Star
+    ];
+    const pal = palettes[Math.abs(variantIndex) % palettes.length];
+
+    ctx.save();
+    ctx.scale(scale, scale);
+
+    // Organic plump 5-armed sea star silhouette
+    const arms = 5;
+    const outerR = 11.5;
+    const innerR = 4.6;
+    ctx.fillStyle = pal.body;
+    ctx.beginPath();
+    for (let i = 0; i < arms; i++) {
+      const aTip = -Math.PI / 2 + (i * Math.PI * 2) / arms;
+      const aPrev = aTip - Math.PI / arms;
+      const aNext = aTip + Math.PI / arms;
+      const tipX = Math.cos(aTip) * outerR;
+      const tipY = Math.sin(aTip) * outerR;
+      const prevX = Math.cos(aPrev) * innerR;
+      const prevY = Math.sin(aPrev) * innerR;
+      const nextX = Math.cos(aNext) * innerR;
+      const nextY = Math.sin(aNext) * innerR;
+      if (i === 0) ctx.moveTo(prevX, prevY);
+      ctx.quadraticCurveTo(
+        Math.cos(aTip - 0.22) * (outerR * 0.72),
+        Math.sin(aTip - 0.22) * (outerR * 0.72),
+        tipX,
+        tipY
+      );
+      ctx.quadraticCurveTo(
+        Math.cos(aTip + 0.22) * (outerR * 0.72),
+        Math.sin(aTip + 0.22) * (outerR * 0.72),
+        nextX,
+        nextY
+      );
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Raised radial ridges & tiny natural cream ossicle spine dots along each arm
+    for (let i = 0; i < arms; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI * 2) / arms;
+      ctx.strokeStyle = pal.ridge;
+      ctx.lineWidth = 2.0;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 1.8, Math.sin(a) * 1.8);
+      ctx.lineTo(Math.cos(a) * 8.4, Math.sin(a) * 8.4);
+      ctx.stroke();
+
+      ctx.fillStyle = pal.dots;
+      for (const r of [4.2, 6.8, 9.2]) {
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * r, Math.sin(a) * r, 0.9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Central disc & tiny madreporite highlight
+    ctx.fillStyle = pal.center;
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = pal.dots;
+    ctx.beginPath();
+    ctx.arc(0.8, -0.7, 0.95, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // PRICKLY DESERT CACTUSES & BOTANICAL BESTIARY PLANT SPRITES
   // ═══════════════════════════════════════════════════════════════════════
@@ -16887,13 +17209,20 @@ export class GameRenderer {
     const s = Math.max(0.75, Math.abs(scale));
     const bw = Math.ceil(74 * s);
     const bh = Math.ceil(96 * s);
-    this.drawCartoonOutlined(
+    const swayFrames = 6;
+    const rawPhase = ((animTime * 1.8) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    const swayIdx = Math.floor((rawPhase / (Math.PI * 2)) * swayFrames) % swayFrames;
+    const snappedAnimTime = ((swayIdx / swayFrames) * Math.PI * 2) / 1.8;
+    const scaleBucket = Math.round(s * 20);
+    const cacheKey = `cactus_${variant}_${hasFlower ? 1 : 0}_${scaleBucket}_${swayIdx}`;
+    this.drawCachedOutlinedStamp(
       ctx,
+      cacheKey,
       bw,
       bh,
       Math.ceil(bw / 2),
       Math.ceil(bh - 14 * s),
-      (octx) => this._drawCactusSprite(octx, animTime, scale, variant, hasFlower),
+      (octx) => this._drawCactusSprite(octx, snappedAnimTime, scale, variant, hasFlower),
       Math.max(1.45, Math.min(2.4, 1.65 * Math.sqrt(s)))
     );
   }
@@ -17163,13 +17492,23 @@ export class GameRenderer {
     const s = Math.max(0.75, Math.abs(scale));
     const bw = Math.ceil(98 * s);
     const bh = Math.ceil(116 * s);
-    this.drawCartoonOutlined(
+    // Bake & cache outlined plant stamps across 8 smooth wind-sway frames for silky 60fps performance with zero lag!
+    const swayFrames = 8;
+    const rawPhase = ((animTime * 2.2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    const swayIdx = Math.floor((rawPhase / (Math.PI * 2)) * swayFrames) % swayFrames;
+    const snappedAnimTime = ((swayIdx / swayFrames) * Math.PI * 2) / 2.2;
+    const scaleBucket = Math.round(s * 20);
+    const vBucket = Math.abs(variantIndex) % 3;
+    const cacheKey = `plant_${plantId}_${vBucket}_${scaleBucket}_${swayIdx}`;
+
+    this.drawCachedOutlinedStamp(
       ctx,
+      cacheKey,
       bw,
       bh,
       Math.ceil(bw / 2),
       Math.ceil(bh - 16 * s),
-      (octx) => this._drawPlantSprite(octx, plantId, animTime, scale, variantIndex),
+      (octx) => this._drawPlantSprite(octx, plantId, snappedAnimTime, scale, variantIndex),
       Math.max(1.5, Math.min(2.5, 1.65 * Math.sqrt(s)))
     );
   }

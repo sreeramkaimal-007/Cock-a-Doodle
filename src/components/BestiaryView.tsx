@@ -373,6 +373,20 @@ const BestiarySpriteCanvas: React.FC<{
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 4 : 2));
         renderer.drawSeaFishSprite(ctx, sp, time * 1.1, scale, flipped);
         ctx.restore();
+      } else if (entryId === 'rock_crab') {
+        const scale = variant === 'hero' ? 4.1 : 1.3;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 20 : 8));
+        if (flipped) ctx.scale(-1, 1);
+        renderer.drawRockCrabSprite(ctx, time, scale, colorVariantIndex);
+        ctx.restore();
+      } else if (entryId === 'sea_starfish') {
+        const scale = variant === 'hero' ? 4.4 : 1.45;
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 4 : 2));
+        ctx.rotate(Math.sin(time * 1.4) * 0.08);
+        renderer.drawStarfishSprite(ctx, time, scale, colorVariantIndex);
+        ctx.restore();
       } else if (
         entryId === 'desert_cactus' ||
         entryId === 'grass_wildflower' ||
@@ -582,6 +596,8 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
         audio.playWildlifeChime('seagull');
         break;
       case 'sea_fish':
+      case 'rock_crab':
+      case 'sea_starfish':
         audio.playWildlifeChime('seagull');
         break;
       case 'desert_cactus':
