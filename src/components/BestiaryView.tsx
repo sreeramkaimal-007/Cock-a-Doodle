@@ -1,5 +1,24 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Lock, Shield, Skull, Compass, ChevronLeft, Leaf } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BookOpen,
+  Lock,
+  Shield,
+  Skull,
+  Compass,
+  ChevronLeft,
+  ChevronRight,
+  Leaf,
+  Volume2,
+  Footprints,
+  FlipHorizontal2,
+  Pause,
+  Play,
+  Shuffle,
+  Sparkles,
+  Crosshair,
+  MapPin,
+  Eye,
+} from 'lucide-react';
 import {
   BESTIARY_ENTRIES,
   BestiaryCategory,
@@ -8,6 +27,7 @@ import {
   getEncounteredBestiarySet,
 } from '../game/bestiary';
 import { GameRenderer } from '../game/renderer';
+import { audio } from '../game/audio';
 import {
   BoulderHazard,
   Camera,
@@ -23,6 +43,7 @@ interface BestiaryViewProps {
 }
 
 type FilterTab = 'all' | BestiaryCategory;
+type FarmerPreviewPose = 'patrol' | 'lunge' | 'injured';
 
 const BestiarySpriteCanvas: React.FC<{
   entryId: BestiaryEntryId;
@@ -30,8 +51,21 @@ const BestiarySpriteCanvas: React.FC<{
   variant: 'thumb' | 'hero';
   colorVariantIndex?: number;
   isBaby?: boolean;
-}> = ({ entryId, unlocked, variant, colorVariantIndex = 0, isBaby = false }) => {
+  flipped?: boolean;
+  paused?: boolean;
+  farmerPose?: FarmerPreviewPose;
+}> = ({
+  entryId,
+  unlocked,
+  variant,
+  colorVariantIndex = 0,
+  isBaby = false,
+  flipped = false,
+  paused = false,
+  farmerPose = 'patrol',
+}) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frozenTimeRef = useRef<number>(0);
   const width = variant === 'hero' ? 280 : 68;
   const height = variant === 'hero' ? 164 : 46;
 
@@ -58,10 +92,9 @@ const BestiarySpriteCanvas: React.FC<{
     };
 
     let rafId = 0;
-    const startTime = performance.now();
+    const startTime = performance.now() - frozenTimeRef.current * 1000;
 
-    const drawFrame = (now: number) => {
-      const time = (now - startTime) / 1000;
+    const renderAt = (time: number) => {
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, width, height);
@@ -71,25 +104,42 @@ const BestiarySpriteCanvas: React.FC<{
         const scale = variant === 'hero' ? 3.2 : 0.95;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 12 : 4));
-        renderer.drawWolfSprite(ctx, 36, 24, false, time * 1.15, scale, colorVariantIndex);
+        renderer.drawWolfSprite(ctx, 36, 24, flipped, time * 1.15, scale, colorVariantIndex);
         ctx.restore();
       } else if (entryId === 'fox') {
         const scale = variant === 'hero' ? 3.2 : 0.95;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 14 : 4));
-        renderer.drawFoxSprite(ctx, 38, 22, false, time * 1.5, scale, colorVariantIndex);
+        renderer.drawFoxSprite(ctx, 38, 22, flipped, time * 1.5, scale, colorVariantIndex);
         ctx.restore();
       } else if (entryId === 'snake') {
         const scale = variant === 'hero' ? 3.4 : 1.05;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 22 : 6));
-        renderer.drawSnakeSprite(ctx, 38, 14, false, time * 1.4, scale, colorVariantIndex);
+        renderer.drawSnakeSprite(ctx, 38, 14, flipped, time * 1.4, scale, colorVariantIndex);
         ctx.restore();
       } else if (entryId === 'bear') {
         const scale = variant === 'hero' ? 2.6 : 0.8;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 12 : 3));
-        renderer.drawBearSprite(ctx, 48, 36, false, time * 0.95, scale, colorVariantIndex);
+        renderer.drawBearSprite(ctx, 48, 36, flipped, time * 0.95, scale, colorVariantIndex);
+        ctx.restore();
+      } else if (entryId === 'farmer') {
+        const scale = variant === 'hero' ? 1.85 : 0.56;
+        const activePose = variant === 'hero' ? farmerPose : 'patrol';
+        ctx.save();
+        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 10 : 3));
+        renderer.drawFarmerSprite(
+          ctx,
+          44,
+          62,
+          flipped,
+          time * 1.15,
+          scale,
+          activePose,
+          activePose === 'injured',
+          activePose !== 'injured'
+        );
         ctx.restore();
       } else if (entryId === 'cockatrice') {
         const s = variant === 'hero' ? 0.44 : 0.14;
@@ -113,7 +163,7 @@ const BestiarySpriteCanvas: React.FC<{
           stunHitsNeeded: 3,
           stunTimer: 0,
           maxStunTime: 11,
-          facing: 'right',
+          facing: flipped ? 'left' : 'right',
           targetX: 0,
           targetY: 0,
           fireProjectiles: [],
@@ -154,15 +204,16 @@ const BestiarySpriteCanvas: React.FC<{
         const volcano: VolcanoHazard = {
           id: 'preview_volcano',
           x: 6,
-          y: 36,
-          width: 56,
-          height: 36,
+          y: 30,
+          width: 54,
+          height: 44,
           state: isErupting ? 'erupting' : isWarning ? 'warning' : 'cooldown',
           timer: cycle,
           warningDuration: 1.2,
           eruptionDuration: 1.6,
           cooldownDuration: 0.8,
           lavaParticles,
+          styleVariant: variant === 'hero' ? colorVariantIndex % 3 : 1,
         };
         ctx.save();
         ctx.translate(width / 2 - 34 * s, height / 2 - 42 * s + (variant === 'hero' ? 10 : 3));
@@ -175,7 +226,7 @@ const BestiarySpriteCanvas: React.FC<{
           id: 'preview_boulder',
           x: 30,
           y: 30,
-          radius: 22,
+          radius: 18,
           vx: 0,
           vy: 0,
           startX: 30,
@@ -184,7 +235,7 @@ const BestiarySpriteCanvas: React.FC<{
           isRolling: true,
           warningTimer: 0,
           respawnTimer: 0,
-          rotation: time * 2.1,
+          rotation: (flipped ? -1 : 1) * time * 2.1,
           speed: 2.5,
           hasTrapDropper: false,
         };
@@ -210,6 +261,7 @@ const BestiarySpriteCanvas: React.FC<{
           strikeDuration: 0.7,
           warningDuration: 1.5,
           cooldownDuration: 1.2,
+          styleVariant: variant === 'hero' ? colorVariantIndex % 3 : 1,
         };
         ctx.save();
         ctx.translate(width / 2 - 50 * s, height / 2 - 54 * s);
@@ -222,49 +274,60 @@ const BestiarySpriteCanvas: React.FC<{
           width / 2,
           height / 2 + (variant === 'hero' ? 32 : 12),
           time,
-          { facing: 'right', scale, isLamb: isBaby, animOffset: 0.8, variantIndex: colorVariantIndex }
+          {
+            facing: flipped ? 'left' : 'right',
+            scale,
+            isLamb: isBaby,
+            animOffset: 0.8,
+            variantIndex: colorVariantIndex,
+          }
         );
       } else if (entryId === 'monkey') {
         const s = variant === 'hero' ? (isBaby ? 3.2 : 2.85) : 0.92;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 18 : 6));
-        ctx.scale(s, s);
-        // Subtle jungle branch perch beneath the monkey
+        ctx.scale(flipped ? -s : s, s);
         ctx.fillStyle = '#451a03';
         ctx.fillRect(-20, 11, 40, 4);
         ctx.fillStyle = '#78350f';
         ctx.fillRect(-18, 11, 36, 2);
-        // treeIndex=1 uses branchOffset=-14, so passing tx=14 centers monkey at x=0 facing right
-        renderer.renderJungleMonkey(14, -4, time, false, 1, false, colorVariantIndex, { isBaby, activity: 'squeak' });
+        renderer.renderJungleMonkey(14, -4, time, false, 1, false, colorVariantIndex, {
+          isBaby,
+          activity: 'squeak',
+        });
         ctx.restore();
       } else if (entryId === 'hare') {
         const scale = variant === 'hero' ? (isBaby ? 3.5 : 3.2) : 1.0;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 24 : 8));
-        renderer.drawSnowshoeHareSprite(ctx, time, scale, false, colorVariantIndex, isBaby, 'eat');
+        renderer.drawSnowshoeHareSprite(ctx, time, scale, flipped, colorVariantIndex, isBaby, 'eat');
         ctx.restore();
       } else if (entryId === 'butterfly') {
         const scale = variant === 'hero' ? 4.4 : 1.45;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 2 : 1));
+        if (flipped) ctx.scale(-1, 1);
         renderer.drawButterflySprite(ctx, time, scale, colorVariantIndex);
         ctx.restore();
       } else if (entryId === 'dragonfly') {
         const scale = variant === 'hero' ? 4.0 : 1.3;
         ctx.save();
         ctx.translate(width / 2, height / 2 - (variant === 'hero' ? 4 : 1));
+        if (flipped) ctx.scale(-1, 1);
         renderer.drawDragonflySprite(ctx, time, scale, colorVariantIndex);
         ctx.restore();
       } else if (entryId === 'honeybee') {
         const scale = variant === 'hero' ? 4.6 : 1.5;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 4 : 2));
+        if (flipped) ctx.scale(-1, 1);
         renderer.drawHoneybeeSprite(ctx, time, scale, colorVariantIndex);
         ctx.restore();
       } else if (entryId === 'ladybug') {
         const scale = variant === 'hero' ? 4.8 : 1.55;
         ctx.save();
         ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 18 : 6));
+        if (flipped) ctx.scale(-1, 1);
         renderer.drawLadybugSprite(ctx, time, scale, colorVariantIndex);
         ctx.restore();
       }
@@ -277,12 +340,23 @@ const BestiarySpriteCanvas: React.FC<{
       }
 
       ctx.restore();
+    };
+
+    if (paused) {
+      renderAt(frozenTimeRef.current);
+      return;
+    }
+
+    const drawFrame = (now: number) => {
+      const time = (now - startTime) / 1000;
+      frozenTimeRef.current = time;
+      renderAt(time);
       rafId = requestAnimationFrame(drawFrame);
     };
 
     rafId = requestAnimationFrame(drawFrame);
     return () => cancelAnimationFrame(rafId);
-  }, [entryId, unlocked, variant, width, height, colorVariantIndex, isBaby]);
+  }, [entryId, unlocked, variant, width, height, colorVariantIndex, isBaby, flipped, paused, farmerPose]);
 
   return (
     <canvas
@@ -300,35 +374,38 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
   const discoveredSet = useMemo(() => getEncounteredBestiarySet(saveData), [saveData]);
 
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  const [unlockedOnly, setUnlockedOnly] = useState<boolean>(false);
   const [selectedId, setSelectedId] = useState<BestiaryEntryId>(() => {
     const firstDiscovered = BESTIARY_ENTRIES.find(e => discoveredSet.has(e.id));
     return firstDiscovered ? firstDiscovered.id : BESTIARY_ENTRIES[0].id;
   });
   const [selectedMorphIndex, setSelectedMorphIndex] = useState<number>(0);
   const [showBabyForm, setShowBabyForm] = useState<boolean>(false);
+  const [isFlipped, setIsFlipped] = useState<boolean>(false);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [farmerPose, setFarmerPose] = useState<FarmerPreviewPose>('patrol');
+  const [soundPulse, setSoundPulse] = useState<boolean>(false);
 
-  // Reset selected coat/morph and adult/baby view when switching entries
+  // Reset per-entry interactive controls when switching entries
   useEffect(() => {
     setSelectedMorphIndex(0);
     setShowBabyForm(false);
+    setIsFlipped(false);
+    setIsPaused(false);
+    setFarmerPose('patrol');
   }, [selectedId]);
 
-  // Allow Escape key to return cleanly to Main Menu
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onReturnToMenu();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onReturnToMenu]);
-
   const filteredEntries = useMemo(() => {
-    if (activeFilter === 'all') return BESTIARY_ENTRIES;
-    return BESTIARY_ENTRIES.filter(entry => entry.category === activeFilter);
-  }, [activeFilter]);
+    let list =
+      activeFilter === 'all'
+        ? BESTIARY_ENTRIES
+        : BESTIARY_ENTRIES.filter(entry => entry.category === activeFilter);
+    if (unlockedOnly) {
+      const onlyUnlocked = list.filter(entry => discoveredSet.has(entry.id));
+      if (onlyUnlocked.length > 0) list = onlyUnlocked;
+    }
+    return list;
+  }, [activeFilter, unlockedOnly, discoveredSet]);
 
   const selectedEntry: BestiaryEntry = useMemo(() => {
     return (
@@ -338,10 +415,112 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
     );
   }, [filteredEntries, selectedId]);
 
+  const currentFilteredIdx = useMemo(
+    () => Math.max(0, filteredEntries.findIndex(e => e.id === selectedEntry.id)),
+    [filteredEntries, selectedEntry.id]
+  );
+
+  const handleStepEntry = useCallback(
+    (delta: number) => {
+      if (filteredEntries.length <= 1) return;
+      const nextIdx = (currentFilteredIdx + delta + filteredEntries.length) % filteredEntries.length;
+      setSelectedId(filteredEntries[nextIdx].id);
+    },
+    [filteredEntries, currentFilteredIdx]
+  );
+
+  const handleRandomEntry = useCallback(() => {
+    const pool = filteredEntries.filter(e => e.id !== selectedEntry.id);
+    if (pool.length === 0) return;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    setSelectedId(pick.id);
+  }, [filteredEntries, selectedEntry.id]);
+
+  // Keyboard shortcuts: Escape to close, Left/Right arrows to browse entries
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onReturnToMenu();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        handleStepEntry(1);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handleStepEntry(-1);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onReturnToMenu, handleStepEntry]);
+
   const isSelectedUnlocked = discoveredSet.has(selectedEntry.id);
   const isWildlife = selectedEntry.category === 'wildlife';
   const selectedIndex = BESTIARY_ENTRIES.findIndex(e => e.id === selectedEntry.id) + 1;
   const defeatCount = saveData.enemyDefeatCounts?.[selectedEntry.id] || 0;
+  const hasStepSound = selectedEntry.category === 'creature' || selectedEntry.category === 'boss';
+
+  const triggerSoundPulse = () => {
+    setSoundPulse(true);
+    setTimeout(() => setSoundPulse(false), 260);
+  };
+
+  const handlePlayEntrySound = () => {
+    if (!isSelectedUnlocked) return;
+    triggerSoundPulse();
+    switch (selectedEntry.id) {
+      case 'wolf':
+        audio.playWolfHowl();
+        break;
+      case 'fox':
+        audio.playFoxBark();
+        break;
+      case 'snake':
+        audio.playSnakeHiss();
+        break;
+      case 'bear':
+        audio.playBearRoar();
+        break;
+      case 'farmer':
+        audio.playFarmerSpeech(farmerPose === 'injured' ? 'ouch' : farmerPose === 'lunge' ? 'rematch' : 'gruff');
+        break;
+      case 'cockatrice':
+        audio.playCockatriceScreech();
+        break;
+      case 'volcano':
+        audio.playVolcanoEruption();
+        break;
+      case 'boulder':
+        audio.playBoulderRumble();
+        break;
+      case 'thundercloud':
+        audio.playLightning();
+        break;
+      case 'sheep':
+        audio.playWildlifeChime('sheep');
+        break;
+      case 'monkey':
+        audio.playWildlifeChime('monkey');
+        break;
+      case 'hare':
+        audio.playWildlifeChime('hare');
+        break;
+      default:
+        audio.playWildlifeChime('insect');
+        break;
+    }
+  };
+
+  const handlePlayMovementSound = () => {
+    if (!isSelectedUnlocked || !hasStepSound) return;
+    triggerSoundPulse();
+    if (selectedEntry.id === 'wolf') audio.playEnemyStep('wolf', 1.0, 'grass');
+    else if (selectedEntry.id === 'fox') audio.playEnemyStep('fox', 1.0, 'jungle');
+    else if (selectedEntry.id === 'snake') audio.playEnemyStep('snake', 1.0, 'jungle');
+    else if (selectedEntry.id === 'bear') audio.playEnemyStep('bear', 1.0, 'snow');
+    else if (selectedEntry.id === 'farmer') audio.playFarmerStep(farmerPose === 'lunge', 1.0);
+    else if (selectedEntry.id === 'cockatrice') audio.playBossStep(true, 1.0);
+  };
 
   const filterCounts = useMemo(
     () => ({
@@ -384,7 +563,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                   ADVENTURER BESTIARY
                 </h2>
                 <span className="font-pixel-arcade text-[9px] text-amber-300 tabular-nums shrink-0">
-                  {discoveredSet.size}/{BESTIARY_ENTRIES.length}
+                  {discoveredSet.size}/{BESTIARY_ENTRIES.length} ({Math.round((discoveredSet.size / BESTIARY_ENTRIES.length) * 100)}%)
                 </span>
               </div>
               <div className="w-full h-2 bg-slate-950 border border-slate-700 mt-1.5 overflow-hidden">
@@ -406,39 +585,55 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
           </button>
         </header>
 
-        {/* Category Filter Tabs */}
+        {/* Category Filter Tabs + Unlocked-Only Toggle */}
         <div
           role="tablist"
           aria-label="Bestiary categories"
-          className="px-4 sm:px-5 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center gap-2 overflow-x-auto shrink-0"
+          className="px-4 sm:px-5 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2 overflow-x-auto shrink-0"
         >
-          {(
-            [
-              { id: 'all', label: `ALL (${filterCounts.all})` },
-              { id: 'creature', label: `ENEMIES (${filterCounts.creature})` },
-              { id: 'boss', label: `BOSS (${filterCounts.boss})` },
-              { id: 'hazard', label: `HAZARDS (${filterCounts.hazard})` },
-              { id: 'wildlife', label: `WILDLIFE (${filterCounts.wildlife})` },
-            ] as { id: FilterTab; label: string }[]
-          ).map(tab => {
-            const active = activeFilter === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => handleSelectFilter(tab.id)}
-                className={`min-h-[36px] px-3 py-1.5 font-pixel-arcade text-[9px] sm:text-[10px] tracking-wide border-2 whitespace-nowrap cursor-pointer transition-colors ${
-                  active
-                    ? 'bg-yellow-400 text-slate-950 border-amber-600 font-bold'
-                    : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-600 hover:text-yellow-200'
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+          <div className="flex items-center gap-2">
+            {(
+              [
+                { id: 'all', label: `ALL (${filterCounts.all})` },
+                { id: 'creature', label: `ENEMIES (${filterCounts.creature})` },
+                { id: 'boss', label: `BOSS (${filterCounts.boss})` },
+                { id: 'hazard', label: `HAZARDS (${filterCounts.hazard})` },
+                { id: 'wildlife', label: `WILDLIFE (${filterCounts.wildlife})` },
+              ] as { id: FilterTab; label: string }[]
+            ).map(tab => {
+              const active = activeFilter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => handleSelectFilter(tab.id)}
+                  className={`min-h-[34px] px-2.5 sm:px-3 py-1 font-pixel-arcade text-[9px] sm:text-[10px] tracking-wide border-2 whitespace-nowrap cursor-pointer transition-colors ${
+                    active
+                      ? 'bg-yellow-400 text-slate-950 border-amber-600 font-bold'
+                      : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-600 hover:text-yellow-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setUnlockedOnly(prev => !prev)}
+            className={`min-h-[34px] px-2.5 py-1 font-pixel-arcade text-[8px] sm:text-[9px] border-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 transition-colors ${
+              unlockedOnly
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-600 hover:text-slate-200'
+            }`}
+            title="Show only discovered entries"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>{unlockedOnly ? 'FOUND ONLY' : 'SHOW ALL'}</span>
+          </button>
         </div>
 
         {/* Two-Pane Body */}
@@ -496,7 +691,9 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
           <section className="overflow-y-auto p-4 sm:p-5 bg-slate-950 touch-pan-y">
             {/* Pixel Art Showcase Stage */}
             <div
-              className="relative w-full h-44 sm:h-52 border-2 border-slate-800 overflow-hidden flex flex-col items-center justify-center mb-4"
+              className={`relative w-full h-44 sm:h-52 border-2 overflow-hidden flex flex-col items-center justify-center mb-3 transition-colors ${
+                soundPulse ? 'border-yellow-300' : 'border-slate-800'
+              }`}
               style={{
                 background: isSelectedUnlocked
                   ? selectedEntry.backdropGradient
@@ -531,6 +728,9 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
                   variant="hero"
                   colorVariantIndex={selectedMorphIndex}
                   isBaby={Boolean(selectedEntry.hasBabyForm && showBabyForm)}
+                  flipped={isFlipped}
+                  paused={isPaused}
+                  farmerPose={farmerPose}
                 />
                 {!isSelectedUnlocked && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -542,7 +742,89 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
               </div>
             </div>
 
-            {/* Adult / Baby Life Stage Switcher (for innocent mammals with babies) */}
+            {/* Interactive Showcase Buttons (Sound, Step/Slither, Flip, Pause/Play) */}
+            {isSelectedUnlocked && (
+              <div className="mb-3.5 flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handlePlayEntrySound}
+                  className="min-h-[34px] px-3 py-1 bg-amber-500/15 hover:bg-amber-500/25 active:translate-y-0.5 text-yellow-300 border-2 border-amber-500/70 font-pixel-arcade text-[8px] sm:text-[9px] flex items-center gap-1.5 cursor-pointer transition-all"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>{selectedEntry.category === 'hazard' ? 'HAZARD SFX' : 'PLAY VOICE'}</span>
+                </button>
+
+                {hasStepSound && (
+                  <button
+                    type="button"
+                    onClick={handlePlayMovementSound}
+                    className="min-h-[34px] px-3 py-1 bg-sky-500/15 hover:bg-sky-500/25 active:translate-y-0.5 text-sky-300 border-2 border-sky-500/60 font-pixel-arcade text-[8px] sm:text-[9px] flex items-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Footprints className="w-3.5 h-3.5" />
+                    <span>{selectedEntry.id === 'snake' ? 'SLITHER SFX' : 'STEP SFX'}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setIsFlipped(prev => !prev)}
+                  className={`min-h-[34px] px-2.5 py-1 border-2 font-pixel-arcade text-[8px] sm:text-[9px] flex items-center gap-1.5 cursor-pointer transition-all ${
+                    isFlipped
+                      ? 'bg-slate-800 text-yellow-200 border-yellow-400/70'
+                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500 hover:text-slate-100'
+                  }`}
+                >
+                  <FlipHorizontal2 className="w-3.5 h-3.5" />
+                  <span>FLIP</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPaused(prev => !prev)}
+                  className={`min-h-[34px] px-2.5 py-1 border-2 font-pixel-arcade text-[8px] sm:text-[9px] flex items-center gap-1.5 cursor-pointer transition-all ${
+                    isPaused
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/70'
+                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500 hover:text-slate-100'
+                  }`}
+                >
+                  {isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+                  <span>{isPaused ? 'RESUME' : 'FREEZE'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Farmer Jed Encounter Pose Switcher */}
+            {isSelectedUnlocked && selectedEntry.id === 'farmer' && (
+              <div className="mb-3 bg-slate-900/90 border border-slate-800 p-2.5 flex flex-wrap items-center justify-between gap-2">
+                <div className="font-pixel-arcade text-[8px] text-slate-400 tracking-wider">
+                  ENCOUNTER POSE PREVIEW
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(
+                    [
+                      { id: 'patrol', label: 'PATROL' },
+                      { id: 'lunge', label: 'ADULT LUNGE' },
+                      { id: 'injured', label: 'INJURED SHIN' },
+                    ] as { id: FarmerPreviewPose; label: string }[]
+                  ).map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setFarmerPose(p.id)}
+                      className={`min-h-[32px] px-2.5 py-1 border-2 font-pixel-arcade text-[8px] cursor-pointer transition-all ${
+                        farmerPose === p.id
+                          ? 'bg-yellow-400 text-slate-950 border-amber-600 font-bold'
+                          : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-slate-500'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Adult / Baby Life Stage Switcher (for wildlife mammals with babies) */}
             {isSelectedUnlocked && selectedEntry.hasBabyForm && (
               <div className="mb-3 bg-slate-900/90 border border-slate-800 p-2.5 flex flex-wrap items-center justify-between gap-2">
                 <div className="font-pixel-arcade text-[8px] text-slate-400 tracking-wider">
@@ -575,11 +857,13 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
               </div>
             )}
 
-            {/* Interactive Natural Color / Breed Morph Selector */}
+            {/* Interactive Natural Color / Breed / Hazard Style Selector */}
             {isSelectedUnlocked && selectedEntry.colorVariants && selectedEntry.colorVariants.length > 0 && (
               <div className="mb-4 bg-slate-900/90 border border-slate-800 p-2.5">
                 <div className="font-pixel-arcade text-[8px] text-slate-400 mb-2 tracking-wider">
-                  NATURAL COAT &amp; SPECIES VARIATIONS
+                  {selectedEntry.category === 'hazard'
+                    ? 'HAZARD STYLE & PALETTE VARIANTS'
+                    : 'NATURAL COAT & SPECIES VARIATIONS'}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {selectedEntry.colorVariants.map((morph, idx) => {
@@ -638,7 +922,7 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
             </div>
 
             {/* Combat / Wildlife Telemetry Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
               <div className="bg-slate-900 border border-slate-800 px-3 py-2.5">
                 <div className="font-pixel-arcade text-[8px] text-slate-400 mb-1">
                   {isWildlife ? 'NATURE' : 'HEALTH'}
@@ -687,9 +971,84 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
               </div>
             </div>
 
-            {/* Lore & Notes OR Discovery Hint */}
+            {/* Lore & Expanded Field Dossier OR Discovery Hint */}
             {isSelectedUnlocked ? (
               <div className="space-y-4">
+                {/* Detailed Dossier Matrix: Danger Rating, Size Class, Native Biomes, Special Trait, Weakness & Behavior */}
+                <div className="bg-slate-900/95 border border-slate-800 p-3.5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-pixel-arcade text-[8px] text-slate-400">THREAT LEVEL</span>
+                      {selectedEntry.dangerRating === 0 ? (
+                        <span className="font-pixel-arcade text-[8px] text-emerald-300 bg-emerald-950/70 border border-emerald-700/60 px-2 py-0.5">
+                          HARMLESS
+                        </span>
+                      ) : (
+                        <div className="flex items-center gap-1" aria-label={`Danger rating ${selectedEntry.dangerRating} out of 5`}>
+                          {[1, 2, 3, 4, 5].map(pip => (
+                            <span
+                              key={pip}
+                              className={`w-3.5 h-2.5 border ${
+                                pip <= selectedEntry.dangerRating
+                                  ? selectedEntry.dangerRating >= 4
+                                    ? 'bg-rose-500 border-rose-300'
+                                    : 'bg-amber-400 border-yellow-200'
+                                  : 'bg-slate-950 border-slate-700'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <span className="font-pixel-arcade text-[8px] text-slate-300">
+                      {selectedEntry.scaleClass.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-body">
+                    <div>
+                      <div className="flex items-center gap-1.5 font-pixel-arcade text-[8px] text-sky-300 mb-1">
+                        <MapPin className="w-3 h-3" />
+                        <span>NATIVE BIOMES</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedEntry.biomes.map(b => (
+                          <span
+                            key={b}
+                            className="px-2 py-0.5 bg-slate-950 border border-slate-700 text-[11px] text-slate-200"
+                          >
+                            {b}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-1.5 font-pixel-arcade text-[8px] text-amber-300 mb-1">
+                        <Sparkles className="w-3 h-3" />
+                        <span>SPECIAL TRAIT</span>
+                      </div>
+                      <p className="text-slate-300 leading-snug">{selectedEntry.specialAbility}</p>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-1.5 font-pixel-arcade text-[8px] text-emerald-300 mb-1">
+                        <Crosshair className="w-3 h-3" />
+                        <span>{isWildlife ? 'FIELD OBSERVATION' : 'WEAKNESS & COUNTER'}</span>
+                      </div>
+                      <p className="text-slate-300 leading-snug">{selectedEntry.weakness}</p>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-1.5 font-pixel-arcade text-[8px] text-violet-300 mb-1">
+                        <Footprints className="w-3 h-3" />
+                        <span>MOVEMENT &amp; BEHAVIOR</span>
+                      </div>
+                      <p className="text-slate-300 leading-snug">{selectedEntry.behavior}</p>
+                    </div>
+                  </div>
+                </div>
+
                 <div>
                   <div className="flex items-center gap-2 font-pixel-arcade text-[10px] text-yellow-300 mb-1.5">
                     {isWildlife ? (
@@ -756,12 +1115,42 @@ export const BestiaryView: React.FC<BestiaryViewProps> = ({ saveData, onReturnTo
           </section>
         </div>
 
-        {/* Footer */}
-        <footer className="px-4 sm:px-5 py-3 bg-slate-900 border-t-2 border-slate-800 shrink-0">
+        {/* Footer with Quick Navigation Buttons (Prev, Random, Next) & Main Menu */}
+        <footer className="px-4 sm:px-5 py-3 bg-slate-900 border-t-2 border-slate-800 shrink-0 flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => handleStepEntry(-1)}
+              className="min-h-[42px] px-3 bg-slate-800 hover:bg-slate-700 active:translate-y-0.5 text-slate-200 border-2 border-slate-600 shadow-[0_3px_0_#0f172a] font-pixel-arcade text-[9px] flex items-center gap-1 cursor-pointer transition-all"
+              title="Previous entry (Left Arrow)"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">PREV</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRandomEntry}
+              className="min-h-[42px] px-3 bg-slate-800 hover:bg-slate-700 active:translate-y-0.5 text-sky-300 border-2 border-slate-600 shadow-[0_3px_0_#0f172a] font-pixel-arcade text-[9px] flex items-center gap-1.5 cursor-pointer transition-all"
+              title="Jump to a random Bestiary entry"
+            >
+              <Shuffle className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">RANDOM</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleStepEntry(1)}
+              className="min-h-[42px] px-3 bg-slate-800 hover:bg-slate-700 active:translate-y-0.5 text-slate-200 border-2 border-slate-600 shadow-[0_3px_0_#0f172a] font-pixel-arcade text-[9px] flex items-center gap-1 cursor-pointer transition-all"
+              title="Next entry (Right Arrow)"
+            >
+              <span className="hidden sm:inline">NEXT</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={onReturnToMenu}
-            className="w-full min-h-[42px] py-2.5 px-4 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 text-slate-950 font-pixel-arcade font-bold text-xs tracking-wider border-2 border-amber-600 shadow-[0_4px_0_#78350f] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all cursor-pointer flex items-center justify-center gap-2"
+            className="flex-1 min-h-[42px] py-2.5 px-4 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 hover:via-amber-300 hover:to-yellow-400 text-slate-950 font-pixel-arcade font-bold text-xs tracking-wider border-2 border-amber-600 shadow-[0_4px_0_#78350f] active:translate-y-1 active:shadow-[0_1px_0_#78350f] transition-all cursor-pointer flex items-center justify-center gap-2"
           >
             ← RETURN TO MAIN MENU
           </button>

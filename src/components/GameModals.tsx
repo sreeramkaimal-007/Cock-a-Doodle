@@ -1097,7 +1097,8 @@ export const GameModals: React.FC<ModalProps> = ({
   const howToPlayScrollRef = useRef<HTMLDivElement>(null);
   
   // Silkie Chicken Shopkeeper Dialogue & Speech Audio State
-  const initialDialogue = saveData.hasCompletedGame
+  const isFirstPostBossRewardVisit = Boolean(saveData.hasCompletedGame && !saveData.hasClaimedBossReward);
+  const initialDialogue = isFirstPostBossRewardVisit
     ? "oh your back.."
     : (saveData.hasVisitedShop ? "hello again" : "hello welcome to my shop!");
   const [shopkeeperDialogue, setShopkeeperDialogue] = useState<string>(initialDialogue);
@@ -1156,10 +1157,11 @@ export const GameModals: React.FC<ModalProps> = ({
       if (shopSessionActiveRef.current) return;
       shopSessionActiveRef.current = true;
 
-      if (saveData.hasCompletedGame) {
-        const canClaimReward = !saveData.hasClaimedBossReward;
+      if (saveData.hasCompletedGame && !saveData.hasClaimedBossReward) {
+        // First time visiting Sam's shop after defeating the boss:
+        // Plays boss defeat gratitude lines and awards 1,000 pellet coins + secret skin!
         const hasRewardSkin = Boolean(saveData.unlockedSkins?.includes('thanksgiving_roast'));
-        shopSessionPostBossCanClaimRef.current = canClaimReward;
+        shopSessionPostBossCanClaimRef.current = true;
         postBossStepRef.current = 1;
         speakDialogue("oh your back..", 'welcome');
 
@@ -1171,23 +1173,24 @@ export const GameModals: React.FC<ModalProps> = ({
           postBossStepRef.current = 2;
           speakDialogue("thank you for saving Mount Cluckmore", 'talk');
 
-          if (canClaimReward) {
-            postBossTimer2Ref.current = window.setTimeout(() => {
-              postBossStepRef.current = 3;
-              speakDialogue("here is your reward", 'purchase');
-              onClaimBossReward?.();
-              if (!hasRewardSkin) {
-                onUnlockSkin?.('thanksgiving_roast', true);
-                setPreviewSkinId('thanksgiving_roast');
-              }
-              postBossTimer3Ref.current = window.setTimeout(() => {
-                setShowSecretSkinModal(true);
-              }, 1100);
-            }, 2600);
-          }
+          postBossTimer2Ref.current = window.setTimeout(() => {
+            postBossStepRef.current = 3;
+            speakDialogue("here is your reward", 'purchase');
+            onClaimBossReward?.();
+            if (!hasRewardSkin) {
+              onUnlockSkin?.('thanksgiving_roast', true);
+              setPreviewSkinId('thanksgiving_roast');
+            }
+            postBossTimer3Ref.current = window.setTimeout(() => {
+              setShowSecretSkinModal(true);
+            }, 1100);
+          }, 2600);
         }, 2200);
       } else {
-        const isShopClosed = Boolean(saveData.shopClosedUntil && Date.now() < saveData.shopClosedUntil);
+        // Normal shop visits (including revisiting after defeating the boss again!):
+        // Uses Sam's regular greetings & normal lines, never repeating boss defeat lines.
+        shopSessionPostBossCanClaimRef.current = false;
+        const isShopClosed = !saveData.hasCompletedGame && Boolean(saveData.shopClosedUntil && Date.now() < saveData.shopClosedUntil);
         if (isShopClosed) {
           shopSessionInitialTextRef.current = "Sorry, we are currently closed! Please check back later!";
           speakDialogue(shopSessionInitialTextRef.current, 'again');
@@ -2022,16 +2025,19 @@ export const GameModals: React.FC<ModalProps> = ({
             {/* Creatures, Hazards & Field Journal */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
               <div className="bg-slate-950/80 p-3.5 border border-rose-900/60 space-y-1.5">
-                <span className="font-pixel-arcade text-[9px] text-rose-400 block">WILD PREDATORS &amp; MORPHS</span>
+                <span className="font-pixel-arcade text-[9px] text-rose-400 block">ENEMIES &amp; MINI-BOSS</span>
+                <p className="text-[11px] text-slate-300"><strong className="text-amber-300">Farmer Jed (Mini-Boss):</strong> Guards Stage 1! Peck his boots as a baby chick to injure him, then return as an adult for a full pitchfork rematch.</p>
                 <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Wolves:</strong> Timber, Arctic, Cinnamon &amp; Black coats—stomp or slash.</p>
                 <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Foxes:</strong> Red, Silver, Cross &amp; Arctic—leap early to dodge dashes.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-emerald-300">Snakes (Jungle Vipers):</strong> 4 rainforest colors in World 4 &amp; boss waves—venomous bites poison you and slowly drain half your health; shield blocks fangs &amp; heart chests cure poison.</p>
                 <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Bears:</strong> Grizzly, Kodiak, Polar &amp; Black—heavy reach in World 5.</p>
               </div>
               <div className="bg-slate-950/80 p-3.5 border border-amber-900/60 space-y-1.5">
                 <span className="font-pixel-arcade text-[9px] text-amber-400 block">HAZARDS &amp; BESTIARY LOG</span>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Volcanoes &amp; Boulders:</strong> Read tremor cues before sprinting past.</p>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Stormclouds:</strong> Step clear whenever the crimson lock ring flashes.</p>
-                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Bestiary:</strong> Every foe and background animal logs automatically with coat morph previews!</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Magma Vents:</strong> Medium volcanic vents in obsidian, sulfur, and scorched-slate styles—read tremor plumes before sprinting past.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Temple Boulders:</strong> Bait overhead temple droppers or leap cleanly over oncoming granite spheres.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Stormclouds:</strong> Varied storm cells that fire forked plasma lightning—step clear when the ground reticle charges.</p>
+                <p className="text-[11px] text-slate-300"><strong className="text-slate-100">Bestiary:</strong> Every foe, mini-boss, and background animal logs automatically with coat &amp; baby previews!</p>
               </div>
             </div>
 
@@ -2317,7 +2323,7 @@ export const GameModals: React.FC<ModalProps> = ({
               <span>RESTART STAGE</span>
             </button>
             {(() => {
-              const isShopClosed = Boolean(saveData.shopClosedUntil && nowTime < saveData.shopClosedUntil);
+              const isShopClosed = !saveData.hasCompletedGame && Boolean(saveData.shopClosedUntil && nowTime < saveData.shopClosedUntil);
               const remainingSec = isShopClosed ? Math.max(0, Math.floor((saveData.shopClosedUntil! - nowTime) / 1000)) : 0;
               const hours = Math.floor(remainingSec / 3600);
               const mins = Math.floor((remainingSec % 3600) / 60);
@@ -3224,7 +3230,7 @@ export const GameModals: React.FC<ModalProps> = ({
           <div 
             onClick={() => {
               // Click to replay Silkie Sam's voice!
-              if (saveData.hasCompletedGame) {
+              if (saveData.hasCompletedGame && shopSessionPostBossCanClaimRef.current) {
                 if (postBossTimerRef.current) {
                   clearTimeout(postBossTimerRef.current);
                   postBossTimerRef.current = null;
@@ -3240,7 +3246,7 @@ export const GameModals: React.FC<ModalProps> = ({
                 if (postBossStepRef.current === 1) {
                   postBossStepRef.current = 2;
                   speakDialogue("thank you for saving Mount Cluckmore", 'talk');
-                } else if (postBossStepRef.current === 2 && shopSessionPostBossCanClaimRef.current) {
+                } else if (postBossStepRef.current === 2) {
                   postBossStepRef.current = 3;
                   speakDialogue("here is your reward", 'purchase');
                 } else {
@@ -3734,7 +3740,7 @@ export const GameModals: React.FC<ModalProps> = ({
                 </p>
 
                 <div className="px-3 py-1.5 rounded-xl bg-amber-950/90 border border-yellow-400 text-yellow-300 font-pixel-arcade text-[10px] mb-2 font-bold">
-                  ★ +1,000,000 PELLET COINS AWARDED! ★
+                  ★ +1,000 PELLET COINS AWARDED! ★
                 </div>
 
                 <div className="px-3 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-500 text-emerald-300 font-pixel-arcade text-[9px] mb-4">

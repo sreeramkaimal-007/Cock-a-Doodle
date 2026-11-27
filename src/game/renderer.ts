@@ -1,13 +1,15 @@
 import { 
   PlayerState, Platform, Coin, TreasureChest, Checkpoint,
   VolcanoHazard, BoulderHazard, ThundercloudHazard, Enemy, Particle, FloatingText, Camera, LevelConfig,
-  ChickenGender, ArmorType, SwordType, GrowthStage, CockatriceBoss, BossFireProjectile, SilkieSamFriend
+  ChickenGender, ArmorType, SwordType, GrowthStage, CockatriceBoss, BossFireProjectile, SilkieSamFriend, FarmerMiniBoss
 } from './types';
 import { getSkinPalette } from './skins';
+import { audio } from './audio';
 
 export class GameRenderer {
   private ctx: CanvasRenderingContext2D;
   private canvas: HTMLCanvasElement;
+  private fenceGateStates: Map<string, { angle: number; vel: number; lastTime: number; isOpen: boolean; lastLatchSoundTime: number }> = new Map();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -2981,8 +2983,9 @@ export class GameRenderer {
   public renderStartingCoop(
     spawnPoint: { x: number; y: number }, 
     camera: Camera, 
-    _time: number, 
-    platforms?: Platform[]
+    time: number, 
+    platforms?: Platform[],
+    player?: PlayerState
   ) {
     const ctx = this.ctx;
     const coopW = 44;
@@ -2998,18 +3001,62 @@ export class GameRenderer {
       }
     }
 
-    const sx = spawnPoint.x - 14 - camera.x;
-    const sy = groundY - coopH - camera.y;
+    const coopWorldX = spawnPoint.x - 14;
+    const coopWorldY = groundY - coopH;
+    const sx = coopWorldX - camera.x;
+    const sy = coopWorldY - camera.y;
 
     if (sx < -80 || sx > this.canvas.width + 80) return;
 
+    // Subtle home-base proximity shake when the chicken is nearby
+    let proximity = 0;
+    let shakeIntensity = 0;
+    if (player) {
+      const pCenterX = player.x + player.width / 2;
+      const pCenterY = player.y + player.height / 2;
+      const coopCenterX = coopWorldX + coopW / 2;
+      const coopCenterY = coopWorldY + coopH / 2;
+      const dist = Math.hypot(pCenterX - coopCenterX, pCenterY - coopCenterY);
+      const nearbyRadius = 115;
+      if (dist < nearbyRadius) {
+        const t = 1 - dist / nearbyRadius;
+        proximity = t * t * (3 - 2 * t); // smoothstep falloff
+        // Periodic gentle cozy rustle pulse + instant reactive wiggle when moving/hopping nearby
+        const cycle = (time * 0.8) % 1.0;
+        const rustlePulse = cycle < 0.42 ? Math.sin((cycle / 0.42) * Math.PI) : 0;
+        const moveBoost = Math.min(1, Math.hypot(player.vx, player.vy) / 220) * 0.72;
+        shakeIntensity = proximity * Math.max(rustlePulse, moveBoost);
+      }
+    }
+
     ctx.save();
 
-    // Solid ground shadow right under base
+    // Solid ground shadow right under base (stays planted while the coop wiggles)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
     ctx.beginPath();
-    ctx.ellipse(sx + coopW / 2, sy + coopH + 1, coopW / 2 + 6, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(
+      sx + coopW / 2,
+      sy + coopH + 1,
+      coopW / 2 + 6 + shakeIntensity * 1.4,
+      4,
+      0,
+      0,
+      Math.PI * 2
+    );
     ctx.fill();
+
+    // Apply subtle shake/tilt pivoted at the bottom-center foundation of the coop
+    const pivotX = sx + coopW / 2;
+    const pivotY = sy + coopH;
+    if (shakeIntensity > 0.01) {
+      const shakeX = Math.sin(time * 34) * 1.45 * shakeIntensity;
+      const shakeAngle = Math.sin(time * 28) * 0.042 * shakeIntensity;
+      const bounce = Math.abs(Math.sin(time * 28)) * shakeIntensity;
+      ctx.translate(pivotX + shakeX, pivotY);
+      ctx.rotate(shakeAngle);
+      ctx.scale(1 - bounce * 0.018, 1 + bounce * 0.028);
+      ctx.translate(-pivotX, -pivotY);
+    }
 
     // Wooden wall structure
     ctx.fillStyle = '#92400e';
@@ -3040,6 +3087,18 @@ export class GameRenderer {
     ctx.lineTo(doorX, doorY + doorH);
     ctx.closePath();
     ctx.fill();
+
+    // Warm cozy home glow inside the doorway when the chicken is nearby
+    if (proximity > 0.02) {
+      const glowAlpha = (0.14 + 0.12 * Math.sin(time * 5)) * proximity;
+      ctx.fillStyle = `rgba(254, 240, 138, ${glowAlpha.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(doorX + doorW / 2, doorY + 7, doorW / 2 - 1, Math.PI, 0);
+      ctx.lineTo(doorX + doorW - 1, doorY + doorH - 2);
+      ctx.lineTo(doorX + 1, doorY + doorH - 2);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     // Golden straw / hay bedding spilling onto the ground
     ctx.fillStyle = '#fde047';
@@ -3086,6 +3145,22 @@ export class GameRenderer {
     ctx.fill();
 
     ctx.restore();
+
+    // Subtle floating straw/feather motes rustling off the coop when shaking nearby
+    if (shakeIntensity > 0.25) {
+      ctx.save();
+      for (let i = 0; i < 2; i++) {
+        const phase = (time * 1.4 + i * 0.52) % 1;
+        const moteX = sx + (i === 0 ? 4 : coopW - 4) + Math.sin(time * 6 + i * 2.5) * 4;
+        const moteY = sy + 16 - phase * 14;
+        const alpha = (1 - phase) * shakeIntensity * 0.75;
+        ctx.fillStyle = i === 0
+          ? `rgba(253, 224, 71, ${alpha.toFixed(3)})`
+          : `rgba(254, 249, 195, ${alpha.toFixed(3)})`;
+        ctx.fillRect(moteX, moteY, 3, 2);
+      }
+      ctx.restore();
+    }
   }
 
   // --- Silkie Sam Outside The Shop (Level 1 Exterior Stand & Upgraded Dialogue) ---
@@ -3781,17 +3856,32 @@ export class GameRenderer {
       }
 
     } else if (plat.type === 'grass') {
-      // 3. Regular Lush Grassy Platform
+      // 3. Regular Lush Grassy Platform over Layered Dirt Earth
       ctx.fillStyle = '#78350f';
       ctx.fillRect(sx, sy, plat.width, plat.height);
 
+      // Rich brown topsoil & deeper subsoil strata
       ctx.fillStyle = '#92400e';
-      ctx.fillRect(sx, sy + 10, plat.width, plat.height - 10);
-      ctx.fillStyle = '#543009';
-      for (let px = sx + 8; px < sx + plat.width - 8; px += 26) {
-        ctx.fillRect(px, sy + 14, 4, 4);
+      ctx.fillRect(sx, sy + 10, plat.width, Math.max(0, plat.height - 10));
+      if (plat.height > 42) {
+        ctx.fillStyle = '#6b2f0c';
+        ctx.fillRect(sx, sy + 36, plat.width, plat.height - 36);
+        ctx.fillStyle = '#522208';
+        ctx.fillRect(sx, sy + 72, plat.width, Math.max(0, plat.height - 72));
       }
 
+      // Earthy dirt clods & small pebbles scattered through the soil
+      for (let py = sy + 15; py < sy + plat.height - 8; py += 20) {
+        const rowShift = ((Math.floor((py - sy) / 20)) % 2) * 13;
+        for (let px = sx + 8 + rowShift; px < sx + plat.width - 8; px += 26) {
+          ctx.fillStyle = '#543009';
+          ctx.fillRect(px, py, 5, 4);
+          ctx.fillStyle = '#b45309';
+          ctx.fillRect(px + 1, py, 2, 2);
+        }
+      }
+
+      // Lush green grass turf on top
       ctx.fillStyle = '#15803d';
       ctx.fillRect(sx, sy, plat.width, 9);
       ctx.fillStyle = '#22c55e';
@@ -3844,21 +3934,46 @@ export class GameRenderer {
       ctx.fillRect(sx + plat.width - 4, sy + 2, 4, plat.height - 4);
 
     } else if (plat.type === 'fence') {
-      // 5. Country Picket Fence
-      ctx.fillStyle = '#b45309';
+      // 5. Country Wooden Farm Fence Post & Cross-Rails
+      ctx.fillStyle = '#92400e';
       ctx.fillRect(sx, sy, plat.width, plat.height);
+      // Warm sunlit plank highlight & shadow edge
       ctx.fillStyle = '#d97706';
-      ctx.fillRect(sx + 3, sy, plat.width - 6, 6);
+      ctx.fillRect(sx + 2, sy + 2, Math.max(2, plat.width * 0.35), plat.height - 4);
       ctx.fillStyle = '#78350f';
-      ctx.fillRect(sx + 6, sy + 14, plat.width - 12, plat.height - 14);
+      ctx.fillRect(sx + plat.width - 4, sy + 2, 4, plat.height - 4);
 
-      ctx.fillStyle = '#f59e0b';
+      // Horizontal wooden fence rails with iron nail heads
+      const railSpacing = Math.max(16, Math.floor(plat.height / 2.4));
+      for (let ry = sy + 9; ry < sy + plat.height - 6; ry += railSpacing) {
+        ctx.fillStyle = '#b45309';
+        ctx.fillRect(sx - 2, ry, plat.width + 4, 6);
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(sx - 2, ry, plat.width + 4, 1.5);
+        ctx.fillStyle = '#451a03';
+        ctx.fillRect(sx - 2, ry + 5, plat.width + 4, 1);
+        // Nail studs
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillRect(sx + 3, ry + 2, 2, 2);
+        ctx.fillRect(sx + plat.width - 5, ry + 2, 2, 2);
+      }
+
+      // Crisp dark timber outline so fence gaps read clearly
+      ctx.strokeStyle = '#451a03';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(sx, sy, plat.width, plat.height);
+
+      // Pointed wooden picket cap on top
+      ctx.fillStyle = '#d97706';
       ctx.beginPath();
       ctx.moveTo(sx + plat.width / 2, sy - 6);
       ctx.lineTo(sx + plat.width, sy);
       ctx.lineTo(sx, sy);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = '#451a03';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
 
     } else if (plat.type === 'ruins') {
       // 6. Temple Ruins (Ancient weathered carved stone, zero lava fissures)
@@ -3925,6 +4040,220 @@ export class GameRenderer {
       ctx.fillStyle = '#f59e0b';
       ctx.fillRect(sx + 2, sy + 3, 5, plat.height - 6);
       ctx.fillRect(sx + plat.width - 7, sy + 3, 5, plat.height - 6);
+    }
+  }
+
+  // --- Interactive Swinging Farm Gates Inside Fence Gaps ---
+  public renderFenceGates(
+    platforms: Platform[],
+    player: PlayerState,
+    camera: Camera,
+    time: number
+  ) {
+    const fences = platforms.filter(p => p.type === 'fence');
+    if (fences.length === 0) return;
+
+    // Group fence posts by horizontal column so we can locate every pass-through gap
+    const columns = new Map<number, Platform[]>();
+    for (const f of fences) {
+      const col = columns.get(f.x);
+      if (col) col.push(f);
+      else columns.set(f.x, [f]);
+    }
+
+    const groundPlatforms = platforms.filter(p => p.type !== 'fence');
+    const pCenterX = player.x + player.width / 2;
+    const pCenterY = player.y + player.height / 2;
+    const ctx = this.ctx;
+
+    let colIdx = 0;
+    for (const [colX, segments] of columns.entries()) {
+      colIdx++;
+      segments.sort((a, b) => a.y - b.y);
+      const colW = segments[0].width;
+
+      // Collect gaps: between stacked fence posts, and under elevated fence posts down to the grass floor
+      const gaps: { key: string; topY: number; bottomY: number; isGroundGap: boolean }[] = [];
+      for (let i = 0; i < segments.length - 1; i++) {
+        const upper = segments[i];
+        const lower = segments[i + 1];
+        const gapTop = upper.y + upper.height;
+        const gapBottom = lower.y;
+        if (gapBottom - gapTop >= 28) {
+          gaps.push({ key: `${upper.id}_gap`, topY: gapTop, bottomY: gapBottom, isGroundGap: false });
+        }
+      }
+
+      const last = segments[segments.length - 1];
+      const lastBottom = last.y + last.height;
+      let supportingGroundY = Infinity;
+      for (const g of groundPlatforms) {
+        if (g.x <= colX + colW && g.x + g.width >= colX && g.y >= lastBottom) {
+          if (g.y < supportingGroundY) supportingGroundY = g.y;
+        }
+      }
+      if (supportingGroundY < Infinity && supportingGroundY - lastBottom >= 32) {
+        gaps.push({
+          key: `${last.id}_ground_gap`,
+          topY: lastBottom,
+          bottomY: supportingGroundY,
+          isGroundGap: true
+        });
+      }
+
+      for (const gap of gaps) {
+        const sx = colX - camera.x;
+        if (sx < -80 || sx > this.canvas.width + 80) continue;
+
+        const gateCenterX = colX + colW / 2;
+        const gapH = gap.bottomY - gap.topY;
+        const gateLen = Math.max(24, gapH - 6);
+        const hingeScreenX = sx + colW / 2;
+        const hingeScreenY = gap.topY - camera.y + 2;
+
+        // Retrieve or initialize damped spring state for this swinging gate
+        let state = this.fenceGateStates.get(gap.key);
+        if (!state || time < state.lastTime) {
+          state = { angle: 0, vel: 0, lastTime: time, isOpen: false, lastLatchSoundTime: -1 };
+          this.fenceGateStates.set(gap.key, state);
+        }
+        const dt = Math.min(0.05, Math.max(0.001, time - state.lastTime));
+        state.lastTime = time;
+
+        // Detect when the chicken approaches or moves through this fence gap
+        const dx = pCenterX - gateCenterX;
+        const absDx = Math.abs(dx);
+        const inVerticalBand = pCenterY >= gap.topY - 26 && pCenterY <= gap.bottomY + 26;
+        const triggerRadius = 56;
+        const isInteracting = absDx < triggerRadius && inVerticalBand;
+        const approachGlow = inVerticalBand && absDx < 84 ? Math.max(0, 1 - absDx / 84) : 0;
+
+        let targetAngle = Math.sin(time * 2.1 + colIdx * 1.7) * 0.032; // subtle idle farm breeze
+        let stiffness = 46;
+        let damping = 5.4;
+
+        if (isInteracting) {
+          const proximity = Math.min(1, 1 - (absDx / triggerRadius) * 0.55);
+          // Negative angle swings bottom of the hanging gate to the RIGHT; positive swings it LEFT
+          let swingSign: number;
+          if (Math.abs(player.vx) > 15) {
+            swingSign = player.vx > 0 ? -1 : 1;
+          } else {
+            swingSign = dx <= 0 ? -1 : 1;
+          }
+          targetAngle = swingSign * (1.28 * proximity + 0.16);
+          stiffness = 88;
+          damping = 10.5;
+        }
+
+        const accel = (targetAngle - state.angle) * stiffness - state.vel * damping;
+        state.vel += accel * dt;
+        state.angle += state.vel * dt;
+        state.angle = Math.max(-1.52, Math.min(1.52, state.angle));
+
+        // Crisp latch clicking sound when opening and when latching back shut
+        if (isInteracting && !state.isOpen && Math.abs(state.angle) > 0.18) {
+          state.isOpen = true;
+          if (time - state.lastLatchSoundTime > 0.16) {
+            audio.playGateLatch(true);
+            state.lastLatchSoundTime = time;
+          }
+        } else if (!isInteracting && state.isOpen && Math.abs(state.angle) < 0.16 && Math.abs(state.vel) < 3.2) {
+          state.isOpen = false;
+          if (time - state.lastLatchSoundTime > 0.16) {
+            audio.playGateLatch(false);
+            state.lastLatchSoundTime = time;
+          }
+        }
+
+        ctx.save();
+
+        // Brass catch bracket on lower fence post (when there is a lower post)
+        if (!gap.isGroundGap) {
+          const catchY = gap.bottomY - camera.y - 3;
+          ctx.fillStyle = approachGlow > 0.1 ? '#fde047' : '#d97706';
+          ctx.fillRect(hingeScreenX - 4, catchY, 8, 4);
+          ctx.fillStyle = '#451a03';
+          ctx.fillRect(hingeScreenX - 2, catchY + 1, 4, 2);
+        }
+
+        // Subtle curved motion-arc trail while swinging briskly open/shut
+        const swingSpeed = Math.abs(state.vel);
+        if (swingSpeed > 1.4) {
+          const trailAlpha = Math.min(0.45, (swingSpeed - 1.4) * 0.11);
+          ctx.strokeStyle = `rgba(254, 243, 199, ${trailAlpha.toFixed(3)})`;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          const a0 = Math.PI / 2 + state.angle;
+          const a1 = a0 - Math.sign(state.vel) * Math.min(0.42, swingSpeed * 0.06);
+          ctx.arc(hingeScreenX, hingeScreenY, gateLen - 4, Math.min(a0, a1), Math.max(a0, a1));
+          ctx.stroke();
+
+          // Tiny wooden dust / straw flecks puffing off the swinging gate tip
+          const tipX = hingeScreenX - Math.sin(state.angle) * (gateLen - 6);
+          const tipY = hingeScreenY + Math.cos(state.angle) * (gateLen - 6);
+          ctx.fillStyle = `rgba(253, 224, 71, ${(trailAlpha * 1.4).toFixed(3)})`;
+          ctx.fillRect(tipX + Math.sin(time * 22) * 4, tipY - 3, 2.5, 2.5);
+          ctx.fillRect(tipX - Math.cos(time * 18) * 5, tipY + 2, 2, 2);
+        }
+
+        // Swinging Wooden Saloon / Coop Gate Leaf pivoted at the top iron hinge
+        ctx.translate(hingeScreenX, hingeScreenY);
+        ctx.rotate(state.angle);
+
+        const leafW = 10;
+        // Drop shadow for crisp depth
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+        ctx.fillRect(-leafW / 2 + 2, 2, leafW, gateLen);
+
+        // Main cedar gate frame
+        ctx.fillStyle = '#b45309';
+        ctx.fillRect(-leafW / 2, 0, leafW, gateLen);
+
+        // Warm sunlit front plank edge & darker recessed bevel
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(-leafW / 2 + 1.5, 1, 3, gateLen - 2);
+        ctx.fillStyle = '#78350f';
+        ctx.fillRect(leafW / 2 - 2.5, 1, 2, gateLen - 2);
+
+        // Horizontal wooden slat cross-bars with metal rivets
+        const bar1Y = Math.round(gateLen * 0.28);
+        const bar2Y = Math.round(gateLen * 0.68);
+        for (const by of [bar1Y, bar2Y]) {
+          ctx.fillStyle = '#92400e';
+          ctx.fillRect(-leafW / 2 - 1.5, by, leafW + 3, 4);
+          ctx.fillStyle = '#fcd34d';
+          ctx.fillRect(-leafW / 2 - 1.5, by, leafW + 3, 1);
+          ctx.fillStyle = '#e2e8f0';
+          ctx.fillRect(-1, by + 1.5, 2, 1.5);
+        }
+
+        // Dark crisp wood outline
+        ctx.strokeStyle = '#451a03';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(-leafW / 2, 0, leafW, gateLen);
+
+        // Golden brass latch tip at bottom of the swinging gate (glints when player approaches)
+        const latchGlow = Math.abs(state.angle) > 0.25 || approachGlow > 0.15;
+        ctx.fillStyle = latchGlow ? '#fef08a' : '#eab308';
+        ctx.fillRect(-3.5, gateLen - 5, 7, 4);
+        ctx.fillStyle = '#78350f';
+        ctx.fillRect(-1.5, gateLen - 4, 3, 2);
+
+        ctx.restore();
+
+        // Stationary forged iron hinge mount pinned to the upper fence beam
+        ctx.save();
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(hingeScreenX - 6, hingeScreenY - 4, 12, 6);
+        ctx.fillStyle = '#94a3b8';
+        ctx.beginPath();
+        ctx.arc(hingeScreenX, hingeScreenY, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(hingeScreenX - 1, hingeScreenY - 1.5, 1.5, 1.5);
+        ctx.restore();
+      }
     }
   }
 
@@ -5024,153 +5353,185 @@ export class GameRenderer {
     const sx = v.x - camera.x;
     const sy = v.y - camera.y;
 
-    if (sx < -60 || sx > this.canvas.width + 60) return;
+    if (sx < -80 || sx > this.canvas.width + 80) return;
+
+    const styleIdx = ((v.styleVariant ?? this.hashVariant(v.id, 3)) % 3 + 3) % 3;
+    const styles = [
+      // 0: Obsidian & Arterial Crimson Magma Vent
+      {
+        base: '#18181b',
+        mid: '#27272a',
+        ridge: '#3f3f46',
+        crust: '#52525b',
+        veinCold: '#7f1d1d',
+        veinHot: '#ef4444',
+        veinBright: '#fb923c',
+        rimCold: '#991b1b',
+        rimHot: '#f97316',
+        coreHot: '#fef08a',
+        aura: 'rgba(239, 68, 68, 0.45)',
+        smoke: 'rgba(113, 113, 122, 0.78)',
+        blobOuter: 'rgba(239, 68, 68, 0.82)',
+      },
+      // 1: Basalt & Sulfur-Amber Caldera Vent
+      {
+        base: '#231812',
+        mid: '#3b261c',
+        ridge: '#573726',
+        crust: '#ca8a04',
+        veinCold: '#92400e',
+        veinHot: '#f59e0b',
+        veinBright: '#fde047',
+        rimCold: '#b45309',
+        rimHot: '#facc15',
+        coreHot: '#ffffff',
+        aura: 'rgba(245, 158, 11, 0.48)',
+        smoke: 'rgba(161, 138, 102, 0.76)',
+        blobOuter: 'rgba(245, 158, 11, 0.85)',
+      },
+      // 2: Scorched Slate & Magma-Rose Vent
+      {
+        base: '#171526',
+        mid: '#26233d',
+        ridge: '#3c375c',
+        crust: '#6d28d9',
+        veinCold: '#881337',
+        veinHot: '#f43f5e',
+        veinBright: '#fda4af',
+        rimCold: '#9f1239',
+        rimHot: '#fb7185',
+        coreHot: '#fff1f2',
+        aura: 'rgba(244, 63, 94, 0.46)',
+        smoke: 'rgba(124, 115, 155, 0.75)',
+        blobOuter: 'rgba(244, 63, 94, 0.82)',
+      },
+    ];
+    const pal = styles[styleIdx];
 
     // Peaceful mode: Dead / Dormant Extinct Volcano
     if (v.isDead) {
-      // 1. Cold basalt rock mountain with dormant crags
-      ctx.fillStyle = '#1c1917';
+      ctx.fillStyle = pal.base;
       ctx.beginPath();
-      ctx.moveTo(sx - 4, sy + v.height);
-      ctx.lineTo(sx + 12, sy);
-      ctx.lineTo(sx + v.width - 12, sy);
-      ctx.lineTo(sx + v.width + 4, sy + v.height);
+      ctx.moveTo(sx - 5, sy + v.height);
+      ctx.lineTo(sx + 10, sy);
+      ctx.lineTo(sx + v.width - 10, sy);
+      ctx.lineTo(sx + v.width + 5, sy + v.height);
       ctx.closePath();
       ctx.fill();
 
-      // Cold stone ribs
-      ctx.fillStyle = '#292524';
-      ctx.beginPath();
-      ctx.moveTo(sx + 8, sy + v.height);
-      ctx.lineTo(sx + 18, sy + 6);
-      ctx.lineTo(sx + 24, sy + v.height);
-      ctx.closePath();
-      ctx.fill();
+      ctx.fillStyle = pal.mid;
+      ctx.fillRect(sx + 4, sy + v.height * 0.45, v.width - 8, v.height * 0.55);
 
-      ctx.fillStyle = '#44403c';
-      ctx.beginPath();
-      ctx.moveTo(sx + v.width - 24, sy + v.height);
-      ctx.lineTo(sx + v.width - 16, sy + 8);
-      ctx.lineTo(sx + v.width - 8, sy + v.height);
-      ctx.closePath();
-      ctx.fill();
-
-      // Cold dark fracture cracks (zero glowing lava or heat)
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(sx + v.width * 0.35, sy + 8);
-      ctx.lineTo(sx + v.width * 0.42, sy + v.height * 0.55);
-      ctx.lineTo(sx + v.width * 0.32, sy + v.height);
-      ctx.moveTo(sx + v.width * 0.65, sy + 6);
-      ctx.lineTo(sx + v.width * 0.58, sy + v.height * 0.48);
-      ctx.lineTo(sx + v.width * 0.68, sy + v.height);
-      ctx.stroke();
-
-      // Overgrowing peaceful green moss and foliage patches
       ctx.fillStyle = '#15803d';
-      ctx.fillRect(sx + 14, sy + 12, 10, 6);
-      ctx.fillRect(sx + v.width - 24, sy + 18, 12, 7);
-      ctx.fillRect(sx + v.width * 0.42, sy + v.height * 0.55, 14, 8);
+      ctx.fillRect(sx + 12, sy + 10, 10, 6);
+      ctx.fillRect(sx + v.width - 22, sy + Math.round(v.height * 0.45), 12, 7);
 
-      // Dead cold stone caldera rim with harmless grass sprouts
       ctx.fillStyle = '#292524';
-      ctx.fillRect(sx + 12, sy, v.width - 24, 6);
+      ctx.fillRect(sx + 10, sy, v.width - 20, 6);
       ctx.fillStyle = '#22c55e';
-      ctx.fillRect(sx + 16, sy - 2, v.width - 32, 2);
+      ctx.fillRect(sx + 14, sy - 2, v.width - 28, 2);
       return;
     }
 
-    // 1. Layered obsidian mountain silhouette with crags
-    ctx.fillStyle = '#1c1917'; // dark basalt base
-    ctx.beginPath();
-    ctx.moveTo(sx - 4, sy + v.height);
-    ctx.lineTo(sx + 12, sy);
-    ctx.lineTo(sx + v.width - 12, sy);
-    ctx.lineTo(sx + v.width + 4, sy + v.height);
-    ctx.closePath();
-    ctx.fill();
-
-    // Jagged basalt rock ribs
-    ctx.fillStyle = '#292524';
-    ctx.beginPath();
-    ctx.moveTo(sx + 8, sy + v.height);
-    ctx.lineTo(sx + 18, sy + 6);
-    ctx.lineTo(sx + 24, sy + v.height);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = '#44403c';
-    ctx.beginPath();
-    ctx.moveTo(sx + v.width - 24, sy + v.height);
-    ctx.lineTo(sx + v.width - 16, sy + 8);
-    ctx.lineTo(sx + v.width - 8, sy + v.height);
-    ctx.closePath();
-    ctx.fill();
-
-    // 2. Molten magma fissures glowing through the obsidian
     const isHot = v.state === 'warning' || v.state === 'erupting';
-    ctx.strokeStyle = isHot ? '#ea580c' : '#7c2d12';
-    ctx.lineWidth = 2;
+
+    // 1. Stepped medium volcanic cone silhouette with chunky basalt shoulders
+    ctx.fillStyle = pal.base;
     ctx.beginPath();
-    ctx.moveTo(sx + v.width * 0.35, sy + 8);
-    ctx.lineTo(sx + v.width * 0.42, sy + v.height * 0.55);
-    ctx.lineTo(sx + v.width * 0.32, sy + v.height);
+    ctx.moveTo(sx - 6, sy + v.height);
+    ctx.lineTo(sx + 4, sy + v.height * 0.42);
+    ctx.lineTo(sx + 11, sy);
+    ctx.lineTo(sx + v.width - 11, sy);
+    ctx.lineTo(sx + v.width - 4, sy + v.height * 0.42);
+    ctx.lineTo(sx + v.width + 6, sy + v.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // Faceted rock ribs for depth
+    ctx.fillStyle = pal.mid;
+    ctx.beginPath();
+    ctx.moveTo(sx + 6, sy + v.height);
+    ctx.lineTo(sx + 16, sy + 6);
+    ctx.lineTo(sx + v.width * 0.48, sy + v.height);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = pal.ridge;
+    ctx.beginPath();
+    ctx.moveTo(sx + v.width * 0.55, sy + v.height);
+    ctx.lineTo(sx + v.width - 15, sy + 7);
+    ctx.lineTo(sx + v.width - 5, sy + v.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // Mineral / sulfur crust shelves on medium slopes
+    ctx.fillStyle = pal.crust;
+    ctx.fillRect(sx + 8, sy + Math.round(v.height * 0.52), 8, 4);
+    ctx.fillRect(sx + v.width - 16, sy + Math.round(v.height * 0.36), 7, 4);
+
+    // 2. Glowing arterial magma veins snaking up the vent
+    ctx.strokeStyle = isHot ? pal.veinHot : pal.veinCold;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(sx + v.width * 0.34, sy + 7);
+    ctx.lineTo(sx + v.width * 0.42, sy + v.height * 0.48);
+    ctx.lineTo(sx + v.width * 0.28, sy + v.height - 2);
     ctx.stroke();
 
-    ctx.strokeStyle = isHot ? '#facc15' : '#b45309';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = isHot ? pal.veinBright : pal.rimCold;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(sx + v.width * 0.65, sy + 6);
-    ctx.lineTo(sx + v.width * 0.58, sy + v.height * 0.48);
-    ctx.lineTo(sx + v.width * 0.68, sy + v.height);
+    ctx.moveTo(sx + v.width * 0.66, sy + 7);
+    ctx.lineTo(sx + v.width * 0.57, sy + v.height * 0.44);
+    ctx.lineTo(sx + v.width * 0.72, sy + v.height - 2);
     ctx.stroke();
 
-    // 3. Boiling caldera crater rim
-    ctx.fillStyle = isHot ? '#f97316' : '#78350f';
-    ctx.fillRect(sx + 12, sy, v.width - 24, 7);
-    ctx.fillStyle = isHot ? '#fde047' : '#9a3412';
+    // 3. Stepped boiling caldera rim
+    ctx.fillStyle = pal.base;
+    ctx.fillRect(sx + 9, sy - 1, v.width - 18, 9);
+    ctx.fillStyle = isHot ? pal.rimHot : pal.rimCold;
+    ctx.fillRect(sx + 12, sy + 1, v.width - 24, 6);
+    ctx.fillStyle = isHot ? pal.coreHot : pal.veinCold;
     ctx.fillRect(sx + 16, sy + 2, v.width - 32, 3);
 
-    // 4. Warning Smoke Plumes & Bubble Shimmers
+    // 4. Warning heat halo & sulfur smoke plumes
     if (v.state === 'warning') {
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.45)';
+      ctx.fillStyle = pal.aura;
       ctx.beginPath();
-      ctx.arc(sx + v.width / 2, sy - 8, 18, 0, Math.PI * 2);
+      ctx.arc(sx + v.width / 2, sy - 6, 18 + (v.height - 36) * 0.2, 0, Math.PI * 2);
       ctx.fill();
 
-      // Rising sulfur smoke clouds
-      ctx.fillStyle = 'rgba(120, 113, 108, 0.75)';
+      ctx.fillStyle = pal.smoke;
       ctx.beginPath();
-      ctx.arc(sx + v.width / 2 - 5, sy - 18, 10, 0, Math.PI * 2);
-      ctx.arc(sx + v.width / 2 + 6, sy - 26, 13, 0, Math.PI * 2);
+      ctx.arc(sx + v.width / 2 - 6, sy - 18, 10, 0, Math.PI * 2);
+      ctx.arc(sx + v.width / 2 + 7, sy - 27, 13, 0, Math.PI * 2);
       ctx.fill();
 
-      // Ember sparks
-      ctx.fillStyle = '#fef08a';
-      ctx.fillRect(sx + v.width / 2 - 2, sy - 14, 3, 3);
-      ctx.fillRect(sx + v.width / 2 + 8, sy - 34, 2.5, 2.5);
+      ctx.fillStyle = pal.coreHot;
+      ctx.fillRect(sx + v.width / 2 - 3, sy - 14, 3, 3);
+      ctx.fillRect(sx + v.width / 2 + 8, sy - 33, 3, 3);
     }
 
-    // 5. Blazing Eruption with Molten Magma Blobs
+    // 5. Eruption lip flare
     if (v.state === 'erupting') {
-      ctx.fillStyle = '#fef08a';
-      ctx.fillRect(sx + 14, sy - 5, v.width - 28, 9);
-      ctx.fillStyle = '#f97316';
-      ctx.fillRect(sx + 10, sy - 2, v.width - 20, 4);
+      ctx.fillStyle = pal.coreHot;
+      ctx.fillRect(sx + 13, sy - 6, v.width - 26, 9);
+      ctx.fillStyle = pal.rimHot;
+      ctx.fillRect(sx + 9, sy - 2, v.width - 18, 4);
+    }
 
+    // 6. Render flying magma blobs smoothly even during cooldown until they settle
+    if (v.lavaParticles && v.lavaParticles.length > 0) {
       v.lavaParticles.forEach(lp => {
         const lx = lp.x - camera.x;
         const ly = lp.y - camera.y;
 
-        // Outer glow
-        ctx.fillStyle = lp.life > 0.4 ? 'rgba(249, 115, 22, 0.8)' : 'rgba(220, 38, 38, 0.6)';
+        ctx.fillStyle = lp.life > 0.4 ? pal.blobOuter : 'rgba(220, 38, 38, 0.55)';
         ctx.beginPath();
-        ctx.arc(lx, ly, lp.radius + 2, 0, Math.PI * 2);
+        ctx.arc(lx, ly, lp.radius + 2.2, 0, Math.PI * 2);
         ctx.fill();
 
-        // White-hot core
-        ctx.fillStyle = lp.life > 0.5 ? '#ffffff' : (lp.life > 0.25 ? '#fef08a' : '#ef4444');
+        ctx.fillStyle = lp.life > 0.5 ? '#ffffff' : (lp.life > 0.25 ? pal.coreHot : pal.veinHot);
         ctx.beginPath();
         ctx.arc(lx, ly, lp.radius, 0, Math.PI * 2);
         ctx.fill();
@@ -5191,7 +5552,7 @@ export class GameRenderer {
 
       if (trapX > -80 && trapX < this.canvas.width + 80) {
         ctx.save();
-        const isSnowy = levelTheme === 'snowy';
+        const isSnowy = levelTheme === 'snowy' || levelTheme === 'storm';
 
         // 1. Temple Stone Chute Structure
         ctx.fillStyle = '#1c1917';
@@ -5363,12 +5724,11 @@ export class GameRenderer {
     const tx = th.targetX - camera.x;
     const ty = th.targetY - camera.y;
 
-    if (sx < -80 || sx > this.canvas.width + 80) return;
+    if (sx < -110 || sx > this.canvas.width + 110) return;
 
     // Peaceful mode: Thunderclouds turn into beautiful, harmless normal clouds!
     if (th.isPeaceful || th.isNormal) {
       ctx.save();
-      // Gentle soft white fluffy cloud body with light sky blue shading
       ctx.fillStyle = '#f8fafc';
       this.drawFluffyCloud(sx - th.width / 2, sy, th.width);
       ctx.fillStyle = '#e2e8f0';
@@ -5379,86 +5739,222 @@ export class GameRenderer {
       return;
     }
 
-    // 1. Dark stormy cumulonimbus clouds with electric violet rim
-    const flash = th.state === 'striking' || (th.state === 'warning' && Math.sin(time * 20) > 0.5);
-    ctx.fillStyle = flash ? '#475569' : '#0f172a';
+    const styleIdx = ((th.styleVariant ?? this.hashVariant(th.id, 3)) % 3 + 3) % 3;
+    const stormPalettes = [
+      // 0: Tempest Indigo & Electric Cyan Plasma
+      {
+        base: '#0f172a',
+        baseFlash: '#334155',
+        top: '#1e1b4b',
+        topFlash: '#4f46e5',
+        belly: '#0e7490',
+        rain: 'rgba(56, 189, 248, 0.28)',
+        boltGlow: 'rgba(34, 211, 238, 0.72)',
+        boltMid: '#38bdf8',
+        boltCore: '#ecfeff',
+        warnRing: '#22d3ee',
+        warnFill: 'rgba(34, 211, 238, 0.25)',
+        spark: '#67e8f9',
+      },
+      // 1: Violet Supercell & Amethyst Forked Arcs
+      {
+        base: '#1e1033',
+        baseFlash: '#4c1d95',
+        top: '#2e1065',
+        topFlash: '#6d28d9',
+        belly: '#7e22ce',
+        rain: 'rgba(192, 132, 252, 0.28)',
+        boltGlow: 'rgba(192, 132, 252, 0.78)',
+        boltMid: '#e879f9',
+        boltCore: '#fdf4ff',
+        warnRing: '#d946ef',
+        warnFill: 'rgba(217, 70, 239, 0.26)',
+        spark: '#f5d0fe',
+      },
+      // 2: Stormfront Charcoal-Teal & Solar Gold Lightning
+      {
+        base: '#111c24',
+        baseFlash: '#2d4554',
+        top: '#1b2e3b',
+        topFlash: '#426175',
+        belly: '#b45309',
+        rain: 'rgba(250, 204, 21, 0.24)',
+        boltGlow: 'rgba(250, 204, 21, 0.76)',
+        boltMid: '#fbbf24',
+        boltCore: '#fefce8',
+        warnRing: '#facc15',
+        warnFill: 'rgba(250, 204, 21, 0.26)',
+        spark: '#fef08a',
+      },
+    ];
+    const sp = stormPalettes[styleIdx];
+
+    // 1. Multi-layered stormy anvil cloud with distinct color & size
+    const flash = th.state === 'striking' || (th.state === 'warning' && Math.sin(time * 22) > 0.45);
+    ctx.fillStyle = flash ? sp.baseFlash : sp.base;
     this.drawFluffyCloud(sx - th.width / 2, sy, th.width);
 
-    // Billowing upper thunderhead
-    ctx.fillStyle = flash ? '#64748b' : '#1e293b';
-    this.drawFluffyCloud(sx - th.width * 0.4, sy - 6, th.width * 0.8);
+    // Towering upper thunderhead
+    ctx.fillStyle = flash ? sp.topFlash : sp.top;
+    this.drawFluffyCloud(sx - th.width * 0.42, sy - 7, th.width * 0.84);
+
+    // Charged glowing underbelly seam
+    ctx.fillStyle = flash ? sp.boltMid : sp.belly;
+    ctx.globalAlpha = flash ? 0.85 : 0.45;
+    ctx.fillRect(sx - th.width * 0.34, sy + 16, th.width * 0.68, 4);
+    ctx.globalAlpha = 1;
 
     // Ambient rain sheets falling beneath the cloud
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+    ctx.strokeStyle = sp.rain;
     ctx.lineWidth = 1.2;
-    for (let rx = sx - th.width * 0.4; rx < sx + th.width * 0.4; rx += 14) {
-      const dropY = sy + 24 + ((time * 120 + rx * 3) % 45);
+    for (let rx = sx - th.width * 0.4; rx < sx + th.width * 0.4; rx += 13) {
+      const dropY = sy + 24 + ((time * 125 + rx * 3) % 44);
       ctx.beginPath();
       ctx.moveTo(rx, dropY);
       ctx.lineTo(rx - 2, dropY + 6);
       ctx.stroke();
     }
 
-    // 2. Warning targeting reticle
+    // 2. Warning Phase: Pre-strike static crackles & color-matched ground reticle
     if (th.state === 'warning') {
-      const pulse = 0.4 + Math.sin(time * 18) * 0.35;
+      const pulse = 0.45 + Math.sin(time * 20) * 0.35;
       ctx.save();
-      ctx.globalAlpha = pulse;
 
-      // Electric beam pointer
-      ctx.strokeStyle = '#ef4444';
+      // Dancing static tendrils under the cloud belly
+      ctx.strokeStyle = sp.spark;
       ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]);
+      for (let f = -1; f <= 1; f++) {
+        const bx = sx + f * (th.width * 0.22);
+        const zig = Math.sin(time * 38 + f * 4) * 7;
+        ctx.beginPath();
+        ctx.moveTo(bx, sy + 18);
+        ctx.lineTo(bx + zig, sy + 32);
+        ctx.lineTo(bx - zig * 0.5, sy + 44);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = pulse;
+      // Electric guide beam
+      ctx.strokeStyle = sp.warnRing;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
       ctx.beginPath();
-      ctx.moveTo(tx, sy + 30);
+      ctx.moveTo(tx, sy + 28);
       ctx.lineTo(tx, ty);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Pulsing concentric hazard reticle rings
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+      // Double concentric hazard reticle rings scaled to cloud width
+      const ringRx = Math.max(26, Math.round(th.width * 0.46));
+      ctx.fillStyle = sp.warnFill;
       ctx.beginPath();
-      ctx.ellipse(tx, ty, 34, 11, 0, 0, Math.PI * 2);
+      ctx.ellipse(tx, ty, ringRx, 10, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.strokeStyle = '#ef4444';
+      ctx.strokeStyle = sp.warnRing;
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      ctx.fillStyle = '#fef08a';
-      ctx.font = '700 11px "Press Start 2P", monospace';
+      ctx.beginPath();
+      ctx.ellipse(tx, ty, ringRx * 0.55, 5.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = sp.spark;
+      ctx.font = '700 10px "Press Start 2P", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('⚡ DANGER ⚡', tx, ty - 12);
+      ctx.fillText('⚡ STRIKE ⚡', tx, ty - 13);
       ctx.restore();
     }
 
-    // 3. Lightning Strike Beam
+    // 3. Redesigned Multi-Branch Forked Lightning Bolt Effect!
     if (th.state === 'striking') {
       ctx.save();
-      // Outer intense electric cyan/indigo glow
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
-      ctx.lineWidth = 16;
-      ctx.beginPath();
-      ctx.moveTo(tx, sy + 25);
-      const mid1X = tx + (Math.sin(time * 30) * 18);
-      const mid1Y = sy + (ty - sy) * 0.32;
-      const mid2X = tx - (Math.cos(time * 35) * 16);
-      const mid2Y = sy + (ty - sy) * 0.68;
-      ctx.lineTo(mid1X, mid1Y);
-      ctx.lineTo(mid2X, mid2Y);
-      ctx.lineTo(tx, ty);
-      ctx.stroke();
+      const startY = sy + 18;
+      const totalH = Math.max(40, ty - startY);
+      const jitterStep = Math.floor(time * 28);
+      const pts: { x: number; y: number }[] = [{ x: tx, y: startY }];
+      const segments = 6;
+      for (let i = 1; i < segments; i++) {
+        const frac = i / segments;
+        const swing = Math.sin(jitterStep * 2.7 + i * 3.1 + styleIdx * 1.9) * (16 + (th.width - 54) * 0.14);
+        pts.push({ x: tx + swing, y: startY + totalH * frac });
+      }
+      pts.push({ x: tx, y: ty });
 
-      // Sharp blinding white bolt core
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 5;
-      ctx.stroke();
-
-      // Ground flash explosion
-      ctx.fillStyle = 'rgba(254, 240, 138, 0.85)';
+      // Cloud-base electrical discharge orb
+      ctx.fillStyle = sp.boltGlow;
       ctx.beginPath();
-      ctx.ellipse(tx, ty, 42, 12, 0, 0, Math.PI * 2);
+      ctx.arc(tx, startY + 2, 16, 0, Math.PI * 2);
       ctx.fill();
+
+      // Outer plasma halo trunk
+      ctx.lineCap = 'square';
+      ctx.lineJoin = 'miter';
+      ctx.strokeStyle = sp.boltGlow;
+      ctx.lineWidth = 14 + (th.width > 75 ? 4 : 0);
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+
+      // Mid colored electric lightning trunk
+      ctx.strokeStyle = sp.boltMid;
+      ctx.lineWidth = 7;
+      ctx.stroke();
+
+      // Blinding white jagged bolt core
+      ctx.strokeStyle = sp.boltCore;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Forked branching side arcs splitting off mid-air!
+      const branchIndices = [1, 2, 4];
+      branchIndices.forEach((bIdx, n) => {
+        const origin = pts[bIdx];
+        if (!origin) return;
+        const dir = n % 2 === 0 ? 1 : -1;
+        const midX = origin.x + dir * (16 + ((jitterStep + n * 7) % 12));
+        const midY = origin.y + totalH * 0.11;
+        const endX = midX + dir * (14 + ((jitterStep * 3 + n) % 14));
+        const endY = midY + totalH * 0.12;
+
+        ctx.strokeStyle = sp.boltGlow;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(origin.x, origin.y);
+        ctx.lineTo(midX, midY);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+
+        ctx.strokeStyle = sp.boltCore;
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+      });
+
+      // Electrified shockwave rings & radial sparks on ground impact
+      const impactRx = Math.max(34, Math.round(th.width * 0.55));
+      ctx.fillStyle = sp.boltGlow;
+      ctx.beginPath();
+      ctx.ellipse(tx, ty, impactRx, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = sp.boltCore;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.ellipse(tx, ty, impactRx * 0.65, 7, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Sizzling ground spark spikes
+      ctx.strokeStyle = sp.spark;
+      ctx.lineWidth = 2;
+      for (let s = 0; s < 6; s++) {
+        const angle = -Math.PI + (s + 0.5) * (Math.PI / 6);
+        const len = 14 + ((jitterStep + s * 5) % 14);
+        ctx.beginPath();
+        ctx.moveTo(tx + Math.cos(angle) * 10, ty - 2);
+        ctx.lineTo(tx + Math.cos(angle) * (10 + len), ty - 2 + Math.sin(angle) * len);
+        ctx.stroke();
+      }
       ctx.restore();
     }
   }
@@ -6713,6 +7209,344 @@ export class GameRenderer {
     }
 
     ctx.restore();
+  }
+
+  // --- Mini-Boss: Old Farmer Jed (Sprite + In-World Combat & Speech Bubble Renderer) ---
+
+  public drawFarmerSprite(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    facingLeft: boolean,
+    animTimer: number,
+    scale: number = 1,
+    state: FarmerMiniBoss['state'] = 'patrol',
+    isSpeaking: boolean = false,
+    hasPitchfork: boolean = true
+  ) {
+    ctx.save();
+    ctx.scale(scale * (facingLeft ? -1 : 1), scale);
+
+    const isInjured = state === 'injured';
+    const isDefeated = state === 'defeated';
+    const isLunging = state === 'lunge';
+    const isWindup = state === 'windup';
+    const isWalking = state === 'patrol' || state === 'lunge';
+    const stride = isWalking ? Math.sin(animTimer * (isLunging ? 18 : 10)) * 5 : 0;
+    const hopOffset = isInjured ? -Math.abs(Math.sin(animTimer * 7)) * 3.5 : (isWalking ? -Math.abs(Math.sin(animTimer * 10)) * 1.6 : 0);
+
+    // Ground shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.34)';
+    ctx.beginPath();
+    ctx.ellipse(0, height / 2 - 1, width * 0.45, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.translate(0, hopOffset + (isDefeated ? 14 : 0));
+    if (isDefeated) {
+      ctx.rotate(-0.18);
+    } else if (isLunging) {
+      ctx.rotate(0.14);
+    } else if (isWindup) {
+      ctx.rotate(-0.12);
+    }
+
+    // 1. Boots & Denim Overalls Legs
+    const legTop = 8;
+    const bootY = height / 2 - 9;
+
+    // Back leg
+    ctx.fillStyle = '#1d4ed8';
+    ctx.fillRect(-10 - stride * 0.6, legTop, 9, 15);
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(-11 - stride * 0.6, bootY, 12, 8);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(-10 - stride * 0.6, bootY + 1, 9, 3);
+
+    // Front leg (bandaged & lifted slightly when injured by baby peck!)
+    const frontLegLift = isInjured ? -5 : 0;
+    ctx.fillStyle = '#2563eb';
+    ctx.fillRect(1 + stride * 0.6, legTop + frontLegLift, 9, 15);
+    ctx.fillStyle = '#5c2d16';
+    ctx.fillRect(1 + stride * 0.6, bootY + frontLegLift, 13, 8);
+    ctx.fillStyle = '#92400e';
+    ctx.fillRect(2 + stride * 0.6, bootY + 1 + frontLegLift, 10, 3);
+
+    // White pixel bandage + comic bruise cross when injured
+    if (isInjured) {
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, legTop + 6 + frontLegLift, 11, 7);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(4, legTop + 8 + frontLegLift, 3, 1);
+      ctx.fillRect(5, legTop + 7 + frontLegLift, 1, 3);
+    }
+
+    // 2. Red Plaid Flannel Torso & Blue Denim Overalls
+    ctx.fillStyle = '#b91c1c';
+    ctx.fillRect(-13, -12, 26, 22);
+    // Flannel plaid lines
+    ctx.fillStyle = '#7f1d1d';
+    ctx.fillRect(-13, -6, 26, 2);
+    ctx.fillRect(-13, 1, 26, 2);
+    ctx.fillRect(-5, -12, 2, 22);
+    ctx.fillRect(5, -12, 2, 22);
+
+    // Denim Overalls Bib & Straps
+    ctx.fillStyle = '#1e40af';
+    ctx.fillRect(-10, -5, 20, 16);
+    ctx.fillStyle = '#2563eb';
+    ctx.fillRect(-8, -3, 16, 12);
+    // Straps
+    ctx.fillStyle = '#1d4ed8';
+    ctx.fillRect(-9, -12, 4, 9);
+    ctx.fillRect(5, -12, 4, 9);
+    // Brass Overall Buttons
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(-8, -5, 2.5, 2.5);
+    ctx.fillRect(6, -5, 2.5, 2.5);
+
+    // 3. Head, Expressive Face, Mustache & Mouth
+    ctx.fillStyle = '#f5c29b';
+    ctx.fillRect(-9, -27, 18, 15);
+    // Rosy cheek
+    ctx.fillStyle = '#fca5a5';
+    ctx.fillRect(3, -18, 3, 2);
+    // Stern bushy eyebrows
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(-6, -24, 5, 2);
+    ctx.fillRect(2, -24, 6, 2);
+    // Eyes
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-4, -22, 2.5, 2.5);
+    ctx.fillRect(4, -22, 2.5, 2.5);
+    // Bushy barnyard mustache
+    ctx.fillStyle = '#5c2d16';
+    ctx.fillRect(-5, -17, 12, 3);
+    ctx.fillRect(-7, -16, 3, 2);
+    ctx.fillRect(6, -16, 3, 2);
+    // Animated speaking / yelping mouth
+    if (isSpeaking || isInjured) {
+      const mouthOpen = Math.sin(animTimer * 24) > 0 ? 3 : 1.5;
+      ctx.fillStyle = '#7f1d1d';
+      ctx.fillRect(0, -14, 5, mouthOpen);
+    }
+
+    // 4. Iconic Wide Woven Golden Straw Hat with Red Band
+    ctx.fillStyle = '#b45309';
+    ctx.fillRect(-19, -29, 38, 4); // wide brim shadow
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(-18, -30, 36, 3.5); // sunny straw brim
+    ctx.fillStyle = '#eab308';
+    ctx.fillRect(-11, -39, 22, 10); // hat crown
+    ctx.fillStyle = '#fde047';
+    ctx.fillRect(-9, -38, 16, 4); // crown sun highlight
+    // Red hatband
+    ctx.fillStyle = '#dc2626';
+    ctx.fillRect(-11, -32, 22, 3);
+
+    // 5. Front Arm & 3-Pronged Pitchfork (or White Flag when Defeated!)
+    const armSwing = isLunging ? 9 : (isWindup ? -7 : Math.sin(animTimer * 10) * 2);
+    ctx.fillStyle = '#b91c1c';
+    ctx.fillRect(4 + armSwing * 0.3, -9, 10, 6);
+    ctx.fillStyle = '#f5c29b';
+    ctx.fillRect(12 + armSwing * 0.3, -9, 4, 5);
+
+    if (isDefeated) {
+      // Surrender white handkerchief on stick!
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(14, -30, 3, 24);
+      const wave = Math.sin(animTimer * 8) * 2;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(17, -30 + wave * 0.4, 14, 10);
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(17, -30 + wave * 0.4, 14, 10);
+    } else if (hasPitchfork && !isInjured) {
+      ctx.save();
+      ctx.translate(14 + armSwing * 0.5, -6);
+      const forkAngle = isLunging ? 0.04 : (isWindup ? -0.45 : -0.18);
+      ctx.rotate(forkAngle);
+      // Wooden shaft
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-18, -2, 36, 3.5);
+      ctx.fillStyle = '#b45309';
+      ctx.fillRect(-16, -2, 32, 1.5);
+      // Steel 3-prong head
+      ctx.fillStyle = isLunging ? '#e0f2fe' : '#cbd5e1';
+      ctx.fillRect(18, -8, 3, 16);
+      ctx.fillRect(20, -8, 10, 2.5);
+      ctx.fillRect(20, -1.2, 12, 2.5);
+      ctx.fillRect(20, 5.5, 10, 2.5);
+      if (isLunging) {
+        // Gleaming strike flash on prongs
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.75)';
+        ctx.fillRect(28, -9, 6, 18);
+      }
+      ctx.restore();
+    }
+
+    // Comic stars spinning over head when injured or defeated
+    if (isInjured || isDefeated) {
+      for (let s = 0; s < 3; s++) {
+        const ang = animTimer * 4 + (s * Math.PI * 2) / 3;
+        const stx = Math.cos(ang) * 14;
+        const sty = -43 + Math.sin(ang) * 4;
+        ctx.fillStyle = s % 2 === 0 ? '#fde047' : '#ffffff';
+        ctx.fillRect(stx - 2, sty - 2, 4, 4);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  public renderFarmer(farmer: FarmerMiniBoss, camera: Camera, time: number) {
+    const ctx = this.ctx;
+    const sx = farmer.x - camera.x;
+    const sy = farmer.y - camera.y;
+
+    // Render any thrown hay bales even if Farmer is near edge
+    farmer.projectiles.forEach(proj => {
+      const px = proj.x - camera.x;
+      const py = proj.y - camera.y;
+      if (px < -40 || px > this.canvas.width + 40) return;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(proj.rotation);
+      ctx.fillStyle = '#ca8a04';
+      ctx.fillRect(-proj.radius, -proj.radius * 0.8, proj.radius * 2, proj.radius * 1.6);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-proj.radius + 2, -proj.radius * 0.8 + 2, proj.radius * 2 - 4, proj.radius * 1.6 - 4);
+      // Twine straps on hay bale
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-proj.radius * 0.45, -proj.radius * 0.8, 2.5, proj.radius * 1.6);
+      ctx.fillRect(proj.radius * 0.35, -proj.radius * 0.8, 2.5, proj.radius * 1.6);
+      ctx.strokeStyle = '#451a03';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-proj.radius, -proj.radius * 0.8, proj.radius * 2, proj.radius * 1.6);
+      ctx.restore();
+    });
+
+    if (sx + farmer.width < -140 || sx > this.canvas.width + 140) return;
+
+    ctx.save();
+    if (farmer.hurtTimer > 0) {
+      ctx.globalAlpha = 0.72;
+    }
+
+    const isSpeaking = farmer.speechTimer > 0 && farmer.speechText.length > 0;
+    ctx.translate(sx + farmer.width / 2, sy + farmer.height / 2);
+    this.drawFarmerSprite(
+      ctx,
+      farmer.width,
+      farmer.height,
+      farmer.facing === 'left',
+      farmer.animTimer,
+      1,
+      farmer.state,
+      isSpeaking,
+      farmer.mode === 'adult_rematch' || farmer.state !== 'injured'
+    );
+
+    // Compact Mini-Boss HP bar above Farmer when actively fighting
+    if (farmer.state !== 'idle' && farmer.state !== 'injured' && farmer.state !== 'defeated') {
+      const barW = 68;
+      const barH = 7;
+      const barX = -barW / 2;
+      const barY = -farmer.height / 2 - 22;
+
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+      ctx.fillStyle = '#450a0a';
+      ctx.fillRect(barX, barY, barW, barH);
+      const dispRatio = Math.max(0, Math.min(1, farmer.displayHealth / Math.max(1, farmer.maxHealth)));
+      const hpRatio = Math.max(0, Math.min(1, farmer.health / Math.max(1, farmer.maxHealth)));
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(barX, barY, barW * dispRatio, barH);
+      ctx.fillStyle = farmer.mode === 'adult_rematch' ? '#f97316' : '#ef4444';
+      ctx.fillRect(barX, barY, barW * hpRatio, barH);
+
+      ctx.fillStyle = '#fef08a';
+      ctx.font = '700 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      const title = farmer.mode === 'adult_rematch' ? 'FARMER JED · REMATCH' : 'FARMER JED';
+      ctx.fillText(title, 0, barY - 5);
+    }
+
+    ctx.restore();
+
+    // Retro 8-Bit Speech Bubble when Farmer Jed speaks!
+    if (isSpeaking) {
+      const visibleText = farmer.speechText.slice(0, Math.max(1, Math.floor(farmer.speechCharIndex)));
+      ctx.save();
+      ctx.font = '700 10px "Silkscreen", monospace';
+
+      // Wrap into at most 2 crisp lines
+      const maxLineW = 240;
+      const words = visibleText.split(' ');
+      const lines: string[] = [];
+      let current = '';
+      for (const word of words) {
+        const test = current ? `${current} ${word}` : word;
+        if (ctx.measureText(test).width > maxLineW && current) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = test;
+        }
+      }
+      if (current) lines.push(current);
+
+      const boxPadX = 12;
+      const boxPadY = 8;
+      const lineH = 14;
+      const measuredW = Math.max(90, ...lines.map(l => ctx.measureText(l).width));
+      const boxW = Math.min(270, measuredW + boxPadX * 2);
+      const boxH = lines.length * lineH + boxPadY * 2 + 12;
+
+      const anchorX = sx + farmer.width / 2;
+      const boxX = Math.max(12, Math.min(this.canvas.width - boxW - 12, anchorX - boxW / 2));
+      const boxY = Math.max(70, sy - boxH - 32 + Math.sin(time * 5) * 1.5);
+
+      // 8-bit shadow & parchment bubble
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(boxX + 3, boxY + 3, boxW, boxH);
+      ctx.fillStyle = '#fffbeb';
+      ctx.fillRect(boxX, boxY, boxW, boxH);
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+      // Speech pointer triangle
+      const tailX = Math.max(boxX + 16, Math.min(boxX + boxW - 16, anchorX));
+      ctx.fillStyle = '#fffbeb';
+      ctx.beginPath();
+      ctx.moveTo(tailX - 7, boxY + boxH - 1);
+      ctx.lineTo(tailX + 7, boxY + boxH - 1);
+      ctx.lineTo(tailX, boxY + boxH + 9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(tailX - 7, boxY + boxH);
+      ctx.lineTo(tailX, boxY + boxH + 9);
+      ctx.lineTo(tailX + 7, boxY + boxH);
+      ctx.stroke();
+
+      // Speaker tag
+      ctx.fillStyle = '#b45309';
+      ctx.font = '700 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('FARMER JED:', boxX + boxPadX, boxY + 13);
+
+      // Dialogue lines
+      ctx.fillStyle = '#1e293b';
+      ctx.font = '700 10px "Silkscreen", monospace';
+      lines.forEach((line, idx) => {
+        ctx.fillText(line, boxX + boxPadX, boxY + 28 + idx * lineH);
+      });
+
+      ctx.restore();
+    }
   }
 
   // --- Protective Shield & Royal Champion Crown Renderers ---
@@ -11673,6 +12507,178 @@ export class GameRenderer {
       ctx.shadowColor = '#000000';
       ctx.shadowBlur = 6;
       ctx.fillText("▶ TAP SCREEN TO RETURN TO MENU ◀", w / 2, btnY + 24 + pulse * 0.4);
+    }
+
+    ctx.restore();
+  }
+
+  // --- Biome-Specific Ambient Atmospheric Effects (Subtle, Non-Weather Environmental Life) ---
+
+  public renderBiomeAmbientEffects(
+    theme: LevelConfig['theme'],
+    camera: Camera,
+    time: number,
+    isSkyBlue = false
+  ) {
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const wrap = (val: number, span: number) => ((val % span) + span) % span;
+
+    ctx.save();
+
+    if (theme === 'jungle') {
+      // Soft emerald dappled canopy sunbeams
+      for (let i = 0; i < 3; i++) {
+        const beamX = wrap(i * 340 - camera.x * 0.14 + Math.sin(time * 0.35 + i) * 18, w + 260) - 130;
+        const grad = ctx.createLinearGradient(beamX, 0, beamX + 70, h * 0.78);
+        grad.addColorStop(0, 'rgba(134, 239, 172, 0.065)');
+        grad.addColorStop(1, 'rgba(134, 239, 172, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(beamX, 0);
+        ctx.lineTo(beamX + 64, 0);
+        ctx.lineTo(beamX + 150, h * 0.82);
+        ctx.lineTo(beamX + 52, h * 0.82);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Bioluminescent jungle fireflies pulsing softly in orbital drift
+      for (let i = 0; i < 16; i++) {
+        const seed = i * 97.3;
+        const baseX = wrap(seed * 23 - camera.x * (0.28 + (i % 3) * 0.12) + Math.sin(time * (0.7 + (i % 4) * 0.2) + seed) * 28, w + 80) - 40;
+        const baseY = 95 + ((i * 53) % Math.max(120, h - 170)) + Math.cos(time * (0.9 + (i % 3) * 0.25) + seed) * 16;
+        const pulse = 0.28 + 0.72 * Math.max(0, Math.sin(time * (2.2 + (i % 4) * 0.55) + seed));
+        const glowR = 5.5 + pulse * 4;
+
+        const glow = ctx.createRadialGradient(baseX, baseY, 0.5, baseX, baseY, glowR);
+        glow.addColorStop(0, `rgba(217, 249, 157, ${(0.55 * pulse).toFixed(3)})`);
+        glow.addColorStop(0.5, `rgba(132, 204, 22, ${(0.22 * pulse).toFixed(3)})`);
+        glow.addColorStop(1, 'rgba(132, 204, 22, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(baseX, baseY, glowR, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = `rgba(254, 249, 195, ${(0.85 * pulse).toFixed(3)})`;
+        ctx.fillRect(Math.round(baseX - 1), Math.round(baseY - 1), 2, 2);
+      }
+
+      // Gentle tumbling jungle leaves
+      for (let i = 0; i < 5; i++) {
+        const lx = wrap(i * 210 - camera.x * 0.45 + time * (16 + i * 3) + Math.sin(time * 1.8 + i) * 24, w + 60) - 30;
+        const ly = wrap(i * 118 + time * (14 + (i % 3) * 4), h - 70);
+        const rot = time * 1.6 + i * 1.4;
+        ctx.save();
+        ctx.translate(lx, ly);
+        ctx.rotate(rot);
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(34, 197, 94, 0.52)' : 'rgba(101, 163, 13, 0.48)';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 5, 2.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    } else if (theme === 'storm' || theme === 'snowy') {
+      // Subtle high-altitude aurora shimmer curtains along the upper arctic horizon
+      for (let band = 0; band < 2; band++) {
+        const yBase = 48 + band * 26;
+        const grad = ctx.createLinearGradient(0, yBase - 18, 0, yBase + 32);
+        if (band === 0) {
+          grad.addColorStop(0, 'rgba(56, 189, 248, 0)');
+          grad.addColorStop(0.5, 'rgba(56, 189, 248, 0.085)');
+          grad.addColorStop(1, 'rgba(52, 211, 153, 0)');
+        } else {
+          grad.addColorStop(0, 'rgba(167, 139, 250, 0)');
+          grad.addColorStop(0.5, 'rgba(167, 139, 250, 0.065)');
+          grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+        }
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(0, yBase + 32);
+        for (let x = 0; x <= w; x += 36) {
+          const wave = Math.sin(x * 0.008 + time * (0.55 + band * 0.2) + band * 2.1) * 12;
+          ctx.lineTo(x, yBase + wave);
+        }
+        ctx.lineTo(w, yBase + 32);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Delicate twinkling 4-point frost crystal glints (crystalline diamond dust, NOT a snowstorm)
+      for (let i = 0; i < 16; i++) {
+        const seed = i * 73.1;
+        const gx = wrap(seed * 19 - camera.x * (0.22 + (i % 3) * 0.08) + Math.sin(time * 0.5 + seed) * 14, w + 40) - 20;
+        const gy = 60 + ((i * 61) % Math.max(120, h - 140)) + Math.cos(time * 0.65 + seed) * 8;
+        const twinkle = Math.max(0, Math.sin(time * (2.6 + (i % 4) * 0.65) + seed));
+        if (twinkle < 0.2) continue;
+        const alpha = (twinkle - 0.2) * 0.85;
+        const arm = 2 + twinkle * 3;
+        ctx.fillStyle = i % 3 === 0
+          ? `rgba(186, 230, 253, ${alpha.toFixed(3)})`
+          : `rgba(248, 250, 252, ${alpha.toFixed(3)})`;
+        ctx.fillRect(Math.round(gx - arm), Math.round(gy), Math.round(arm * 2 + 1), 1.2);
+        ctx.fillRect(Math.round(gx), Math.round(gy - arm), 1.2, Math.round(arm * 2 + 1));
+      }
+    } else if (theme === 'fields' && !isSkyBlue) {
+      // Cursed Boss Lair: glowing volcanic hearth embers rising slowly across the arena
+      for (let i = 0; i < 18; i++) {
+        const seed = i * 67.7;
+        const ex = wrap(seed * 21 - camera.x * 0.35 + Math.sin(time * (1.2 + (i % 3) * 0.4) + seed) * 22, w + 40) - 20;
+        const ey = h - wrap(seed * 17 + time * (24 + (i % 5) * 8), h + 40) + 10;
+        const flicker = 0.45 + 0.55 * Math.sin(time * 7 + seed);
+        const sz = i % 4 === 0 ? 3 : 2;
+
+        ctx.fillStyle = i % 3 === 0
+          ? `rgba(253, 224, 71, ${(0.78 * flicker).toFixed(3)})`
+          : `rgba(249, 115, 22, ${(0.72 * flicker).toFixed(3)})`;
+        ctx.fillRect(Math.round(ex), Math.round(ey), sz, sz);
+      }
+    } else {
+      // Plains / Coop / Trail / Juvenile / Restored Green Fields: warm sunlight beams, golden pollen & drifting petals/dandelions
+      for (let i = 0; i < 2; i++) {
+        const beamX = wrap(120 + i * 440 - camera.x * 0.1, w + 300) - 120;
+        const grad = ctx.createLinearGradient(beamX, 0, beamX + 110, h * 0.72);
+        grad.addColorStop(0, 'rgba(254, 249, 195, 0.06)');
+        grad.addColorStop(1, 'rgba(254, 249, 195, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(beamX, 0);
+        ctx.lineTo(beamX + 82, 0);
+        ctx.lineTo(beamX + 190, h * 0.75);
+        ctx.lineTo(beamX + 70, h * 0.75);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Floating sunlit pollen motes & fluffy dandelion seeds
+      for (let i = 0; i < 14; i++) {
+        const seed = i * 83.4;
+        const mx = wrap(seed * 19 - camera.x * (0.25 + (i % 3) * 0.09) + time * (10 + (i % 4) * 3.5), w + 50) - 25;
+        const my = 80 + ((i * 57) % Math.max(120, h - 155)) + Math.sin(time * (1.1 + (i % 3) * 0.3) + seed) * 14;
+        const glowAlpha = 0.32 + 0.38 * Math.sin(time * 2.1 + seed);
+
+        if (theme === 'fields' && isSkyBlue && i % 3 === 0) {
+          // Restored sanctuary floating flower petals
+          const petalColors = ['rgba(251, 113, 133, 0.65)', 'rgba(253, 224, 71, 0.68)', 'rgba(255, 255, 255, 0.65)'];
+          ctx.save();
+          ctx.translate(mx, my);
+          ctx.rotate(time * 1.4 + seed);
+          ctx.fillStyle = petalColors[i % petalColors.length];
+          ctx.fillRect(-2.5, -1.5, 5, 3);
+          ctx.restore();
+        } else if (i % 4 === 0) {
+          // Fluffy dandelion seed puff
+          ctx.fillStyle = `rgba(255, 255, 255, ${(glowAlpha + 0.15).toFixed(3)})`;
+          ctx.fillRect(Math.round(mx - 1), Math.round(my - 1), 3, 2);
+          ctx.fillStyle = `rgba(254, 240, 138, ${glowAlpha.toFixed(3)})`;
+          ctx.fillRect(Math.round(mx), Math.round(my + 1), 1, 2);
+        } else {
+          // Warm golden sunlit pollen mote
+          ctx.fillStyle = `rgba(254, 240, 138, ${glowAlpha.toFixed(3)})`;
+          ctx.fillRect(Math.round(mx), Math.round(my), 2, 2);
+        }
+      }
     }
 
     ctx.restore();

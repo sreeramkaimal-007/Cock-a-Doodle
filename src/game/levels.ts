@@ -1,4 +1,13 @@
-import { LevelConfig, Platform, Coin, TreasureChest, Checkpoint, VolcanoHazard, BoulderHazard, ThundercloudHazard, Enemy } from './types';
+import { LevelConfig, Platform, Coin, TreasureChest, Checkpoint, VolcanoHazard, BoulderHazard, ThundercloudHazard, Enemy, FarmerMiniBoss } from './types';
+
+function hashId(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return Math.abs(h);
+}
 
 function p(id: string, x: number, y: number, width: number, height: number, type: Platform['type'] = 'wood', extras?: Partial<Platform>): Platform {
   return { id, x, y, width, height, type, ...extras };
@@ -134,19 +143,62 @@ function snake(id: string, x: number, y: number, patrolLeft: number, patrolRight
   };
 }
 
-function volcano(id: string, x: number, y: number, warning = 1.6, erupt = 2.0, cool = 2.4): VolcanoHazard {
+function farmerMiniBoss(id: string, x: number, groundY: number, patrolLeft: number, patrolRight: number): FarmerMiniBoss {
+  const width = 44;
+  const height = 62;
   return {
     id,
     x,
-    y,
-    width: 48,
-    height: 32,
+    y: groundY - height,
+    vx: 0,
+    vy: 0,
+    width,
+    height,
+    patrolLeft,
+    patrolRight,
+    facing: 'right',
+    health: 4,
+    maxHealth: 4,
+    displayHealth: 4,
+    mode: 'baby_encounter',
+    state: 'idle',
+    stateTimer: 0,
+    attackCooldown: 1.4,
+    hurtTimer: 0,
+    animTimer: 0,
+    speechText: '',
+    speechTimer: 0,
+    speechCharIndex: 0,
+    hasIntroduced: false,
+    hasMidFightLine: false,
+    projectiles: [],
+  };
+}
+
+function volcano(id: string, x: number, y: number, warning = 1.6, erupt = 2.0, cool = 2.4): VolcanoHazard {
+  // Varied little-to-medium heights & styles while staying flush on the platform surface (groundY = y + 32)
+  const h = hashId(id);
+  const sizeTiers = [
+    { width: 46, height: 36 },
+    { width: 54, height: 44 },
+    { width: 60, height: 50 },
+  ];
+  const tier = sizeTiers[h % sizeTiers.length];
+  const styleVariant = Math.floor(h / 3) % 3;
+  const groundY = y + 32;
+  return {
+    id,
+    x: x - Math.round((tier.width - 48) / 2),
+    y: groundY - tier.height,
+    width: tier.width,
+    height: tier.height,
     state: 'inactive',
     timer: Math.random() * cool,
     warningDuration: warning,
     eruptionDuration: erupt,
     cooldownDuration: cool,
-    lavaParticles: []
+    lavaParticles: [],
+    styleVariant,
   };
 }
 
@@ -174,18 +226,23 @@ function boulder(id: string, x: number, y: number, speed = 2.8, isFalling = fals
 }
 
 function lightning(id: string, x: number, y: number, targetX: number, targetY: number, warning = 1.4, strike = 0.5, cool = 2.8): ThundercloudHazard {
+  const h = hashId(id);
+  const widths = [54, 70, 86];
+  const width = widths[h % widths.length];
+  const styleVariant = Math.floor(h / 3) % 3;
   return {
     id,
     x,
     y,
     targetX,
     targetY,
-    width: 56,
+    width,
     state: 'idle',
     timer: Math.random() * cool,
     warningDuration: warning,
     strikeDuration: strike,
-    cooldownDuration: cool
+    cooldownDuration: cool,
+    styleVariant,
   };
 }
 
@@ -203,20 +260,29 @@ export const LEVELS: LevelConfig[] = [
     exitPoint: { x: 1380, y: 440 },
     theme: 'coop',
     platforms: [
-      p('c1_floor1', 0, 480, 500, 120, 'wood'),
-      p('c1_plat1', 560, 420, 160, 30, 'wood'),
-      p('c1_plat2', 780, 360, 160, 30, 'wood'),
-      p('c1_floor2', 1000, 480, 500, 120, 'wood'),
+      p('c1_floor1', 0, 480, 500, 120, 'grass'),
+      // Medium-sized wooden farm fences with coin-guided pass-through gaps
+      p('c1_fence1_bot', 224, 442, 24, 38, 'fence'),
+      p('c1_fence1_top', 224, 342, 24, 40, 'fence'),
+      p('c1_fence2_mid', 304, 376, 24, 52, 'fence'),
+      p('c1_fence3_bot', 384, 438, 24, 42, 'fence'),
+      p('c1_fence3_top', 384, 338, 24, 40, 'fence'),
+      p('c1_plat1', 560, 420, 160, 30, 'grass'),
+      p('c1_plat2', 780, 360, 160, 30, 'grass'),
+      p('c1_floor2', 1000, 480, 500, 120, 'grass'),
     ],
     coins: [
-      ...coinLine('c1_c1', 280, 440, 3),
+      coin('c1_c1_0', 236, 412),
+      coin('c1_c1_1', 316, 456),
+      coin('c1_c1_2', 396, 408),
       ...coinArc('c1_c2', 580, 410, 3, 30),
       ...coinArc('c1_c3', 800, 350, 3, 30),
       ...coinLine('c1_c4', 1150, 440, 4),
     ],
     chests: [],
     checkpoints: [cp('cp1', 640, 420)],
-    hint: 'Use A/D or Arrow keys to walk, Space or W to jump!'
+    farmer: farmerMiniBoss('farmer_lvl1', 42, 480, 10, 214),
+    hint: 'Use A/D to walk, Space to jump through the fence gaps, and X / K to peck Old Farmer Jed!'
   },
   {
     id: 2,

@@ -1,5 +1,5 @@
 import { 
-  PlayerState, LevelConfig, Camera, Particle, FloatingText, Platform, SaveData, Enemy, TreasureChest, ChickenGender, CockatriceBoss, ArmorType, SwordType
+  PlayerState, LevelConfig, Camera, Particle, FloatingText, Platform, SaveData, Enemy, TreasureChest, ChickenGender, CockatriceBoss, ArmorType, SwordType, FarmerMiniBoss
 } from './types';
 import { getLevelConfig } from './levels';
 import { audio } from './audio';
@@ -42,6 +42,17 @@ export class GameEngine {
   public armorType: ArmorType = 'none';
   public hasShield: boolean = false;
   private stepTimer = 0;
+  private farmerStepTimer = 0;
+  private bossStepTimer = 0;
+  private lastBossX: number | null = null;
+  private enemyStepTimers = new Map<string, number>();
+  private baseCamX = 0;
+  private baseCamY = 0;
+  private shakeIntensity = 0;
+  private shakeDuration = 0;
+  private shakeTimer = 0;
+  public shakeOffsetX = 0;
+  public shakeOffsetY = 0;
   private jumpTrailTimer = 0;
   private dashTrailTimer = 0;
   public saveData: SaveData;
@@ -126,6 +137,7 @@ export class GameEngine {
       onMovingPlatform: null,
       fireResistTimer: 0,
       poisonTimer: 0,
+      poisonMaxDuration: 0,
       poisonTickTimer: 0,
       poisonTickInterval: 1.6,
       poisonDrainRemaining: 0,
@@ -270,6 +282,36 @@ export class GameEngine {
       this.level.enemies = [];
     }
 
+    // Configure Level 1 Mini-Boss: Old Farmer Jed
+    // - As Baby Chick: use peck (X / K) -> Farmer gets injured & limps aside (not permanently defeated)
+    // - Returning as Adult (even after completing the game!): full adult rematch fight!
+    // - Returning as Juvenile / Teen: Farmer nurses his shin and challenges you to return as an adult
+    if (this.level.farmer) {
+      const f = this.level.farmer;
+      if (this.player.stage === 'baby') {
+        f.mode = 'baby_encounter';
+        f.maxHealth = 4;
+        f.health = 4;
+        f.displayHealth = 4;
+        f.state = 'idle';
+      } else if (this.player.stage === 'adult') {
+        f.mode = 'adult_rematch';
+        f.maxHealth = 24;
+        f.health = 24;
+        f.displayHealth = 24;
+        f.state = 'idle';
+      } else {
+        f.mode = 'growing_visit';
+        f.maxHealth = 12;
+        f.health = 12;
+        f.displayHealth = 12;
+        f.state = 'injured';
+        f.x = 32;
+        f.facing = 'right';
+      }
+      f.projectiles = [];
+    }
+
     if (levelId === 1 && saveData.hasSeenSamLevel1Joke) {
       this.samLevel1State = 'done';
     }
@@ -309,6 +351,7 @@ export class GameEngine {
     this.player.invulnerableTimer = 2.0;
     this.player.fireResistTimer = 0;
     this.player.poisonTimer = 0;
+    this.player.poisonMaxDuration = 0;
     this.player.poisonTickTimer = 0;
     this.player.poisonDrainRemaining = 0;
     this.player.onMovingPlatform = null;
@@ -476,12 +519,12 @@ export class GameEngine {
     this.addDashAttackPixelTrail(8);
     audio.playAttack(this.swordType === 'gold' || this.swordType === 'diamond' || this.swordType === 'netherite');
 
-    // Attack hitbox in front of player
-    const reach = this.swordType === 'netherite' ? 56 : (this.swordType === 'diamond' ? 44 : (this.swordType === 'gold' ? 36 : 24));
-    const hitX = this.player.facing === 'right' ? this.player.x + this.player.width : this.player.x - reach;
+    // Attack hitbox in front of player (generous baby peck reach for Level 1 Farmer encounter)
+    const reach = this.swordType === 'netherite' ? 56 : (this.swordType === 'diamond' ? 44 : (this.swordType === 'gold' ? 36 : (this.swordType === 'iron' ? 30 : 30)));
+    const hitX = this.player.facing === 'right' ? this.player.x + this.player.width - 2 : this.player.x - reach + 2;
     const hitW = reach;
-    const hitY = this.player.y - 6;
-    const hitH = this.player.height + 6;
+    const hitY = this.player.y - 8;
+    const hitH = this.player.height + 10;
 
     // Check hit against enemies
     if (this.level.enemies) {
@@ -499,6 +542,24 @@ export class GameEngine {
           this.damageEnemy(enemy, dmg);
         }
       });
+    }
+
+    // Check hit against Level 1 Mini-Boss: Old Farmer Jed
+    if (this.level.farmer) {
+      const f = this.level.farmer;
+      if (f.state !== 'injured' && f.state !== 'defeated' && f.hurtTimer <= 0) {
+        if (
+          hitX < f.x + f.width &&
+          hitX + hitW > f.x &&
+          hitY < f.y + f.height &&
+          hitY + hitH > f.y
+        ) {
+          const ironBeakBonus = this.saveData.upgrades?.ironBeak || 0;
+          const baseDmg = this.swordType === 'netherite' ? 8 : (this.swordType === 'diamond' ? 5 : (this.swordType === 'gold' ? 4 : (this.swordType === 'iron' ? 2 : 1)));
+          const dmg = f.mode === 'baby_encounter' ? 1 : (baseDmg + ironBeakBonus);
+          this.damageFarmer(f, dmg);
+        }
+      }
     }
 
     // Check hit against Cockatrice boss (stunned OR when boss swoops in to peck or slash!)
@@ -640,14 +701,367 @@ export class GameEngine {
     this.updatePoison(delta);
     this.updateHazards(delta);
     this.updateEnemies(delta);
+    this.updateFarmer(delta);
     this.updateCockatrice(delta);
     this.updateSilkieSam(delta);
-    this.updateLevel1Sam(delta);
     this.updateCollectibles(delta);
     this.updateParticles(delta);
     this.updateFloatingTexts(delta);
-    this.updateCamera();
+    this.updateCamera(delta);
     this.checkBestiaryEncounters();
+  }
+
+  private setFarmerSpeech(f: FarmerMiniBoss, text: string, duration = 3.6, tone: 'gruff' | 'ouch' | 'rematch' | 'defeat' = 'gruff') {
+    f.speechText = text;
+    f.speechTimer = duration;
+    f.speechCharIndex = 0;
+    audio.playFarmerSpeech(tone);
+  }
+
+  private damageFarmer(f: FarmerMiniBoss, amount: number) {
+    if (f.state === 'injured' || f.state === 'defeated') return;
+
+    f.health = Math.max(0, f.health - amount);
+    f.hurtTimer = 0.28;
+    f.vx = this.player.facing === 'right' ? 95 : -95;
+    audio.playFarmerHurt();
+    this.reportEncounter('farmer');
+
+    const label = f.mode === 'baby_encounter' ? `-${amount} PECK!` : `-${amount}`;
+    this.addFloatingText(label, f.x + f.width / 2, f.y - 10, '#fde047');
+
+    for (let i = 0; i < 8; i++) {
+      this.particles.push({
+        x: f.x + f.width / 2 + (Math.random() - 0.5) * 18,
+        y: f.y + (f.mode === 'baby_encounter' ? f.height - 12 : f.height * 0.45),
+        vx: (Math.random() - 0.5) * 130,
+        vy: -40 - Math.random() * 80,
+        size: 3 + Math.random() * 2,
+        color: i % 2 === 0 ? '#facc15' : '#fb923c',
+        life: 0.42,
+        maxLife: 0.42,
+        gravity: 260,
+      });
+    }
+
+    if (f.mode === 'baby_encounter') {
+      if (f.health <= 0) {
+        // Baby chick only INJURES the Farmer's shin—he limps back and vows a rematch when you're grown!
+        f.state = 'injured';
+        f.stateTimer = 0;
+        f.vx = 0;
+        f.projectiles = [];
+        this.setFarmerSpeech(
+          f,
+          "YEOUCH! My shin!! Alright, scram! Wait till you're an adult—we'll settle this!",
+          5.5,
+          'ouch'
+        );
+        this.triggerScreenShake(6.5, 0.28);
+        this.addFloatingText('FARMER INJURED! PATH CLEAR!', f.x + f.width / 2, f.y - 34, '#4ade80');
+      } else if (!f.hasMidFightLine && f.health <= 2) {
+        f.hasMidFightLine = true;
+        this.setFarmerSpeech(f, "OW! Stop pecking my boots, you feisty little nugget!", 3.2, 'ouch');
+      }
+    } else if (f.mode === 'adult_rematch') {
+      if (f.health <= 0) {
+        f.state = 'defeated';
+        f.stateTimer = 0;
+        f.vx = 0;
+        f.projectiles = [];
+        audio.playEnemyDefeat();
+        this.addDefeatExplosion(f.x + f.width / 2, f.y + f.height / 2);
+        this.triggerScreenShake(11.5, 0.5);
+        this.setFarmerSpeech(
+          f,
+          "Oof! Bested by my own prize chicken! You've earned your freedom!",
+          5.5,
+          'defeat'
+        );
+        this.addFloatingText('FARMER JED DEFEATED!', f.x + f.width / 2, f.y - 34, '#fde047');
+        this.callbacks.onActionStat?.('enemiesDefeated');
+        this.callbacks.onEnemyDefeated?.('farmer');
+      } else if (!f.hasMidFightLine && f.health <= f.maxHealth * 0.5) {
+        f.hasMidFightLine = true;
+        this.setFarmerSpeech(f, "Whoa—that sword's sharp! Taste my barn-sweeper pitchfork!", 3.4, 'rematch');
+      }
+    }
+  }
+
+  private updateFarmer(dt: number) {
+    const f = this.level.farmer;
+    if (!f) return;
+
+    f.animTimer += dt;
+    f.stateTimer += dt;
+    if (f.hurtTimer > 0) f.hurtTimer = Math.max(0, f.hurtTimer - dt);
+
+    // Smooth visual HP bar drain
+    if (f.displayHealth > f.health) {
+      f.displayHealth = Math.max(f.health, f.displayHealth - 16 * dt);
+    } else {
+      f.displayHealth = f.health;
+    }
+
+    // Speech typewriter & fade timer
+    if (f.speechTimer > 0) {
+      f.speechTimer = Math.max(0, f.speechTimer - dt);
+      if (f.speechCharIndex < f.speechText.length) {
+        f.speechCharIndex = Math.min(f.speechText.length, f.speechCharIndex + dt * 42);
+      }
+    }
+
+    // Update thrown hay-bale projectiles (adult rematch)
+    if (f.projectiles.length > 0) {
+      f.projectiles.forEach(proj => {
+        proj.vy += 420 * dt;
+        proj.x += proj.vx * dt;
+        proj.y += proj.vy * dt;
+        proj.rotation += (proj.vx >= 0 ? 7 : -7) * dt;
+        proj.life -= dt;
+
+        // Bounce cleanly on the coop yard floor (x: 0..500, y = 480)
+        if (proj.x >= 0 && proj.x <= 500 && proj.y + proj.radius >= 480 && proj.vy > 0) {
+          proj.y = 480 - proj.radius;
+          proj.vy = -Math.abs(proj.vy) * 0.45;
+        }
+
+        // Player hit check
+        const px = this.player.x + this.player.width / 2;
+        const py = this.player.y + this.player.height / 2;
+        const dist = Math.hypot(px - proj.x, py - proj.y);
+        if (dist < proj.radius + this.player.width * 0.45 && this.player.invulnerableTimer <= 0) {
+          if (this.player.isBlocking) {
+            audio.playShieldBlock();
+            proj.vx = -proj.vx * 1.1;
+            proj.vy = -180;
+            proj.life = Math.min(proj.life, 0.35);
+            this.player.invulnerableTimer = 0.4;
+            this.addFloatingText('BLOCKED HAY!', px, this.player.y - 18, '#38bdf8');
+          } else {
+            this.takeDamage(1, proj.vx >= 0 ? 1 : -1);
+            proj.life = 0;
+          }
+        }
+      });
+      f.projectiles = f.projectiles.filter(proj => proj.life > 0 && proj.x > -40 && proj.x < 680);
+    }
+
+    const pCenter = this.player.x + this.player.width / 2;
+    const fCenter = f.x + f.width / 2;
+    const distX = Math.abs(pCenter - fCenter);
+
+    // Growing visit (Juvenile / Teen): Farmer rests right beside the coop nursing his bandaged shin
+    if (f.mode === 'growing_visit') {
+      f.facing = pCenter < fCenter ? 'left' : 'right';
+      if (!f.hasIntroduced && distX < 260) {
+        f.hasIntroduced = true;
+        this.reportEncounter('farmer');
+        this.setFarmerSpeech(
+          f,
+          "Still growing, eh? Come back as a full-grown Adult for a real rematch!",
+          4.8,
+          'gruff'
+        );
+      }
+      return;
+    }
+
+    // Injured (Baby encounter cleared): hobble gently behind the coop, leaving the fence path right completely clear
+    if (f.state === 'injured') {
+      const restX = 24;
+      if (Math.abs(f.x - restX) > 2) {
+        const dir = restX < f.x ? -1 : 1;
+        f.facing = dir < 0 ? 'left' : 'right';
+        f.x = dir < 0 ? Math.max(restX, f.x - 75 * dt) : Math.min(restX, f.x + 75 * dt);
+        this.farmerStepTimer += dt;
+        if (this.farmerStepTimer >= 0.44) {
+          this.farmerStepTimer = 0;
+          const vol = Math.max(0.15, 1 - distX / 520);
+          audio.playFarmerStep(false, vol);
+        }
+      } else {
+        f.x = restX;
+        f.facing = 'right';
+      }
+      return;
+    }
+
+    if (f.state === 'defeated') {
+      return;
+    }
+
+    // Trigger intro speech right next to the coop when the player starts near him
+    if (!f.hasIntroduced && distX < 280) {
+      f.hasIntroduced = true;
+      f.state = 'intro_talk';
+      f.stateTimer = 0;
+      f.facing = pCenter < fCenter ? 'left' : 'right';
+      this.reportEncounter('farmer');
+      if (f.mode === 'baby_encounter') {
+        this.setFarmerSpeech(
+          f,
+          "Hey! Back to the coop, little chick! Press X / K to peck my boots if you dare!",
+          4.2,
+          'gruff'
+        );
+      } else {
+        this.setFarmerSpeech(
+          f,
+          "Well, well—look who grew big feathers! Remember my shin? Rematch time!",
+          4.2,
+          'rematch'
+        );
+      }
+    }
+
+    if (f.state === 'idle') {
+      f.facing = pCenter < fCenter ? 'left' : 'right';
+      return;
+    }
+
+    if (f.state === 'intro_talk') {
+      f.facing = pCenter < fCenter ? 'left' : 'right';
+      if (f.stateTimer >= 1.5) {
+        f.state = 'patrol';
+        f.stateTimer = 0;
+        f.attackCooldown = f.mode === 'adult_rematch' ? 1.1 : 1.8;
+      }
+      return;
+    }
+
+    // Knockback friction right after getting pecked/slashed
+    if (f.hurtTimer > 0) {
+      f.x += f.vx * dt;
+      f.vx *= 0.86;
+      f.x = Math.max(f.patrolLeft, Math.min(f.patrolRight - f.width, f.x));
+      return;
+    }
+
+    const diff = this.saveData.difficulty || 'normal';
+    const speedMult = diff === 'easy' ? 0.8 : (diff === 'hard' ? 1.2 : 1.0);
+    const prevFarmerX = f.x;
+
+    if (f.mode === 'baby_encounter') {
+      // Gentle, readable patrol with slow telegraph hops so a baby chick can safely approach and peck his boots
+      f.facing = pCenter < fCenter ? 'left' : 'right';
+      const walkSpeed = 62 * speedMult;
+      if (distX > 36) {
+        f.vx = (f.facing === 'right' ? 1 : -1) * walkSpeed;
+        f.x += f.vx * dt;
+      } else {
+        f.vx = 0;
+      }
+      f.x = Math.max(f.patrolLeft, Math.min(f.patrolRight - f.width, f.x));
+    } else {
+      // Adult Rematch AI: stride, telegraphed pitchfork lunge, and spinning hay-bale toss!
+      f.attackCooldown -= dt;
+
+      if (f.state === 'patrol') {
+        f.facing = pCenter < fCenter ? 'left' : 'right';
+        const chaseSpeed = 105 * speedMult;
+        if (distX > 64) {
+          f.vx = (f.facing === 'right' ? 1 : -1) * chaseSpeed;
+          f.x += f.vx * dt;
+        } else {
+          f.vx = 0;
+        }
+
+        if (f.attackCooldown <= 0 && distX < 380) {
+          if (distX > 155 && Math.random() < 0.48) {
+            f.state = 'toss';
+            f.stateTimer = 0;
+            f.vx = 0;
+          } else {
+            f.state = 'windup';
+            f.stateTimer = 0;
+            f.vx = 0;
+          }
+        }
+      } else if (f.state === 'windup') {
+        f.facing = pCenter < fCenter ? 'left' : 'right';
+        if (f.stateTimer >= 0.45) {
+          f.state = 'lunge';
+          f.stateTimer = 0;
+          f.vx = (f.facing === 'right' ? 1 : -1) * 290 * speedMult;
+          audio.playFarmerLunge();
+        }
+      } else if (f.state === 'lunge') {
+        f.x += f.vx * dt;
+        if (f.stateTimer >= 0.42) {
+          f.state = 'patrol';
+          f.stateTimer = 0;
+          f.vx = 0;
+          f.attackCooldown = 1.45;
+        }
+      } else if (f.state === 'toss') {
+        f.facing = pCenter < fCenter ? 'left' : 'right';
+        if (f.stateTimer >= 0.35) {
+          const dir = f.facing === 'right' ? 1 : -1;
+          f.projectiles.push({
+            id: `hay_${Date.now()}_${Math.random()}`,
+            x: f.x + f.width / 2 + dir * 16,
+            y: f.y + 22,
+            vx: dir * (210 * speedMult),
+            vy: -200,
+            radius: 12,
+            rotation: 0,
+            life: 2.6,
+          });
+          audio.playFarmerLunge();
+          f.state = 'patrol';
+          f.stateTimer = 0;
+          f.attackCooldown = 1.65;
+        }
+      }
+
+      f.x = Math.max(f.patrolLeft, Math.min(f.patrolRight - f.width, f.x));
+    }
+
+    // Farmer Jed boot-stomp footsteps when striding or lunging
+    if (Math.abs(f.x - prevFarmerX) > 0.25 && distX < 520) {
+      this.farmerStepTimer += dt;
+      const stepCadence = f.state === 'lunge' ? 0.16 : (f.mode === 'adult_rematch' ? 0.28 : 0.36);
+      if (this.farmerStepTimer >= stepCadence) {
+        this.farmerStepTimer = 0;
+        const vol = Math.max(0.18, 1 - distX / 520);
+        audio.playFarmerStep(f.state === 'lunge', vol);
+      }
+    } else {
+      this.farmerStepTimer = 0.15;
+    }
+
+    // Contact collision between Player and Farmer
+    const pitchforkReach = f.state === 'lunge' ? 20 : 0;
+    const hitLeft = f.facing === 'left' ? f.x - pitchforkReach : f.x + 4;
+    const hitRight = f.facing === 'right' ? f.x + f.width + pitchforkReach : f.x + f.width - 4;
+    if (
+      this.player.x < hitRight &&
+      this.player.x + this.player.width > hitLeft &&
+      this.player.y < f.y + f.height &&
+      this.player.y + this.player.height > f.y + 6
+    ) {
+      // Jumping onto Farmer's straw hat bounces you safely!
+      if (this.player.vy > 0 && this.player.y + this.player.height < f.y + 20) {
+        this.player.vy = -380;
+        if (f.mode === 'baby_encounter') {
+          this.setFarmerSpeech(f, "Watch the straw hat! Use X / K to peck my boots!", 2.8, 'gruff');
+        } else {
+          this.damageFarmer(f, 2);
+        }
+      } else if (this.player.invulnerableTimer <= 0) {
+        const knockDir = pCenter >= fCenter ? 1 : -1;
+        if (this.player.isBlocking) {
+          audio.playShieldBlock();
+          this.player.invulnerableTimer = 0.65;
+          this.player.knockbackTimer = 0.14;
+          this.player.vx = knockDir * 170;
+          this.addFloatingText('BLOCKED!', pCenter, this.player.y - 18, '#38bdf8');
+        } else {
+          this.takeDamage(1, knockDir);
+        }
+      }
+    }
   }
 
   private inflictPoison() {
@@ -655,10 +1069,12 @@ export class GameEngine {
     const halfMax = Math.max(0.5, Math.round((this.player.maxHealth * 0.5) * 2) / 2);
     const tickInterval = 1.6;
     const ticks = Math.max(1, Math.ceil(halfMax / 0.5));
+    const totalDuration = ticks * tickInterval;
     this.player.poisonDrainRemaining = halfMax;
     this.player.poisonTickInterval = tickInterval;
     this.player.poisonTickTimer = tickInterval;
-    this.player.poisonTimer = ticks * tickInterval;
+    this.player.poisonTimer = totalDuration;
+    this.player.poisonMaxDuration = totalDuration;
 
     this.addFloatingText('☠ VENOM BITE! POISONED!', this.player.x + this.player.width / 2, this.player.y - 24, '#4ade80');
     for (let i = 0; i < 12; i++) {
@@ -678,6 +1094,7 @@ export class GameEngine {
   private updatePoison(dt: number) {
     if ((this.player.poisonTimer ?? 0) <= 0 || (this.player.poisonDrainRemaining ?? 0) <= 0) {
       this.player.poisonTimer = 0;
+      this.player.poisonMaxDuration = 0;
       this.player.poisonDrainRemaining = 0;
       return;
     }
@@ -715,6 +1132,7 @@ export class GameEngine {
           this.reviveTokenUsed = true;
           this.player.health = this.player.maxHealth;
           this.player.poisonTimer = 0;
+          this.player.poisonMaxDuration = 0;
           this.player.poisonDrainRemaining = 0;
           this.player.invulnerableTimer = 2.5;
           audio.playEvolution();
@@ -723,6 +1141,7 @@ export class GameEngine {
           return;
         }
         this.player.poisonTimer = 0;
+        this.player.poisonMaxDuration = 0;
         this.player.poisonDrainRemaining = 0;
         this.handleGameOver();
         return;
@@ -730,6 +1149,7 @@ export class GameEngine {
 
       if ((this.player.poisonDrainRemaining ?? 0) <= 0) {
         this.player.poisonTimer = 0;
+        this.player.poisonMaxDuration = 0;
       }
     }
   }
@@ -751,6 +1171,10 @@ export class GameEngine {
           this.reportEncounter(enemy.type);
         }
       }
+    }
+
+    if (this.level.farmer && this.level.farmer.x + this.level.farmer.width >= viewLeft && this.level.farmer.x <= viewRight) {
+      this.reportEncounter('farmer');
     }
 
     if (this.level.cockatrice && this.level.cockatrice.defeatSubState !== 'escaped') {
@@ -935,15 +1359,17 @@ export class GameEngine {
         }
       }
 
-      // Footstep sound when walking grounded
+      // Biome & surface-aware footstep sound when walking grounded
       if (p.isGrounded && Math.abs(p.vx) > 30) {
         this.stepTimer += dt;
-        if (this.stepTimer >= 0.28) {
+        const stepInterval = p.stage === 'baby' ? 0.21 : p.stage === 'juvenile' ? 0.24 : p.stage === 'teen' ? 0.26 : 0.28;
+        if (this.stepTimer >= stepInterval) {
           this.stepTimer = 0;
-          audio.playFootstep();
+          const surface = this.getSurfaceAt(p.x + p.width / 2, p.y + p.height + 2);
+          audio.playFootstep(surface, p.stage);
         }
       } else {
-        this.stepTimer = 0.2;
+        this.stepTimer = 0.16;
       }
 
       // Variable jump height handling: holding jump button sustains upward lift
@@ -1069,10 +1495,36 @@ export class GameEngine {
 
     // Check reaching the end of the level (goal area)
     // On the boss level, do NOT play the ending cutscene when reaching the end until the boss is defeated!
+    // On Level 1, Old Farmer Jed guards the coop exit until injured (baby) or defeated (adult rematch)!
     if (p.x >= this.level.exitPoint.x - 20) {
       if (this.level.cockatrice) {
         if (this.level.cockatrice.state === 'defeated') {
           this.handleLevelClear();
+        }
+      } else if (
+        this.level.farmer &&
+        this.level.farmer.state !== 'injured' &&
+        this.level.farmer.state !== 'defeated'
+      ) {
+        p.x = Math.min(p.x, this.level.exitPoint.x - 24);
+        p.vx = Math.min(0, p.vx);
+        if (this.level.farmer.speechTimer <= 0.1) {
+          this.setFarmerSpeech(
+            this.level.farmer,
+            this.level.farmer.mode === 'baby_encounter'
+              ? "Not so fast, runt! Peck my boots (X / K) if you want past!"
+              : "No escaping this rematch! Face my pitchfork!",
+            2.8,
+            'gruff'
+          );
+          this.addFloatingText(
+            this.level.farmer.mode === 'baby_encounter'
+              ? 'PECK FARMER JED BY THE COOP FIRST!'
+              : 'DEFEAT FARMER JED BY THE COOP FIRST!',
+            p.x + p.width / 2,
+            p.y - 26,
+            '#fbbf24'
+          );
         }
       } else {
         this.handleLevelClear();
@@ -1123,10 +1575,11 @@ export class GameEngine {
         p.x + p.width > plat.x + 1 &&
         p.x < plat.x + plat.width - 1
       ) {
-        // Landing on top of platform (generous tolerance for moving platforms, including rising platforms)
-        const snapTolerance = plat.isMoving ? 30 : 16;
+        // Landing on top of platform (crisp settling on static platforms, generous catch on moving platforms)
+        const snapTolerance = plat.isMoving ? 28 : 14;
+        const catchMargin = plat.isMoving ? 6 : 1;
         const isFallingOrCatching = p.vy >= 0 || (plat.isMoving && plat.vy !== undefined && plat.vy < 0);
-        if (isFallingOrCatching && prevY + p.height <= plat.y + snapTolerance && p.y + p.height >= plat.y - 10) {
+        if (isFallingOrCatching && prevY + p.height <= plat.y + snapTolerance && p.y + p.height >= plat.y - catchMargin) {
           p.y = plat.y - p.height;
           p.vy = 0;
           p.isJumping = false;
@@ -1204,6 +1657,7 @@ export class GameEngine {
           v.state = 'erupting';
           v.timer = 0;
           audio.playVolcanoEruption();
+          this.triggerProximityShake(v.x + v.width / 2, v.y, 6.0, 0.28, 520);
           // Spawn lava burst particles
           for (let i = 0; i < 14; i++) {
             v.lavaParticles.push({
@@ -1217,7 +1671,17 @@ export class GameEngine {
             });
           }
         } else if (v.state === 'erupting') {
-          // Update lava particles
+          if (v.timer >= v.eruptionDuration) {
+            v.state = 'cooldown';
+            v.timer = 0;
+          }
+        } else if (v.state === 'cooldown' && v.timer >= 1.5) {
+          v.state = 'inactive';
+          v.timer = 0;
+        }
+
+        // Always settle remaining airborne lava blobs smoothly even during cooldown so they never vanish mid-air
+        if (v.lavaParticles.length > 0) {
           v.lavaParticles.forEach(lp => {
             lp.vy += 380 * dt;
             lp.x += lp.vx * dt;
@@ -1238,14 +1702,6 @@ export class GameEngine {
             }
           });
           v.lavaParticles = v.lavaParticles.filter(lp => lp.life > 0);
-
-          if (v.timer >= v.eruptionDuration) {
-            v.state = 'cooldown';
-            v.timer = 0;
-          }
-        } else if (v.state === 'cooldown' && v.timer >= 1.5) {
-          v.state = 'inactive';
-          v.timer = 0;
         }
 
         // Stepping directly on volcano crater during eruption
@@ -1320,6 +1776,7 @@ export class GameEngine {
             b.isRolling = true;
             this.addDustPuff(b.x, b.y + b.radius, 6);
             audio.playRockSmash();
+            this.triggerProximityShake(b.x, b.y + b.radius, 9.5, 0.34, 640);
           }
           return;
         }
@@ -1344,9 +1801,13 @@ export class GameEngine {
             b.y += b.vy * dt;
           } else if ((b.vy || 0) > 0) {
             // Landed on a lower platform after falling through a gap
+            const impactSpeed = b.vy || 0;
             b.y = supportingPlatform.y - b.radius;
             b.vy = 0;
             this.addDustPuff(b.x, b.y + b.radius, 3);
+            if (impactSpeed > 120) {
+              this.triggerProximityShake(b.x, b.y + b.radius, 6.5, 0.24, 540);
+            }
           } else {
             // Securely rolling along the surface
             b.y = supportingPlatform.y - b.radius;
@@ -1400,18 +1861,22 @@ export class GameEngine {
           th.state = 'striking';
           th.timer = 0;
           audio.playLightning();
-
-          // Damage check inside strike zone
-          const strikeRadius = 34;
+          this.triggerProximityShake(th.targetX, th.targetY, 9.0, 0.32, 620);
+        } else if (th.state === 'striking') {
+          // Active lightning column check throughout strike duration (invulnerableTimer prevents double hits)
+          const strikeRadius = Math.max(28, Math.round(th.width * 0.45));
           if (
+            this.player.invulnerableTimer <= 0 &&
             Math.abs((this.player.x + this.player.width / 2) - th.targetX) < strikeRadius &&
-            this.player.y + this.player.height >= th.targetY - 20
+            this.player.y + this.player.height >= th.y + 20 &&
+            this.player.y <= th.targetY + 12
           ) {
             this.takeDamage(2, 0);
           }
-        } else if (th.state === 'striking' && th.timer >= th.strikeDuration) {
-          th.state = 'cooldown';
-          th.timer = 0;
+          if (th.timer >= th.strikeDuration) {
+            th.state = 'cooldown';
+            th.timer = 0;
+          }
         } else if (th.state === 'cooldown' && th.timer >= 1.5) {
           th.state = 'idle';
           th.timer = 0;
@@ -1448,7 +1913,13 @@ export class GameEngine {
       const distToPlayer = Math.abs(playerCenter - enemyCenter);
 
       // Detection & State AI
-      if (distToPlayer < enemy.detectionRadius && Math.abs(this.player.y - enemy.y) < 80) {
+      const diff = this.saveData.difficulty || 'normal';
+      const speedMult = diff === 'easy' ? 0.75 : (diff === 'hard' ? 1.25 : 1.0);
+
+      if (enemy.hurtTimer > 0) {
+        // Settle knockback smoothly instead of gliding forever
+        enemy.vx *= 0.88;
+      } else if (distToPlayer < enemy.detectionRadius && Math.abs(this.player.y - enemy.y) < 80) {
         if (enemy.state !== 'chase') {
           if (enemy.type === 'wolf') audio.playWolfHowl();
           else if (enemy.type === 'fox') audio.playFoxBark();
@@ -1458,25 +1929,53 @@ export class GameEngine {
         // Chase player
         enemy.state = 'chase';
         enemy.facing = playerCenter > enemyCenter ? 'right' : 'left';
-        const diff = this.saveData.difficulty || 'normal';
-        const speedMult = diff === 'easy' ? 0.75 : (diff === 'hard' ? 1.25 : 1.0);
         enemy.vx = (enemy.facing === 'right' ? enemy.speed * 1.5 : -enemy.speed * 1.5) * speedMult;
       } else {
         enemy.state = 'patrol';
         if (enemy.x <= enemy.patrolLeft) {
           enemy.facing = 'right';
-          enemy.vx = enemy.speed;
         } else if (enemy.x + enemy.width >= enemy.patrolRight) {
           enemy.facing = 'left';
-          enemy.vx = -enemy.speed;
         }
+        // Always restore clean directional patrol velocity (prevents moonwalking or runaway knockback speed)
+        enemy.vx = (enemy.facing === 'right' ? enemy.speed : -enemy.speed) * speedMult;
       }
 
+      const prevEnemyX = enemy.x;
       enemy.x += enemy.vx * dt * 50;
 
       // Platform edge turn-around
       if (enemy.x < enemy.patrolLeft) enemy.x = enemy.patrolLeft;
       if (enemy.x + enemy.width > enemy.patrolRight) enemy.x = enemy.patrolRight - enemy.width;
+
+      // Proximity-attenuated enemy footsteps & snake slithering sounds
+      const enemyMoved = Math.abs(enemy.x - prevEnemyX) > 0.18;
+      if (enemyMoved && enemy.hurtTimer <= 0) {
+        const dist2D = Math.hypot(
+          playerCenter - (enemy.x + enemy.width / 2),
+          (this.player.y + this.player.height / 2) - (enemy.y + enemy.height / 2)
+        );
+        if (dist2D < 460) {
+          const prevT = this.enemyStepTimers.get(enemy.id) ?? 0.2;
+          const nextT = prevT + dt;
+          const cadence =
+            enemy.type === 'snake'
+              ? (enemy.state === 'chase' ? 0.42 : 0.62)
+              : enemy.type === 'fox'
+                ? (enemy.state === 'chase' ? 0.19 : 0.28)
+                : enemy.type === 'bear'
+                  ? (enemy.state === 'chase' ? 0.36 : 0.54)
+                  : (enemy.state === 'chase' ? 0.24 : 0.36);
+          if (nextT >= cadence) {
+            this.enemyStepTimers.set(enemy.id, 0);
+            const vol = Math.max(0.1, (1 - dist2D / 460) * 0.92);
+            const surface = this.getSurfaceAt(enemy.x + enemy.width / 2, enemy.y + enemy.height + 2);
+            audio.playEnemyStep(enemy.type, vol, surface);
+          } else {
+            this.enemyStepTimers.set(enemy.id, nextT);
+          }
+        }
+      }
 
       // Collision with Player
       if (
@@ -1526,6 +2025,21 @@ export class GameEngine {
     });
   }
 
+  private getSurfaceAt(x: number, feetY: number): 'grass' | 'wood' | 'snow' | 'stone' | 'jungle' {
+    const plat = this.level.platforms.find(
+      pl => x >= pl.x - 4 && x <= pl.x + pl.width + 4 && Math.abs(pl.y - feetY) <= 18
+    );
+    if (this.level.theme === 'storm' || this.level.theme === 'snowy') {
+      return plat && (plat.type === 'wood' || plat.type === 'bridge' || plat.type === 'fence') ? 'wood' : 'snow';
+    }
+    if (plat) {
+      if (plat.type === 'wood' || plat.type === 'bridge' || plat.type === 'fence') return 'wood';
+      if (plat.type === 'stone' || plat.type === 'ruins') return 'stone';
+      if (plat.type === 'grass') return this.level.theme === 'jungle' ? 'jungle' : 'grass';
+    }
+    return this.level.theme === 'jungle' ? 'jungle' : 'grass';
+  }
+
   // --- Boss Fight: The Ancient Cockatrice ---
 
   private updateCockatrice(dt: number) {
@@ -1535,6 +2049,21 @@ export class GameEngine {
     boss.animTimer += dt;
     boss.stateTimer += dt;
     if (boss.invulnerableTimer > 0) boss.invulnerableTimer -= dt;
+
+    // Colossal boss ground footsteps when striding or charging across the arena floor
+    if (this.lastBossX !== null && boss.state !== 'defeated' && boss.state !== 'stunned' && boss.state !== 'intro_dialogue') {
+      const movedX = Math.abs(boss.x - this.lastBossX);
+      const nearGround = boss.y + boss.height >= 400;
+      if (nearGround && movedX > 0.9) {
+        this.bossStepTimer += dt;
+        const isCharge = movedX > 4.2;
+        if (this.bossStepTimer >= (isCharge ? 0.25 : 0.42)) {
+          this.bossStepTimer = 0;
+          audio.playBossStep(isCharge, 0.92);
+        }
+      }
+    }
+    this.lastBossX = boss.x;
 
     // Smooth visual HP bar drain ("slowly, not really that slow, just a little fast")
     if (boss.displayHealth === undefined) {
@@ -1709,6 +2238,7 @@ export class GameEngine {
 
         // Switch to peaceful music right at the blinding flash peak as world turns back to normal
         if (prevDefeatTimer < 0.55 && t >= 0.55) {
+          this.triggerScreenShake(16, 0.85);
           audio.playMusic('coop');
         }
 
@@ -2342,6 +2872,7 @@ export class GameEngine {
           boss.bitePlatformId = 'impact_done';
           audio.playBossBiteCrunch();
           audio.playRockSmash();
+          this.triggerScreenShake(12.5, 0.44);
 
           // Spawn crater on this land platform
           if (!boss.bittenLandCraters) boss.bittenLandCraters = [];
@@ -2875,6 +3406,7 @@ export class GameEngine {
 
     this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage);
     this.addDefeatExplosion(boss.x + boss.width / 2, boss.y + boss.height / 2);
+    this.triggerScreenShake(14, 0.72);
     audio.playEnemyDefeat();
     audio.playCockatriceScreech();
     audio.playFightFanfare();
@@ -3465,6 +3997,7 @@ export class GameEngine {
       const wasPoisoned = (this.player.poisonTimer ?? 0) > 0;
       this.player.health = Math.min(this.player.maxHealth, this.player.health + 1);
       this.player.poisonTimer = 0;
+      this.player.poisonMaxDuration = 0;
       this.player.poisonDrainRemaining = 0;
       this.addFloatingText(wasPoisoned ? '+1 HEART! POISON CURED!' : '+1 HEART!', chest.x + chest.width / 2, chest.y - 24, wasPoisoned ? '#4ade80' : '#f43f5e');
     } else if (chest.rewardType === 'iron_armor') {
@@ -3560,6 +4093,7 @@ export class GameEngine {
     this.player.vx = dir * 200;
     this.player.vy = -260;
     audio.playHurt();
+    this.triggerScreenShake(actualDamage >= 2 ? 10 : 6.5, actualDamage >= 2 ? 0.32 : 0.22);
 
     this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage);
 
@@ -3583,6 +4117,7 @@ export class GameEngine {
     this.tookDamageThisLevel = true;
     this.player.health -= 1;
     audio.playHurt();
+    this.triggerScreenShake(7.5, 0.26);
     this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage);
 
     if (this.player.health <= 0) {
@@ -3599,12 +4134,15 @@ export class GameEngine {
       }
     }
 
-    // Respawn at safe checkpoint with firm footing
+    // Respawn at safe checkpoint with firm footing & cure lingering pit poison
     const cp = this.currentCheckpoint || this.level.spawnPoint;
     this.player.x = cp.x;
     this.player.y = cp.y;
     this.player.vx = 0;
     this.player.vy = 0;
+    this.player.poisonTimer = 0;
+    this.player.poisonMaxDuration = 0;
+    this.player.poisonDrainRemaining = 0;
     this.player.onMovingPlatform = null;
     this.player.isJumping = false;
     this.player.isGrounded = true;
@@ -3641,17 +4179,69 @@ export class GameEngine {
     }
   }
 
-  private updateCamera() {
-    const targetX = this.player.x + this.player.width / 2 - this.canvasWidth / 2;
-    const targetY = this.player.y + this.player.height / 2 - this.canvasHeight / 2;
+  public triggerScreenShake(intensity: number, duration: number) {
+    const clampedIntensity = Math.min(18, Math.max(1, intensity));
+    const clampedDuration = Math.max(0.08, duration);
+    if (this.shakeTimer > 0) {
+      const currentStrength = this.shakeIntensity * (this.shakeTimer / Math.max(0.01, this.shakeDuration));
+      if (clampedIntensity >= currentStrength * 0.85) {
+        this.shakeIntensity = Math.max(this.shakeIntensity, clampedIntensity);
+        this.shakeDuration = Math.max(this.shakeTimer, clampedDuration);
+        this.shakeTimer = Math.max(this.shakeTimer, clampedDuration);
+      }
+    } else {
+      this.shakeIntensity = clampedIntensity;
+      this.shakeDuration = clampedDuration;
+      this.shakeTimer = clampedDuration;
+    }
+  }
 
-    // Smooth camera lerp
-    this.camera.x += (targetX - this.camera.x) * 0.12;
-    this.camera.y += (targetY - this.camera.y) * 0.08;
+  private triggerProximityShake(
+    worldX: number,
+    worldY: number,
+    maxIntensity: number,
+    duration: number,
+    maxRange = 580
+  ) {
+    const pCenterX = this.player.x + this.player.width / 2;
+    const pCenterY = this.player.y + this.player.height / 2;
+    const dist = Math.hypot(pCenterX - worldX, pCenterY - worldY);
+    if (dist > maxRange) return;
+    const falloff = 1 - dist / maxRange;
+    const intensity = maxIntensity * (0.28 + 0.72 * falloff);
+    this.triggerScreenShake(intensity, duration);
+  }
 
-    // Clamp within world bounds
-    this.camera.x = Math.max(0, Math.min(this.camera.x, this.level.worldWidth - this.canvasWidth));
-    this.camera.y = Math.max(0, Math.min(this.camera.y, this.level.worldHeight - this.canvasHeight));
+  private updateCamera(dt: number) {
+    const maxCamX = Math.max(0, this.level.worldWidth - this.canvasWidth);
+    const maxCamY = Math.max(0, this.level.worldHeight - this.canvasHeight);
+    const targetX = Math.max(0, Math.min(this.player.x + this.player.width / 2 - this.canvasWidth / 2, maxCamX));
+    const targetY = Math.max(0, Math.min(this.player.y + this.player.height / 2 - this.canvasHeight / 2, maxCamY));
+
+    // Smooth camera lerp on the unshaken base position with crisp sub-pixel settling
+    this.baseCamX += (targetX - this.baseCamX) * 0.14;
+    this.baseCamY += (targetY - this.baseCamY) * 0.1;
+
+    if (Math.abs(targetX - this.baseCamX) < 0.35) this.baseCamX = targetX;
+    if (Math.abs(targetY - this.baseCamY) < 0.35) this.baseCamY = targetY;
+
+    this.baseCamX = Math.max(0, Math.min(this.baseCamX, maxCamX));
+    this.baseCamY = Math.max(0, Math.min(this.baseCamY, maxCamY));
+
+    // Apply decaying high-frequency screen shake offset on top of the settled base camera
+    if (this.shakeTimer > 0) {
+      this.shakeTimer = Math.max(0, this.shakeTimer - dt);
+      const progress = this.shakeTimer / Math.max(0.01, this.shakeDuration);
+      const mag = this.shakeIntensity * progress * progress;
+      this.shakeOffsetX = Math.round((Math.sin(this.time * 68) * 0.65 + (Math.random() * 2 - 1) * 0.35) * mag);
+      this.shakeOffsetY = Math.round((Math.cos(this.time * 57) * 0.65 + (Math.random() * 2 - 1) * 0.35) * mag);
+    } else {
+      this.shakeOffsetX = 0;
+      this.shakeOffsetY = 0;
+    }
+
+    this.camera.x = this.baseCamX + this.shakeOffsetX;
+    this.camera.y = this.baseCamY + this.shakeOffsetY;
   }
 
   // --- Particles & VFX ---

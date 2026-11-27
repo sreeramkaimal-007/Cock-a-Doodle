@@ -185,3 +185,52 @@ canvas {
     4px 100%, 4px calc(100% - 4px), 0 calc(100% - 4px)
   );
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   SNAKE VENOM POISON SCREEN BORDER & VIGNETTE EFFECT
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes poisonEdgePulse {
+  0%, 100% {
+    opacity: 0.48;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes poisonInnerGlowPulse {
+  0%, 100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.poison-screen-vignette {
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 90px rgba(21, 128, 61, 0.62),
+    inset 0 0 34px rgba(34, 197, 94, 0.52),
+    inset 0 0 10px rgba(134, 239, 172, 0.72);
+  animation: poisonEdgePulse 1.3s ease-in-out infinite;
+}
+
+.poison-screen-border {
+  pointer-events: none;
+  border: 5px solid rgba(74, 222, 128, 0.82);
+  box-shadow:
+    inset 0 0 0 3px rgba(20, 83, 45, 0.88),
+    inset 0 0 22px rgba(74, 222, 128, 0.55);
+  animation: poisonInnerGlowPulse 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .poison-screen-vignette,
+  .poison-screen-border {
+    animation: none;
+    opacity: 0.78;
+  }
+}
+

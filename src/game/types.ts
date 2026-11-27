@@ -62,6 +62,7 @@ export interface PlayerState {
   onMovingPlatform: Platform | null;
   fireResistTimer?: number;
   poisonTimer?: number;
+  poisonMaxDuration?: number;
   poisonTickTimer?: number;
   poisonTickInterval?: number;
   poisonDrainRemaining?: number;
@@ -147,6 +148,7 @@ export interface VolcanoHazard {
   cooldownDuration: number;
   lavaParticles: VolcanoLavaParticle[];
   isDead?: boolean;
+  styleVariant?: number;
 }
 
 export interface BoulderHazard {
@@ -184,6 +186,7 @@ export interface ThundercloudHazard {
   cooldownDuration: number;
   isPeaceful?: boolean;
   isNormal?: boolean;
+  styleVariant?: number;
 }
 
 export type EnemyType = 'wolf' | 'fox' | 'bear' | 'snake';
@@ -361,6 +364,45 @@ export interface SilkieSamFriend {
   wingAngle: number;
 }
 
+export interface FarmerProjectile {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  rotation: number;
+  life: number;
+}
+
+export interface FarmerMiniBoss {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  width: number;
+  height: number;
+  patrolLeft: number;
+  patrolRight: number;
+  facing: 'left' | 'right';
+  health: number;
+  maxHealth: number;
+  displayHealth: number;
+  mode: 'baby_encounter' | 'growing_visit' | 'adult_rematch';
+  state: 'idle' | 'intro_talk' | 'patrol' | 'windup' | 'lunge' | 'toss' | 'hurt' | 'injured' | 'defeated';
+  stateTimer: number;
+  attackCooldown: number;
+  hurtTimer: number;
+  animTimer: number;
+  speechText: string;
+  speechTimer: number;
+  speechCharIndex: number;
+  hasIntroduced: boolean;
+  hasMidFightLine: boolean;
+  projectiles: FarmerProjectile[];
+}
+
 export interface LevelConfig {
   id: number;
   world: number;
@@ -380,6 +422,7 @@ export interface LevelConfig {
   boulders?: BoulderHazard[];
   thunderclouds?: ThundercloudHazard[];
   enemies?: Enemy[];
+  farmer?: FarmerMiniBoss;
   cockatrice?: CockatriceBoss;
   spikes?: { x: number; y: number; width: number; height: number }[];
   hint?: string;

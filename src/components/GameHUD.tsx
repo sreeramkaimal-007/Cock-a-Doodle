@@ -15,6 +15,7 @@ interface GameHUDProps {
   sword: SwordType;
   fireResistTimer?: number;
   poisonTimer?: number;
+  poisonMaxDuration?: number;
   soundEnabled: boolean;
   musicEnabled: boolean;
   showTouchControls: boolean;
@@ -63,6 +64,40 @@ export const PixelFlameIcon: React.FC<{ className?: string }> = ({ className = '
 
     {/* White-Hot Flame Core Spark */}
     <rect x="4" y="7" width="1" height="1" fill="#ffffff" />
+  </svg>
+);
+
+// Retro 8-bit Pixelated Snake Venom Drop Icon Component
+const PixelPoisonIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg
+    viewBox="0 0 10 10"
+    className={className}
+    style={{ shapeRendering: 'crispEdges' }}
+    aria-hidden="true"
+  >
+    {/* Dark forest outline */}
+    <rect x="4" y="0" width="2" height="1" fill="#052e16" />
+    <rect x="3" y="1" width="1" height="2" fill="#052e16" />
+    <rect x="6" y="1" width="1" height="2" fill="#052e16" />
+    <rect x="2" y="3" width="1" height="2" fill="#052e16" />
+    <rect x="7" y="3" width="1" height="2" fill="#052e16" />
+    <rect x="1" y="5" width="1" height="3" fill="#052e16" />
+    <rect x="8" y="5" width="1" height="3" fill="#052e16" />
+    <rect x="2" y="8" width="1" height="1" fill="#052e16" />
+    <rect x="7" y="8" width="1" height="1" fill="#052e16" />
+    <rect x="3" y="9" width="4" height="1" fill="#052e16" />
+
+    {/* Rich emerald venom body */}
+    <rect x="4" y="1" width="2" height="2" fill="#22c55e" />
+    <rect x="3" y="3" width="4" height="2" fill="#16a34a" />
+    <rect x="2" y="5" width="6" height="3" fill="#16a34a" />
+    <rect x="3" y="8" width="4" height="1" fill="#15803d" />
+
+    {/* Glowing lime highlight */}
+    <rect x="4" y="2" width="1" height="2" fill="#86efac" />
+    <rect x="3" y="4" width="2" height="2" fill="#4ade80" />
+    <rect x="3" y="5" width="1" height="1" fill="#ecfccb" />
+    <rect x="6" y="6" width="1" height="1" fill="#a3e635" />
   </svg>
 );
 
@@ -258,6 +293,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   sword,
   fireResistTimer = 0,
   poisonTimer = 0,
+  poisonMaxDuration = 0,
   soundEnabled,
   musicEnabled,
   showTouchControls,
@@ -272,15 +308,36 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 }) => {
   const isFireResistActive = fireResistTimer > 0;
   const isPoisoned = poisonTimer > 0;
+  const poisonBaseDuration = Math.max(poisonMaxDuration, poisonTimer, 0.1);
+  const poisonPercent = isPoisoned ? Math.max(0, Math.min(100, (poisonTimer / poisonBaseDuration) * 100)) : 0;
 
   return (
-    <div className="absolute top-0 left-0 right-0 pt-5 sm:pt-7 md:pt-8 px-3.5 sm:px-6 md:px-8 flex flex-col gap-2 pointer-events-none select-none z-20">
+    <>
+      {/* Full-Screen Pulsating Toxic-Green Border & Vignette Overlay while Poisoned */}
+      {isPoisoned && (
+        <div
+          className="fixed inset-0 pointer-events-none select-none z-10 overflow-hidden"
+          aria-hidden="true"
+        >
+          {/* Soft pulsating green edge vignette */}
+          <div className="absolute inset-0 poison-screen-vignette" />
+          {/* Crisp 8-bit pulsating toxic-emerald border frame */}
+          <div className="absolute inset-0 poison-screen-border" />
+          {/* 8-bit pixel corner accents */}
+          <div className="absolute top-0 left-0 w-7 h-7 sm:w-9 sm:h-9 border-t-[5px] border-l-[5px] border-lime-300/90 poison-screen-vignette" />
+          <div className="absolute top-0 right-0 w-7 h-7 sm:w-9 sm:h-9 border-t-[5px] border-r-[5px] border-lime-300/90 poison-screen-vignette" />
+          <div className="absolute bottom-0 left-0 w-7 h-7 sm:w-9 sm:h-9 border-b-[5px] border-l-[5px] border-lime-300/90 poison-screen-vignette" />
+          <div className="absolute bottom-0 right-0 w-7 h-7 sm:w-9 sm:h-9 border-b-[5px] border-r-[5px] border-lime-300/90 poison-screen-vignette" />
+        </div>
+      )}
+
+      <div className="absolute top-0 left-0 right-0 pt-5 sm:pt-7 md:pt-8 px-3.5 sm:px-6 md:px-8 flex flex-col gap-2 pointer-events-none select-none z-20">
       {/* Top Primary Row: Hearts & Buff on Left, Coin & Action Buttons on Right */}
       <div className="w-full flex items-center justify-between">
         {/* Hearts & Status Buff Container */}
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div className="pointer-events-auto flex items-center flex-wrap gap-2">
           {/* Hearts Container - Chunky 8-Bit Pixel Frame */}
-          <div className={`flex items-center gap-1.5 sm:gap-2 bg-slate-900 border-[3px] ${isPoisoned ? 'border-emerald-500' : 'border-black'} px-2.5 sm:px-3 py-1.5 shadow-[3px_3px_0_#000000]`}>
+          <div className={`flex items-center gap-1.5 sm:gap-2 bg-slate-900 border-[3px] ${isPoisoned ? 'border-emerald-400 shadow-[3px_3px_0_#052e16]' : 'border-black shadow-[3px_3px_0_#000000]'} px-2.5 sm:px-3 py-1.5`}>
             {Array.from({ length: maxHealth }).map((_, i) => {
               const fillState: 'full' | 'half' | 'empty' =
                 health >= i + 1 ? 'full' : (health >= i + 0.5 ? 'half' : 'empty');
@@ -295,18 +352,30 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             })}
           </div>
 
-          {/* Active Snake Venom Poison Status Indicator */}
+          {/* Active Snake Venom Poison Status & Countdown Timer */}
           {isPoisoned && (
             <div
-              className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-950 to-lime-950 border-[3px] border-black px-2 sm:px-2.5 py-1 shadow-[3px_3px_0_#000000]"
+              role="status"
+              aria-live="polite"
+              className="flex flex-col gap-1 bg-gradient-to-r from-emerald-950 via-green-950 to-lime-950 border-[3px] border-emerald-400 px-2.5 sm:px-3 py-1 shadow-[3px_3px_0_#000000] whitespace-nowrap"
               title="Poisoned by Jungle Viper venom: slowly draining half of your health!"
             >
-              <span className="font-pixel-arcade text-[8px] sm:text-[9px] text-emerald-400 font-bold tracking-tight drop-shadow-[0_1px_0_#052e16]">
-                POISONED
-              </span>
-              <span className="font-pixel-arcade text-[9px] sm:text-[10px] text-lime-300 font-bold tabular-nums drop-shadow-[0_1px_0_#052e16]">
-                {Math.ceil(poisonTimer)}s
-              </span>
+              <div className="flex items-center gap-1.5">
+                <PixelPoisonIcon className="w-4 h-4 shrink-0" />
+                <span className="font-pixel-arcade text-[8px] sm:text-[9px] text-emerald-300 font-bold tracking-tight drop-shadow-[0_1px_0_#052e16]">
+                  POISONED
+                </span>
+                <span className="font-pixel-arcade text-[9.5px] sm:text-[10.5px] text-lime-200 font-bold tabular-nums drop-shadow-[0_1px_0_#052e16]">
+                  {poisonTimer.toFixed(1)}s
+                </span>
+              </div>
+              {/* 8-bit depleting poison countdown bar */}
+              <div className="w-full h-1.5 bg-slate-950 border border-emerald-900 overflow-hidden">
+                <div
+                  className="w-full h-full origin-left bg-gradient-to-r from-emerald-500 via-green-400 to-lime-300 transition-transform duration-100 ease-linear"
+                  style={{ transform: `scaleX(${poisonPercent / 100})` }}
+                />
+              </div>
             </div>
           )}
 
@@ -494,6 +563,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 };

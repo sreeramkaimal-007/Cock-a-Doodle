@@ -43,6 +43,7 @@ export default function App() {
   const [playerStage, setPlayerStage] = useState<GrowthStage>('baby');
   const [playerFireResistTimer, setPlayerFireResistTimer] = useState<number>(0);
   const [playerPoisonTimer, setPlayerPoisonTimer] = useState<number>(0);
+  const [playerPoisonMaxDuration, setPlayerPoisonMaxDuration] = useState<number>(0);
   const [showTouchControls, setShowTouchControls] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024;
@@ -464,6 +465,7 @@ export default function App() {
 
     setPlayerFireResistTimer(0);
     setPlayerPoisonTimer(0);
+    setPlayerPoisonMaxDuration(0);
 
     const currentSave = loadSaveData();
     // When starting a new run or entering level 1, only reset equipment if player is not an evolved chicken!
@@ -924,7 +926,7 @@ export default function App() {
       if (prev.hasClaimedBossReward) return prev;
       return {
         ...prev,
-        totalCoins: prev.totalCoins + 1000000,
+        totalCoins: prev.totalCoins + 1000,
         hasClaimedBossReward: true,
       };
     });
@@ -932,7 +934,7 @@ export default function App() {
     void showAdMobInterstitial({
       reason: 'achievement_victory',
       title: 'Grand Champion Reward Claimed!',
-      subtitle: '1,000,000 Gold Boss Bounty Unlocked',
+      subtitle: '1,000 Pellet Coins & Secret Skin Unlocked',
     });
   }, [updateSaveData]);
 
@@ -1265,28 +1267,14 @@ export default function App() {
 
         // Starting Chicken Coop: ONLY appears on Level 1, and never floats (firmly on ground platform)
         if (engine.level.id === 1) {
-          renderer.renderStartingCoop(engine.level.spawnPoint, engine.camera, engine.time, engine.level.platforms);
-
-          // Silkie Sam Shop Stand Outside: ONLY on Level 1 with Level 1 joke progression (silent on revisits!)
-          const hasRewardSkin = Boolean(saveData.unlockedSkins?.includes('thanksgiving_roast'));
-          const isClosed = Boolean(!saveData.hasCompletedGame && saveData.shopClosedUntil && Date.now() < saveData.shopClosedUntil);
-          const samLevel1Speech = engine.samLevel1State === 'line1'
-            ? 'guess what...'
-            : (engine.samLevel1State === 'line2' ? '67 :p' : null);
-          renderer.renderSilkieSamOutsideShop(
-            engine.player,
-            engine.camera,
-            engine.time,
-            Boolean(saveData.hasCompletedGame),
-            hasRewardSkin,
-            isClosed,
-            Boolean(saveData.hasVisitedShop),
-            samLevel1Speech
-          );
+          renderer.renderStartingCoop(engine.level.spawnPoint, engine.camera, engine.time, engine.level.platforms, engine.player);
         }
 
         // Platforms
         engine.level.platforms.forEach(p => renderer.renderPlatform(p, engine.camera, engine.level.enemies, engine.level.theme, isSkyBlue));
+
+        // Interactive swinging farm gates inside fence gaps (react when chicken walks/jumps through!)
+        renderer.renderFenceGates(engine.level.platforms, engine.player, engine.camera, engine.time);
 
         // Spikes Obstacles
         if (engine.level.spikes) {
@@ -1318,6 +1306,11 @@ export default function App() {
           engine.level.enemies.forEach(e => renderer.renderEnemy(e, engine.camera, engine.level.theme));
         }
 
+        // Mini-Boss: Old Farmer Jed (Level 1 baby peck encounter & adult rematch)
+        if (engine.level.farmer) {
+          renderer.renderFarmer(engine.level.farmer, engine.camera, engine.time);
+        }
+
         // Player Chick with armor, sword, and equipped appearance skin
         renderer.renderPlayer(engine.player, engine.camera, engine.time, engine.armorType, engine.swordType, { skin: saveData.selectedSkin || 'classic' });
 
@@ -1337,6 +1330,9 @@ export default function App() {
         if (engine.level.silkieSam) {
           renderer.renderSilkieSam(engine.level.silkieSam, engine.camera, engine.time);
         }
+
+        // Biome-specific ambient atmospheric effects (pollen, fireflies, arctic glints, embers/petals)
+        renderer.renderBiomeAmbientEffects(engine.level.theme, engine.camera, engine.time, isSkyBlue);
 
         // Particles & Floating Text
         renderer.renderParticles(engine.particles, engine.camera);
@@ -1359,13 +1355,16 @@ export default function App() {
         });
 
         const currentPoison = engine.player.poisonTimer ?? 0;
+        const currentPoisonMax = engine.player.poisonMaxDuration ?? 0;
         setPlayerPoisonTimer(prev => {
           if (prev === 0 && currentPoison === 0) return prev;
-          if (Math.abs(prev - currentPoison) < 0.05 && Math.ceil(prev) === Math.ceil(currentPoison)) {
+          if (currentPoison === 0 || prev === 0) return currentPoison;
+          if (Math.floor(prev * 10) === Math.floor(currentPoison * 10)) {
             return prev;
           }
           return currentPoison;
         });
+        setPlayerPoisonMaxDuration(prev => (prev === currentPoisonMax ? prev : currentPoisonMax));
       }
 
       reqAnimRef.current = requestAnimationFrame(loop);
@@ -1446,6 +1445,7 @@ export default function App() {
             sword={saveData.sword}
             fireResistTimer={playerFireResistTimer}
             poisonTimer={playerPoisonTimer}
+            poisonMaxDuration={playerPoisonMaxDuration}
             soundEnabled={saveData.soundEnabled}
             musicEnabled={saveData.musicEnabled}
             showTouchControls={showTouchControls}

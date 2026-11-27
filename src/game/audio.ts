@@ -717,27 +717,97 @@ class AudioManager {
 
   // --- Player Sound Effects ---
 
-  public playFootstep() {
+  public playFootstep(
+    surface: 'grass' | 'wood' | 'snow' | 'stone' | 'jungle' = 'grass',
+    stage: 'egg' | 'baby' | 'juvenile' | 'teen' | 'adult' = 'baby'
+  ) {
     if (!this.soundEnabled) return;
     this.initContext();
     if (!this.ctx || !this.sfxGain) return;
 
     const now = this.ctx.currentTime;
+    const stagePitch = (stage === 'egg' || stage === 'baby') ? 1.38 : stage === 'juvenile' ? 1.18 : stage === 'teen' ? 1.04 : 0.9;
+    const jitter = 0.92 + Math.random() * 0.16;
+
+    // 1. Primary foot tap body
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
+    let baseFreq = 190;
+    let endFreq = 72;
+    let dur = 0.055;
+    let vol = 0.2;
 
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(140 + Math.random() * 40, now);
-    osc.frequency.exponentialRampToValueAtTime(50, now + 0.05);
+    if (surface === 'wood') {
+      osc.type = 'triangle';
+      baseFreq = 310;
+      endFreq = 115;
+      dur = 0.05;
+      vol = 0.24;
+    } else if (surface === 'stone') {
+      osc.type = 'triangle';
+      baseFreq = 420;
+      endFreq = 165;
+      dur = 0.042;
+      vol = 0.22;
+    } else if (surface === 'snow') {
+      osc.type = 'sine';
+      baseFreq = 165;
+      endFreq = 65;
+      dur = 0.062;
+      vol = 0.18;
+    } else if (surface === 'jungle') {
+      osc.type = 'sine';
+      baseFreq = 210;
+      endFreq = 80;
+      dur = 0.06;
+      vol = 0.2;
+    } else {
+      osc.type = 'triangle';
+      baseFreq = 185;
+      endFreq = 68;
+      dur = 0.052;
+      vol = 0.2;
+    }
 
-    gain.gain.setValueAtTime(0.08, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+    osc.frequency.setValueAtTime(baseFreq * stagePitch * jitter, now);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(35, endFreq * stagePitch), now + dur);
+
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(vol, now + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
 
     osc.connect(gain);
     gain.connect(this.sfxGain);
-
     osc.start(now);
-    osc.stop(now + 0.05);
+    osc.stop(now + dur + 0.01);
+
+    // 2. Crisp surface texture brush/crunch noise
+    const noiseDur = surface === 'snow' ? 0.052 : 0.032;
+    const len = Math.floor(this.ctx.sampleRate * noiseDur);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const env = Math.pow(1 - i / len, surface === 'snow' ? 1.6 : 2.3);
+      data[i] = (Math.random() * 2 - 1) * env;
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(
+      surface === 'snow' ? 2900 : surface === 'stone' ? 2400 : surface === 'wood' ? 1400 : surface === 'jungle' ? 1650 : 1350,
+      now
+    );
+    filter.Q.setValueAtTime(surface === 'snow' ? 1.4 : 2.1, now);
+
+    const nGain = this.ctx.createGain();
+    nGain.gain.setValueAtTime(surface === 'snow' ? 0.22 : 0.14, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + noiseDur);
+
+    noise.connect(filter);
+    filter.connect(nGain);
+    nGain.connect(this.sfxGain);
+    noise.start(now);
   }
 
   public playShieldBlock() {
@@ -1198,14 +1268,82 @@ class AudioManager {
     osc.type = 'sine';
     osc.frequency.setValueAtTime(280, now);
     osc.frequency.exponentialRampToValueAtTime(160, now + 0.14);
-
     gain.gain.setValueAtTime(0.22, now);
-    gain.gain.exponentialRampToValueAtTime(0.008, now + 0.15);
-
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.14);
     osc.connect(gain);
     gain.connect(this.sfxGain);
     osc.start(now);
-    osc.stop(now + 0.15);
+    osc.stop(now + 0.14);
+  }
+
+  // 4. FARMER MINI-BOSS (Gruff barnyard speech, shin-peck yelp & pitchfork lunge)
+  public playFarmerSpeech(tone: 'gruff' | 'ouch' | 'rematch' | 'defeat' = 'gruff') {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const patterns: Record<typeof tone, number[]> = {
+      gruff: [155, 185, 145, 170],
+      ouch: [290, 390, 210, 175],
+      rematch: [140, 165, 200, 150, 190],
+      defeat: [205, 175, 145, 115],
+    };
+    const notes = patterns[tone];
+    notes.forEach((freq, i) => {
+      if (!this.ctx || !this.sfxGain) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const t = now + i * 0.085;
+      osc.type = tone === 'ouch' ? 'sawtooth' : 'square';
+      osc.frequency.setValueAtTime(freq, t);
+      osc.frequency.linearRampToValueAtTime(freq * (tone === 'ouch' ? 1.18 : 0.92), t + 0.07);
+      gain.gain.setValueAtTime(0.24, t);
+      gain.gain.exponentialRampToValueAtTime(0.008, t + 0.08);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(t);
+      osc.stop(t + 0.085);
+    });
+  }
+
+  public playFarmerHurt() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(240, now);
+    osc.frequency.linearRampToValueAtTime(360, now + 0.06);
+    osc.frequency.exponentialRampToValueAtTime(135, now + 0.22);
+    gain.gain.setValueAtTime(0.36, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.23);
+  }
+
+  public playFarmerLunge() {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(420, now);
+    osc.frequency.exponentialRampToValueAtTime(140, now + 0.18);
+    gain.gain.setValueAtTime(0.32, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.19);
   }
 
   // --- Cockatrice Boss Sound Effects ---
@@ -1792,6 +1930,341 @@ class AudioManager {
       osc.start(now);
       osc.stop(now + 0.65);
     });
+  }
+
+  public playGateLatch(isOpening: boolean) {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // 1. Crisp metallic brass latch click transient
+    const clickTime = isOpening ? now : now + 0.022;
+    const clickOsc = this.ctx.createOscillator();
+    const clickGain = this.ctx.createGain();
+    clickOsc.type = 'triangle';
+    if (isOpening) {
+      clickOsc.frequency.setValueAtTime(1760, clickTime);
+      clickOsc.frequency.exponentialRampToValueAtTime(920, clickTime + 0.024);
+    } else {
+      clickOsc.frequency.setValueAtTime(1380, clickTime);
+      clickOsc.frequency.exponentialRampToValueAtTime(720, clickTime + 0.026);
+    }
+    clickGain.gain.setValueAtTime(0.001, clickTime);
+    clickGain.gain.linearRampToValueAtTime(0.28, clickTime + 0.003);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, clickTime + 0.028);
+    clickOsc.connect(clickGain);
+    clickGain.connect(this.sfxGain);
+    clickOsc.start(clickTime);
+    clickOsc.stop(clickTime + 0.032);
+
+    // 2. Short bandpass-filtered noise snap for tactile mechanical click crispness
+    const snapLen = Math.floor(this.ctx.sampleRate * 0.018);
+    const snapBuffer = this.ctx.createBuffer(1, snapLen, this.ctx.sampleRate);
+    const snapData = snapBuffer.getChannelData(0);
+    for (let i = 0; i < snapLen; i++) {
+      const env = Math.pow(1 - i / snapLen, 2.5);
+      snapData[i] = (Math.random() * 2 - 1) * env;
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = snapBuffer;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(isOpening ? 2800 : 2200, clickTime);
+    filter.Q.setValueAtTime(2.6, clickTime);
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.32, clickTime);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, clickTime + 0.018);
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    noise.start(clickTime);
+
+    // 3. Subtle hollow cedar wood clack (follows latch on open, precedes latch snap on close)
+    const woodTime = isOpening ? now + 0.02 : now;
+    const woodOsc = this.ctx.createOscillator();
+    const woodGain = this.ctx.createGain();
+    woodOsc.type = 'sine';
+    if (isOpening) {
+      woodOsc.frequency.setValueAtTime(440, woodTime);
+      woodOsc.frequency.exponentialRampToValueAtTime(220, woodTime + 0.042);
+    } else {
+      woodOsc.frequency.setValueAtTime(340, woodTime);
+      woodOsc.frequency.exponentialRampToValueAtTime(155, woodTime + 0.046);
+    }
+    woodGain.gain.setValueAtTime(0.001, woodTime);
+    woodGain.gain.linearRampToValueAtTime(0.24, woodTime + 0.004);
+    woodGain.gain.exponentialRampToValueAtTime(0.001, woodTime + 0.048);
+    woodOsc.connect(woodGain);
+    woodGain.connect(this.sfxGain);
+    woodOsc.start(woodTime);
+    woodOsc.stop(woodTime + 0.052);
+  }
+
+  public playEnemyStep(
+    type: 'wolf' | 'fox' | 'bear' | 'snake',
+    volumeScale = 1.0,
+    surface: 'grass' | 'wood' | 'snow' | 'stone' | 'jungle' = 'grass'
+  ) {
+    if (!this.soundEnabled || volumeScale <= 0.04) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const v = Math.min(1, Math.max(0.05, volumeScale));
+
+    if (type === 'snake') {
+      // Smooth scale-glide slither rustle across mossy jungle leaves
+      const dur = 0.19;
+      const len = Math.floor(this.ctx.sampleRate * dur);
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        const t = i / len;
+        const env = Math.sin(t * Math.PI);
+        const ripple = 0.72 + 0.28 * Math.sin(t * Math.PI * 6);
+        data[i] = (Math.random() * 2 - 1) * env * ripple;
+      }
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buf;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(1450 + Math.random() * 250, now);
+      filter.frequency.linearRampToValueAtTime(2750, now + dur * 0.45);
+      filter.frequency.exponentialRampToValueAtTime(1180, now + dur);
+      filter.Q.setValueAtTime(3.2, now);
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.24 * v, now + 0.035);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.sfxGain);
+      noise.start(now);
+      return;
+    }
+
+    const jitter = 0.92 + Math.random() * 0.16;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    if (type === 'bear') {
+      // Heavy weighty ursine thump
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(98 * jitter, now);
+      osc.frequency.exponentialRampToValueAtTime(36, now + 0.13);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.32 * v, now + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } else if (type === 'fox') {
+      // Quick nimble fox paw tap
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(225 * jitter, now);
+      osc.frequency.exponentialRampToValueAtTime(88, now + 0.045);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.16 * v, now + 0.003);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.048);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.052);
+    } else {
+      // Wolf padded paw step
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(155 * jitter, now);
+      osc.frequency.exponentialRampToValueAtTime(58, now + 0.065);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.2 * v, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.075);
+    }
+
+    // Subtle ground crunch layer
+    const nDur = type === 'bear' ? 0.07 : 0.032;
+    const len = Math.floor(this.ctx.sampleRate * nDur);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.0);
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(surface === 'snow' ? 2600 : type === 'bear' ? 750 : 1550, now);
+    filter.Q.setValueAtTime(1.8, now);
+    const nGain = this.ctx.createGain();
+    nGain.gain.setValueAtTime((type === 'bear' ? 0.2 : 0.12) * v, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + nDur);
+    noise.connect(filter);
+    filter.connect(nGain);
+    nGain.connect(this.sfxGain);
+    noise.start(now);
+  }
+
+  public playFarmerStep(isLunge = false, volumeScale = 1.0) {
+    if (!this.soundEnabled || volumeScale <= 0.04) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const v = Math.min(1, Math.max(0.08, volumeScale));
+    const jitter = 0.93 + Math.random() * 0.14;
+
+    // Sturdy leather farm-boot stomp
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime((isLunge ? 148 : 122) * jitter, now);
+    osc.frequency.exponentialRampToValueAtTime(44, now + 0.085);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime((isLunge ? 0.3 : 0.23) * v, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.092);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.1);
+
+    // Boot-sole turf grit
+    const len = Math.floor(this.ctx.sampleRate * 0.042);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1250, now);
+    filter.Q.setValueAtTime(1.6, now);
+    const nGain = this.ctx.createGain();
+    nGain.gain.setValueAtTime((isLunge ? 0.19 : 0.13) * v, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.042);
+    noise.connect(filter);
+    filter.connect(nGain);
+    nGain.connect(this.sfxGain);
+    noise.start(now);
+  }
+
+  public playBossStep(isHeavy = false, volumeScale = 1.0) {
+    if (!this.soundEnabled || volumeScale <= 0.04) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const v = Math.min(1, Math.max(0.1, volumeScale));
+
+    // Colossal Cockatrice talon thud
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(isHeavy ? 96 : 78, now);
+    osc.frequency.exponentialRampToValueAtTime(28, now + 0.18);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime((isHeavy ? 0.42 : 0.3) * v, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.22);
+
+    // Scaly claw scrape burst
+    const len = Math.floor(this.ctx.sampleRate * 0.075);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.8);
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(920, now);
+    filter.Q.setValueAtTime(1.5, now);
+    const nGain = this.ctx.createGain();
+    nGain.gain.setValueAtTime((isHeavy ? 0.24 : 0.16) * v, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+    noise.connect(filter);
+    filter.connect(nGain);
+    nGain.connect(this.sfxGain);
+    noise.start(now);
+  }
+
+  public playWildlifeChime(kind: 'sheep' | 'monkey' | 'hare' | 'insect') {
+    if (!this.soundEnabled) return;
+    this.initContext();
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    if (kind === 'sheep') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(280, now);
+      osc.frequency.linearRampToValueAtTime(320, now + 0.08);
+      osc.frequency.linearRampToValueAtTime(245, now + 0.28);
+      const lfo = this.ctx.createOscillator();
+      const lfoGain = this.ctx.createGain();
+      lfo.frequency.setValueAtTime(18, now);
+      lfoGain.gain.setValueAtTime(16, now);
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+      lfo.start(now);
+      lfo.stop(now + 0.3);
+      gain.gain.setValueAtTime(0.14, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.31);
+    } else if (kind === 'monkey') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(640, now);
+      osc.frequency.exponentialRampToValueAtTime(1260, now + 0.07);
+      osc.frequency.exponentialRampToValueAtTime(780, now + 0.14);
+      osc.frequency.exponentialRampToValueAtTime(1380, now + 0.21);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.23);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.24);
+    } else if (kind === 'hare') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(420, now);
+      osc.frequency.exponentialRampToValueAtTime(680, now + 0.06);
+      osc.frequency.exponentialRampToValueAtTime(340, now + 0.13);
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } else {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(980, now);
+      osc.frequency.exponentialRampToValueAtTime(1320, now + 0.09);
+      osc.frequency.exponentialRampToValueAtTime(1100, now + 0.18);
+      gain.gain.setValueAtTime(0.14, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.21);
+    }
   }
 
   public stopMusic() {
