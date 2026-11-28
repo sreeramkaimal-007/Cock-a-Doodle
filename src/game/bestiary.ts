@@ -342,7 +342,7 @@ export const BESTIARY_ENTRIES: BestiaryEntry[] = [
     biomes: ['World 5 · Arctic Peaks'],
     behavior: 'Drifts overhead, locks a pulsing beam onto the ledge below, and discharges a multi-branch forked bolt.',
     weakness: 'Sidestep during the warning shimmer right before the forked lightning strikes the ground.',
-    specialAbility: 'Spawns in small, medium, and wide storm cells across 3 electrified color palettes with ground shockwaves.',
+    specialAbility: 'Spawns in small, medium, and wide charcoal storm cells charged with yellow lightning and ground shockwaves.',
     scaleClass: 'Overhead Cell · 54–86W',
     dangerRating: 4,
     lore: 'Brooding cumulonimbus squalls infused with the Cockatrice’s tempest magic. Unlike ordinary mountain weather, these dark cells drift overhead, lock a targeting beam onto travelers below, and unleash blinding forked bolts of lightning.',
@@ -350,14 +350,9 @@ export const BESTIARY_ENTRIES: BestiaryEntry[] = [
     discoveryHint: 'Brave the gale in Stage 20 (World 5: The Arctic Lands) to encounter a Stormcloud.',
     backdropGradient: 'linear-gradient(180deg, #020617 0%, #0f172a 55%, #1e293b 100%)',
     groundColor: '#1e293b',
-    groundTrimColor: '#38bdf8',
-    accentColor: '#38bdf8',
+    groundTrimColor: '#facc15',
+    accentColor: '#facc15',
     trackDefeats: false,
-    colorVariants: [
-      { name: 'Indigo Cyan', swatch: '#38bdf8' },
-      { name: 'Violet Amethyst', swatch: '#c084fc' },
-      { name: 'Charcoal Solar Gold', swatch: '#facc15' },
-    ],
   },
 
   // ─── BACKGROUND WILDLIFE ───

@@ -262,7 +262,7 @@ const BestiarySpriteCanvas: React.FC<{
           strikeDuration: 0.7,
           warningDuration: 1.5,
           cooldownDuration: 1.2,
-          styleVariant: variant === 'hero' ? colorVariantIndex % 3 : 1,
+          styleVariant: 0,
         };
         ctx.save();
         ctx.translate(width / 2 - 50 * s, height / 2 - 54 * s);
@@ -284,19 +284,31 @@ const BestiarySpriteCanvas: React.FC<{
           }
         );
       } else if (entryId === 'monkey') {
-        const s = variant === 'hero' ? (isBaby ? 3.2 : 2.85) : 0.92;
+        const s = variant === 'hero' ? (isBaby ? 3.45 : 3.0) : 0.98;
+        const cx = width / 2;
+        const cy = height / 2 + (variant === 'hero' ? 12 : 4);
+        const branchY = cy + (isBaby ? 7.2 : 9.6) * s;
+        const branchHalfW = (variant === 'hero' ? 54 : 18);
+        const branchH = Math.max(4, Math.round(3.6 * s));
+
+        // Crisp high-res jungle perch branch behind monkey feet
         ctx.save();
-        ctx.translate(width / 2, height / 2 + (variant === 'hero' ? 18 : 6));
-        ctx.scale(flipped ? -s : s, s);
+        ctx.fillStyle = '#09090b';
+        ctx.fillRect(Math.round(cx - branchHalfW - 2), Math.round(branchY - 1.5), branchHalfW * 2 + 4, branchH + 3);
         ctx.fillStyle = '#451a03';
-        ctx.fillRect(-20, 11, 40, 4);
+        ctx.fillRect(Math.round(cx - branchHalfW), Math.round(branchY), branchHalfW * 2, branchH);
         ctx.fillStyle = '#78350f';
-        ctx.fillRect(-18, 11, 36, 2);
-        renderer.renderJungleMonkey(14, -4, time, false, 1, false, colorVariantIndex, {
+        ctx.fillRect(Math.round(cx - branchHalfW + 3), Math.round(branchY), branchHalfW * 2 - 6, Math.max(2, Math.round(branchH * 0.48)));
+        ctx.restore();
+
+        renderer.renderJungleMonkey(cx, cy, time, false, 1, false, colorVariantIndex, {
           isBaby,
           activity: 'squeak',
+          facingDir: flipped ? -1 : 1,
+          skipBranchOffset: true,
+          scale: s,
+          hideChirpText: true,
         });
-        ctx.restore();
       } else if (entryId === 'hare') {
         const scale = variant === 'hero' ? (isBaby ? 3.5 : 3.2) : 1.0;
         ctx.save();

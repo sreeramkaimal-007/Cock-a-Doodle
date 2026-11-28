@@ -84,7 +84,8 @@ export class GameRenderer {
     anchorX: number,
     anchorY: number,
     drawFn: (ctx: CanvasRenderingContext2D) => void,
-    thickness: number = 1.75
+    thickness: number = 1.75,
+    smoothBlit: boolean = false
   ) {
     if (this.isInsideOutline || typeof document === 'undefined') {
       drawFn(targetCtx);
@@ -120,7 +121,14 @@ export class GameRenderer {
       cached = { canvas: stampCanvas, anchorX: anchorX + pad, anchorY: anchorY + pad };
       this.spriteStampCache.set(cacheKey, cached);
     }
-    targetCtx.drawImage(cached.canvas, Math.round(-cached.anchorX), Math.round(-cached.anchorY));
+    if (smoothBlit) {
+      const prevSmooth = targetCtx.imageSmoothingEnabled;
+      targetCtx.imageSmoothingEnabled = true;
+      targetCtx.drawImage(cached.canvas, -cached.anchorX, -cached.anchorY);
+      targetCtx.imageSmoothingEnabled = prevSmooth;
+    } else {
+      targetCtx.drawImage(cached.canvas, Math.round(-cached.anchorX), Math.round(-cached.anchorY));
+    }
   }
 
   /**
@@ -500,19 +508,31 @@ export class GameRenderer {
       activity?: 'squeak' | 'climb' | 'walk' | 'eat' | 'rest';
       facingDir?: 1 | -1;
       skipBranchOffset?: boolean;
+      scale?: number;
+      hideChirpText?: boolean;
     }
   ) {
     const ctx = this.ctx;
+    const scale = options?.scale ?? 1;
+    const s = Math.max(0.75, Math.abs(scale));
+    const bw = Math.ceil(116 * s);
+    const bh = Math.ceil(116 * s);
+    const outlineThickness = Math.max(1.4, Math.min(2.3, 1.6 * Math.sqrt(s)));
     ctx.save();
     ctx.translate(tx, ty);
     this.drawCartoonOutlined(
       ctx,
-      116,
-      116,
-      58,
-      62,
-      () => this._renderJungleMonkey(0, 0, time, isScared, treeIndex, isCheering, variantIndex, options),
-      1.6
+      bw,
+      bh,
+      Math.ceil(bw / 2),
+      Math.ceil(bh * 0.54),
+      (octx) => {
+        octx.save();
+        if (scale !== 1) octx.scale(scale, scale);
+        this._renderJungleMonkey(0, 0, time, isScared, treeIndex, isCheering, variantIndex, options);
+        octx.restore();
+      },
+      outlineThickness
     );
     ctx.restore();
   }
@@ -530,6 +550,8 @@ export class GameRenderer {
       activity?: 'squeak' | 'climb' | 'walk' | 'eat' | 'rest';
       facingDir?: 1 | -1;
       skipBranchOffset?: boolean;
+      scale?: number;
+      hideChirpText?: boolean;
     }
   ) {
     const ctx = this.ctx;
@@ -911,20 +933,22 @@ export class GameRenderer {
       ctx.arc(7, -8 + wave, 1.6, 0, Math.PI * 2);
       ctx.fill();
 
-      // Floating playful squeak chirps ("eek!" / "ooh!" / ♪)
-      const squeakPulse = (time * 1.4 + treeIndex * 0.7) % 2.2;
-      if (squeakPulse < 1.35) {
-        const rise = squeakPulse * 8;
-        const alpha = Math.sin((squeakPulse / 1.35) * Math.PI);
-        ctx.save();
-        ctx.scale(facing, 1); // ensure readable text regardless of facing
-        ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-        ctx.font = isBaby ? '700 7px "Silkscreen", monospace' : '700 8px "Silkscreen", monospace';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#fef08a';
-        const chirpLabel = isBaby ? 'pip!♪' : ((treeIndex % 2 === 0) ? 'eek!♪' : 'ooh!♪');
-        ctx.fillText(chirpLabel, 0, headY - 12 - rise);
-        ctx.restore();
+      // Floating playful squeak chirps ("eek!" / "ooh!" / ♪) — omitted in Bestiary profile for clarity
+      if (!options?.hideChirpText) {
+        const squeakPulse = (time * 1.4 + treeIndex * 0.7) % 2.2;
+        if (squeakPulse < 1.35) {
+          const rise = squeakPulse * 8;
+          const alpha = Math.sin((squeakPulse / 1.35) * Math.PI);
+          ctx.save();
+          ctx.scale(facing, 1); // ensure readable text regardless of facing
+          ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+          ctx.font = isBaby ? '700 7px "Silkscreen", monospace' : '700 8px "Silkscreen", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#fef08a';
+          const chirpLabel = isBaby ? 'pip!♪' : ((treeIndex % 2 === 0) ? 'eek!♪' : 'ooh!♪');
+          ctx.fillText(chirpLabel, 0, headY - 12 - rise);
+          ctx.restore();
+        }
       }
     } else if (activity === 'climb') {
       // Alternating climbing arms gripping trunk
@@ -6530,55 +6554,21 @@ export class GameRenderer {
       return;
     }
 
-    const styleIdx = ((th.styleVariant ?? this.hashVariant(th.id, 3)) % 3 + 3) % 3;
-    const stormPalettes = [
-      // 0: Tempest Indigo & Electric Cyan Plasma
-      {
-        base: '#0f172a',
-        baseFlash: '#334155',
-        top: '#1e1b4b',
-        topFlash: '#4f46e5',
-        belly: '#0e7490',
-        rain: 'rgba(56, 189, 248, 0.28)',
-        boltGlow: 'rgba(34, 211, 238, 0.72)',
-        boltMid: '#38bdf8',
-        boltCore: '#ecfeff',
-        warnRing: '#22d3ee',
-        warnFill: 'rgba(34, 211, 238, 0.25)',
-        spark: '#67e8f9',
-      },
-      // 1: Violet Supercell & Amethyst Forked Arcs
-      {
-        base: '#1e1033',
-        baseFlash: '#4c1d95',
-        top: '#2e1065',
-        topFlash: '#6d28d9',
-        belly: '#7e22ce',
-        rain: 'rgba(192, 132, 252, 0.28)',
-        boltGlow: 'rgba(192, 132, 252, 0.78)',
-        boltMid: '#e879f9',
-        boltCore: '#fdf4ff',
-        warnRing: '#d946ef',
-        warnFill: 'rgba(217, 70, 239, 0.26)',
-        spark: '#f5d0fe',
-      },
-      // 2: Stormfront Charcoal-Teal & Solar Gold Lightning
-      {
-        base: '#111c24',
-        baseFlash: '#2d4554',
-        top: '#1b2e3b',
-        topFlash: '#426175',
-        belly: '#b45309',
-        rain: 'rgba(250, 204, 21, 0.24)',
-        boltGlow: 'rgba(250, 204, 21, 0.76)',
-        boltMid: '#fbbf24',
-        boltCore: '#fefce8',
-        warnRing: '#facc15',
-        warnFill: 'rgba(250, 204, 21, 0.26)',
-        spark: '#fef08a',
-      },
-    ];
-    const sp = stormPalettes[styleIdx];
+    const sp = {
+      // Stormfront Charcoal Cloud & Bright Yellow Lightning
+      base: '#111c24',
+      baseFlash: '#2d4554',
+      top: '#1b2e3b',
+      topFlash: '#426175',
+      belly: '#eab308',
+      rain: 'rgba(253, 224, 71, 0.24)',
+      boltGlow: 'rgba(250, 204, 21, 0.8)',
+      boltMid: '#facc15',
+      boltCore: '#fef08a',
+      warnRing: '#facc15',
+      warnFill: 'rgba(250, 204, 21, 0.26)',
+      spark: '#fde047',
+    };
 
     // 1. Multi-layered stormy anvil cloud with distinct color & size
     const flash = th.state === 'striking' || (th.state === 'warning' && Math.sin(time * 22) > 0.45);
@@ -6665,9 +6655,10 @@ export class GameRenderer {
       const jitterStep = Math.floor(time * 28);
       const pts: { x: number; y: number }[] = [{ x: tx, y: startY }];
       const segments = 6;
+      const boltSeed = this.hashVariant(th.id, 7);
       for (let i = 1; i < segments; i++) {
         const frac = i / segments;
-        const swing = Math.sin(jitterStep * 2.7 + i * 3.1 + styleIdx * 1.9) * (16 + (th.width - 54) * 0.14);
+        const swing = Math.sin(jitterStep * 2.7 + i * 3.1 + boltSeed * 1.9) * (16 + (th.width - 54) * 0.14);
         pts.push({ x: tx + swing, y: startY + totalH * frac });
       }
       pts.push({ x: tx, y: ty });
@@ -15575,11 +15566,13 @@ export class GameRenderer {
 
       // Colorful real-life Sea Starfish clinging inside ONLY SOME of the ocean kelp beds!
       if (Math.abs(k * 7 + 3) % 3 === 0) {
-        const swayX = Math.sin((time + k * 0.65) * 2.2) * 2.8;
+        const kelpT = time + k * 0.65;
         const starSide = k % 2 === 0 ? -10 : 11;
         const starLift = k % 2 === 0 ? -24 : -17;
+        const kelpWave = Math.sin(kelpT * 2.4) + Math.sin(kelpT * (2.4 * 0.53) + 1.1) * 0.25;
+        const swayX = kelpWave * 0.115 * Math.abs(starLift);
         ctx.save();
-        ctx.translate(Math.round(starSide + swayX), starLift);
+        ctx.translate(starSide + swayX, starLift);
         ctx.rotate((k % 2 === 0 ? -0.24 : 0.28) + Math.sin(time * 1.6 + k) * 0.05);
         this.drawStarfishSprite(ctx, time + k, 0.95, Math.abs(k) % 4);
         ctx.restore();
@@ -15687,16 +15680,13 @@ export class GameRenderer {
 
       const treeScale = Math.max(2.3, tree.height / 42);
       const variantIdx = tree.variant === 'palm' ? 0 : 1;
-      const bw = Math.ceil(98 * treeScale);
-      const bh = Math.ceil(116 * treeScale);
-      this.drawCartoonOutlined(
+      this.drawPlantSprite(
         ctx,
-        bw,
-        bh,
-        Math.ceil(bw / 2),
-        Math.ceil(bh - 16 * treeScale),
-        (octx) => this._drawPlantSprite(octx, 'coastal_tree', time, treeScale, variantIdx),
-        2.1
+        'coastal_tree',
+        tree.state === 'fallen' ? 0 : time + tree.x * 0.01,
+        treeScale,
+        variantIdx,
+        false
       );
 
       ctx.restore();
@@ -17209,12 +17199,12 @@ export class GameRenderer {
     const s = Math.max(0.75, Math.abs(scale));
     const bw = Math.ceil(74 * s);
     const bh = Math.ceil(96 * s);
-    const swayFrames = 6;
-    const rawPhase = ((animTime * 1.8) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
-    const swayIdx = Math.floor((rawPhase / (Math.PI * 2)) * swayFrames) % swayFrames;
-    const snappedAnimTime = ((swayIdx / swayFrames) * Math.PI * 2) / 1.8;
     const scaleBucket = Math.round(s * 20);
-    const cacheKey = `cactus_${variant}_${hasFlower ? 1 : 0}_${scaleBucket}_${swayIdx}`;
+    const cacheKey = `cactus_${variant}_${hasFlower ? 1 : 0}_${scaleBucket}`;
+    ctx.save();
+    // Silky-smooth 60fps desert breeze sway anchored cleanly at cactus roots (y = 0)
+    const shearX = -Math.sin(animTime * 1.8) * 0.02;
+    ctx.transform(1, 0, shearX, 1, 0, 0);
     this.drawCachedOutlinedStamp(
       ctx,
       cacheKey,
@@ -17222,9 +17212,11 @@ export class GameRenderer {
       bh,
       Math.ceil(bw / 2),
       Math.ceil(bh - 14 * s),
-      (octx) => this._drawCactusSprite(octx, snappedAnimTime, scale, variant, hasFlower),
-      Math.max(1.45, Math.min(2.4, 1.65 * Math.sqrt(s)))
+      (octx) => this._drawCactusSprite(octx, 0, scale, variant, hasFlower),
+      Math.max(1.45, Math.min(2.4, 1.65 * Math.sqrt(s))),
+      true
     );
+    ctx.restore();
   }
 
   private _drawCactusSprite(
@@ -17492,15 +17484,29 @@ export class GameRenderer {
     const s = Math.max(0.75, Math.abs(scale));
     const bw = Math.ceil(98 * s);
     const bh = Math.ceil(116 * s);
-    // Bake & cache outlined plant stamps across 8 smooth wind-sway frames for silky 60fps performance with zero lag!
-    const swayFrames = 8;
-    const rawPhase = ((animTime * 2.2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
-    const swayIdx = Math.floor((rawPhase / (Math.PI * 2)) * swayFrames) % swayFrames;
-    const snappedAnimTime = ((swayIdx / swayFrames) * Math.PI * 2) / 2.2;
     const scaleBucket = Math.round(s * 20);
     const vBucket = Math.abs(variantIndex) % 3;
-    const cacheKey = `plant_${plantId}_${vBucket}_${scaleBucket}_${swayIdx}`;
+    // Cache ONE crisp outlined plant stamp & drive wind sway with a hardware-accelerated 60fps root-anchored shear!
+    const cacheKey = `plant_${plantId}_${vBucket}_${scaleBucket}`;
 
+    const windAmp =
+      plantId === 'sea_kelp_coral' ? 0.115 :
+      plantId === 'grass_wildflower' ? 0.09 :
+      plantId === 'meadow_sunflower' ? 0.08 :
+      plantId === 'jungle_fern' ? 0.08 :
+      plantId === 'jungle_palm' || plantId === 'coastal_tree' ? 0.055 :
+      plantId === 'volcanic_ember_bush' ? 0.05 :
+      plantId === 'desert_oasis_shrub' ? 0.045 :
+      0.038;
+    const windSpeed = plantId === 'sea_kelp_coral' ? 2.4 : 2.0;
+    const wave = Math.sin(animTime * windSpeed) + Math.sin(animTime * (windSpeed * 0.53) + 1.1) * 0.25;
+    const shearX = -wave * windAmp;
+    const breathY = plantId === 'volcanic_ember_bush'
+      ? 1 + Math.sin(animTime * 4.2) * 0.028
+      : 1 + Math.cos(animTime * windSpeed * 2) * (windAmp * 0.12);
+
+    ctx.save();
+    ctx.transform(1, 0, shearX, breathY, 0, 0);
     this.drawCachedOutlinedStamp(
       ctx,
       cacheKey,
@@ -17508,9 +17514,11 @@ export class GameRenderer {
       bh,
       Math.ceil(bw / 2),
       Math.ceil(bh - 16 * s),
-      (octx) => this._drawPlantSprite(octx, plantId, snappedAnimTime, scale, variantIndex),
-      Math.max(1.5, Math.min(2.5, 1.65 * Math.sqrt(s)))
+      (octx) => this._drawPlantSprite(octx, plantId, 0, scale, variantIndex),
+      Math.max(1.5, Math.min(2.5, 1.65 * Math.sqrt(s))),
+      true
     );
+    ctx.restore();
   }
 
   private _drawPlantSprite(
@@ -17868,7 +17876,7 @@ export class GameRenderer {
       ctx.moveTo(9, -14); ctx.lineTo(17, -16); ctx.lineTo(8, -10); ctx.closePath(); ctx.fill();
 
       // Glowing ember blossoms pulsing gently
-      const pulse = 0.85 + Math.sin(animTime * 5.2) * 0.2;
+      const pulse = animTime === 0 ? 1.0 : 0.85 + Math.sin(animTime * 5.2) * 0.2;
       const buds = [
         { x: -14 + sway * 0.4, y: -27, r: 5.2 * pulse },
         { x: sway * 0.6, y: -34, r: 6.2 * pulse },

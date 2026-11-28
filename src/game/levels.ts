@@ -229,7 +229,6 @@ function lightning(id: string, x: number, y: number, targetX: number, targetY: n
   const h = hashId(id);
   const widths = [54, 70, 86];
   const width = widths[h % widths.length];
-  const styleVariant = Math.floor(h / 3) % 3;
   return {
     id,
     x,
@@ -242,7 +241,7 @@ function lightning(id: string, x: number, y: number, targetX: number, targetY: n
     warningDuration: warning,
     strikeDuration: strike,
     cooldownDuration: cool,
-    styleVariant,
+    styleVariant: 0,
   };
 }
 
