@@ -22,6 +22,8 @@ import {
 import { PrivacyPolicyModal } from './PrivacyPolicyModal';
 import { BestiaryView } from './BestiaryView';
 import { PixelEmoteIcon } from './PixelEmoteIcons';
+import { FastTravelPanel } from './FastTravelPanel';
+import { BossRushHighScores, formatBossRushTime } from './BossRushHighScores';
 
 interface ModalProps {
   currentScreen: GameScreen;
@@ -34,6 +36,11 @@ interface ModalProps {
   onDismissFoundBadge?: () => void;
   onStartGame: (levelId?: number, watchIntro?: boolean) => void;
   onStartNewRun?: () => void;
+  onStartBossRush?: () => void;
+  bossRushBonusCoins?: number;
+  bossRushClearTimeMs?: number | null;
+  bossRushScoreStatus?: 'idle' | 'saving' | 'saved' | 'error' | 'unverified';
+  isBossRush?: boolean;
   onSelectGender: (gender: ChickenGender) => void;
   onResume: () => void;
   onRestartLevel: () => void;
@@ -962,6 +969,10 @@ export const GameModals: React.FC<ModalProps> = ({
   onDismissFoundBadge,
   onStartGame,
   onStartNewRun,
+  onStartBossRush,
+  bossRushBonusCoins = 0,
+  bossRushClearTimeMs = null,
+  bossRushScoreStatus = 'idle',
   onSelectGender,
   onResume,
   onRestartLevel,
@@ -1673,6 +1684,49 @@ export const GameModals: React.FC<ModalProps> = ({
               </button>
             )}
 
+            {/* FAST TRAVEL PANEL (Unlocked for players who completed the game) */}
+            <FastTravelPanel
+              unlockedLevel={saveData.unlockedLevel}
+              activeLevelId={activeLevelId}
+              hasCompletedGame={Boolean(saveData.hasCompletedGame || saveData.hasFinishedEntireGame)}
+              onJumpToLevel={onSelectLevel}
+            />
+
+            {/* BOSS RUSH MODE BUTTON (Unlocked after defeating the final boss) */}
+            {Boolean(saveData.hasCompletedGame || saveData.hasFinishedEntireGame) && onStartBossRush && (
+              <button
+                type="button"
+                onClick={() => {
+                  audio.playFightFanfare();
+                  onStartBossRush();
+                }}
+                className="w-full min-h-[48px] py-2.5 px-4 bg-gradient-to-b from-rose-950/95 via-slate-900/95 to-slate-950 hover:from-rose-900/95 hover:via-slate-800/95 hover:to-slate-900 border-2 border-rose-500/85 hover:border-amber-400 shadow-[0_3px_0_#020617] active:translate-y-0.5 active:shadow-[0_1px_0_#020617] transition-all flex items-center justify-between gap-2 cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 bg-rose-500/15 border border-rose-400/60 flex items-center justify-center shrink-0">
+                    <Flame className="w-4 h-4 text-rose-400 stroke-[2.4]" />
+                  </div>
+                  <div className="text-left min-w-0">
+                    <div className="text-[10px] sm:text-[11px] font-pixel-arcade font-bold text-rose-200 truncate">
+                      BOSS RUSH MODE
+                    </div>
+                    <div className="text-[8px] font-pixel-arcade text-amber-300/90 tabular-nums truncate">
+                      2 BOSSES · +650 BONUS COINS
+                    </div>
+                  </div>
+                </div>
+                <span className="text-[9px] font-pixel-arcade text-yellow-300 font-bold whitespace-nowrap shrink-0">
+                  FIGHT →
+                </span>
+              </button>
+            )}
+
+            {/* BOSS RUSH HIGH SCORES (Persistent Top 5 Fastest Clear Times via Firestore) */}
+            <BossRushHighScores
+              currentUser={currentUser}
+              defaultExpanded={Boolean(saveData.hasCompletedGame || saveData.hasFinishedEntireGame)}
+            />
+
             {/* 2. CHICKEN GENDER CUSTOMIZER BUTTON */}
             <button
               onClick={() => onOpenScreen('GENDER_SELECT')}
@@ -1806,7 +1860,7 @@ export const GameModals: React.FC<ModalProps> = ({
                 </span>
               </div>
               <span className="text-[9px] font-pixel-arcade text-slate-400 tabular-nums">
-                30 STAGES
+                40 STAGES
               </span>
             </button>
 
@@ -1908,22 +1962,24 @@ export const GameModals: React.FC<ModalProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                   {w.levels.map(lvlId => {
                     const isUnlocked = lvlId <= saveData.unlockedLevel;
-                    const isCurrent = lvlId === activeLevelId;
-                    const lvlData = LEVELS.find(l => l.id === lvlId);
+                    const isBossAlreadyDefeated = lvlId === 30 && Boolean(saveData.hasCompletedGame);
+                    const isDisabled = !isUnlocked || isBossAlreadyDefeated;
+                    const isCurrent = lvlId === activeLevelId && !isBossAlreadyDefeated;
 
                     return (
                       <button
                         key={lvlId}
-                        disabled={!isUnlocked}
-                        onClick={() => onSelectLevel(lvlId)}
+                        disabled={isDisabled}
+                        onClick={() => !isDisabled && onSelectLevel(lvlId)}
+                        title={isBossAlreadyDefeated ? 'Boss already defeated — press New Run to fight again' : undefined}
                         className={`p-3 rounded-xl border-[2px] text-left transition-all relative ${
-                          isUnlocked
+                          !isDisabled
                             ? 'bg-slate-800 hover:bg-slate-700 border-black shadow-[0_3px_0_#000000] active:translate-y-[2px] active:shadow-[0_1px_0_#000000] cursor-pointer'
                             : 'bg-slate-950/80 border-slate-900 opacity-50 cursor-not-allowed'
                         } ${isCurrent ? 'ring-2 ring-yellow-400 !border-yellow-400' : ''}`}
                       >
                         <div className="flex items-center justify-between mb-1">
-                          <span className={`font-pixel-arcade text-xs font-bold ${isUnlocked ? 'text-yellow-400 drop-shadow-[0_1px_0_#000]' : 'text-slate-600'}`}>
+                          <span className={`font-pixel-arcade text-xs font-bold ${!isDisabled ? 'text-yellow-400 drop-shadow-[0_1px_0_#000]' : 'text-slate-500'}`}>
                             LVL {lvlId}
                           </span>
                           {!isUnlocked ? (
@@ -1933,7 +1989,7 @@ export const GameModals: React.FC<ModalProps> = ({
                           )}
                         </div>
                         <p className="text-[10px] font-pixel-arcade text-slate-300 truncate">
-                          {isUnlocked ? 'Stage Ready' : 'Locked'}
+                          {!isUnlocked ? 'Locked' : isBossAlreadyDefeated ? 'Defeated · New Run' : 'Stage Ready'}
                         </p>
                       </button>
                     );
@@ -2972,6 +3028,96 @@ export const GameModals: React.FC<ModalProps> = ({
     );
   }
 
+  // --- Boss Rush Victory Screen ---
+  if (currentScreen === 'BOSS_RUSH_VICTORY') {
+    const earnedTotal = bossRushBonusCoins > 0 ? bossRushBonusCoins : 650;
+    return wrapWithPopup(
+      <div className="absolute inset-0 bg-slate-950/88 backdrop-blur-md flex flex-col items-center justify-center p-4 z-40 overflow-y-auto">
+        <div className="w-full max-w-md bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 border-2 border-amber-400 rounded-3xl p-6 sm:p-7 flex flex-col items-center text-center shadow-[0_0_65px_rgba(244,63,94,0.35)]">
+          <div className="w-12 h-12 bg-rose-950/90 border-2 border-amber-400 flex items-center justify-center mb-3 shadow-[0_3px_0_#020617]">
+            <Trophy className="w-6 h-6 text-yellow-300" />
+          </div>
+
+          <p className="font-pixel-arcade text-[9px] text-rose-300 tracking-wider mb-1">
+            GAUNTLET COMPLETE · 2 / 2 BOSSES
+          </p>
+          <h2 className="font-pixel-arcade text-lg sm:text-xl text-yellow-300 drop-shadow-[0_3px_0_#3b1302] mb-2">
+            BOSS RUSH CONQUERED!
+          </h2>
+          <p className="font-body text-slate-300 text-xs sm:text-sm mb-5 leading-relaxed">
+            You defeated both Old Farmer Jed and the Ancient Cockatrice back-to-back and claimed the Boss Rush coin bounty!
+          </p>
+
+          {/* Boss Defeat, Clear Time & Bonus Coin Breakdown */}
+          <div className="w-full bg-slate-950/85 border-2 border-slate-800 p-3.5 mb-5 space-y-2.5 text-left">
+            {bossRushClearTimeMs !== null && (
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <span className="font-pixel-arcade text-[9px] text-cyan-300 font-bold">CLEAR TIME</span>
+                <span className="font-pixel-arcade text-xs text-emerald-300 font-bold tabular-nums">
+                  {formatBossRushTime(bossRushClearTimeMs)}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
+              <span className="font-body font-semibold text-slate-200">Round 1 · Old Farmer Jed</span>
+              <span className="font-pixel-arcade text-[10px] text-amber-300 font-bold tabular-nums">+150 COINS</span>
+            </div>
+            <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
+              <span className="font-body font-semibold text-slate-200">Round 2 · Ancient Cockatrice</span>
+              <span className="font-pixel-arcade text-[10px] text-amber-300 font-bold tabular-nums">+500 COINS</span>
+            </div>
+            <div className="flex items-center justify-between pt-0.5">
+              <span className="font-pixel-arcade text-[9px] text-emerald-400 font-bold">TOTAL BONUS EARNED</span>
+              <span className="font-pixel-arcade text-xs text-yellow-300 font-bold tabular-nums">+{earnedTotal} COINS</span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <span className="font-body">Your Wallet Total</span>
+              <span className="font-pixel-arcade text-[10px] text-slate-200 tabular-nums">{saveData.totalCoins} COINS</span>
+            </div>
+            {bossRushScoreStatus !== 'idle' && (
+              <div className="pt-2 border-t border-slate-800 text-center text-[11px] font-body">
+                {bossRushScoreStatus === 'saving' && (
+                  <span className="text-slate-400">Saving clear time to Boss Rush Leaderboard...</span>
+                )}
+                {bossRushScoreStatus === 'saved' && (
+                  <span className="text-emerald-400 font-medium">Clear time saved to Boss Rush High Scores!</span>
+                )}
+                {bossRushScoreStatus === 'error' && (
+                  <span className="text-rose-300">Could not sync time to leaderboard right now.</span>
+                )}
+                {bossRushScoreStatus === 'unverified' && (
+                  <span className="text-slate-400">Sign in with a verified account to post times to the leaderboard.</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="w-full flex flex-col gap-2.5">
+            {onStartBossRush && (
+              <button
+                type="button"
+                onClick={() => {
+                  audio.playFightFanfare();
+                  onStartBossRush();
+                }}
+                className="w-full min-h-[46px] py-3 px-4 bg-gradient-to-b from-yellow-300 via-amber-400 to-amber-500 hover:from-yellow-200 hover:via-amber-300 hover:to-amber-400 text-slate-950 font-pixel-arcade text-[10px] sm:text-xs font-bold border-2 border-amber-700 shadow-[0_3px_0_#78350f] active:translate-y-0.5 active:shadow-none transition-all cursor-pointer whitespace-nowrap"
+              >
+                PLAY BOSS RUSH AGAIN
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onReturnToMenu}
+              className="w-full min-h-[42px] py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-slate-100 font-pixel-arcade text-[10px] font-bold border-2 border-slate-700 hover:border-amber-400 shadow-[0_3px_0_#020617] active:translate-y-0.5 active:shadow-none transition-all cursor-pointer whitespace-nowrap"
+            >
+              MAIN MENU
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // --- Grand Finale "TO BE CONTINUED..." Sign Screen (Level 40 Completion) ---
   if (currentScreen === 'VICTORY') {
     return wrapWithPopup(
@@ -3026,8 +3172,14 @@ export const GameModals: React.FC<ModalProps> = ({
           {/* Final Navigation Actions */}
           <div className="w-full flex flex-col gap-2.5">
             <button
+              onClick={() => onStartGame(1, false)}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 font-bold font-pixel text-xs tracking-wide shadow-lg transition-all cursor-pointer"
+            >
+              PLAY AGAIN FROM LEVEL 1 (AS ADULT)
+            </button>
+            <button
               onClick={() => onStartGame(40, false)}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-500 hover:from-sky-300 hover:to-cyan-400 text-slate-950 font-bold font-pixel text-xs tracking-wide shadow-lg transition-all cursor-pointer"
+              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-500 hover:from-sky-300 hover:to-cyan-400 text-slate-950 font-bold font-pixel text-xs tracking-wide shadow-lg transition-all cursor-pointer"
             >
               REPLAY LEVEL 40 (PECKERIN COAST)
             </button>
@@ -3184,43 +3336,7 @@ export const GameModals: React.FC<ModalProps> = ({
         desc: 'Apex crystalline blade dealing 6x lethal strike damage',
         icon: <Sword className="w-5 h-5 text-cyan-300 stroke-[2.5]" />,
         cost: 80,
-        isMaxed: currentSword === 'diamond',
-      },
-      {
-        id: 'diamond_armor',
-        type: 'armor' as const,
-        tierValue: 'diamond',
-        title: 'Diamond Cuirass',
-        desc: 'Apex crystalline armor granting 75% damage mitigation',
-        icon: <Shield className="w-5 h-5 text-cyan-300 stroke-[2.5]" />,
-        cost: (saveData.unlockedArmors || []).includes('diamond') ? 0 : 90,
-        isMaxed: currentArmor === 'diamond',
-        isEquipOnly: (saveData.unlockedArmors || []).includes('diamond') && currentArmor !== 'diamond',
-      },
-      {
-        id: 'netherite_armor',
-        type: 'armor' as const,
-        tierValue: 'netherite',
-        title: 'Netherite Featherplate',
-        desc: 'Forged volcanic obsidian armor with molten rune trim (80% tank defense — also buried in Desert dig mounds!)',
-        icon: <Shield className="w-5 h-5 text-purple-400 fill-stone-900 stroke-[2.5]" />,
-        cost: (saveData.unlockedArmors || []).includes('netherite') ? 0 : 140,
-        isMaxed: currentArmor === 'netherite',
-        isEquipOnly: (saveData.unlockedArmors || []).includes('netherite') && currentArmor !== 'netherite',
-      },
-      {
-        id: 'coral_armor',
-        type: 'armor' as const,
-        tierValue: 'coral',
-        title: 'Coral Reef Armor',
-        desc: (saveData.unlockedArmors || []).includes('coral') || currentArmor === 'coral'
-          ? 'Vibrant coral-pink & sea-glass turquoise reef armor that guards your raft from rocks & Sharks!'
-          : 'Hidden inside Sea Rock Chests in World 8: Peckerin Coast! Sail close to the chest rock to discover it.',
-        icon: <Shield className="w-5 h-5 text-rose-400 fill-teal-400/60 stroke-[2.5]" />,
-        cost: 0,
-        isMaxed: currentArmor === 'coral',
-        isLockedDiscovery: !(saveData.unlockedArmors || []).includes('coral') && currentArmor !== 'coral',
-        isEquipOnly: (saveData.unlockedArmors || []).includes('coral') && currentArmor !== 'coral',
+        isMaxed: currentSword === 'diamond' || (saveData.unlockedSwords || []).includes('diamond'),
       },
     ];
 
@@ -3544,20 +3660,8 @@ export const GameModals: React.FC<ModalProps> = ({
                       <div className="pt-2.5 border-t border-slate-800 flex items-center justify-between gap-2">
                         {item.isMaxed ? (
                           <span className="text-[9px] font-pixel-arcade text-emerald-300 font-bold px-2.5 py-2 bg-emerald-950/70 border border-emerald-500/70 w-full text-center">
-                            {item.type === 'armor' ? '✓ EQUIPPED' : '✓ MAXED OUT'}
+                            ✓ MAXED OUT
                           </span>
-                        ) : (item as any).isLockedDiscovery ? (
-                          <span className="text-[8px] font-pixel-arcade text-rose-300 font-bold px-2.5 py-2 bg-rose-950/60 border border-rose-500/60 w-full text-center">
-                            FIND IN W8 SEA ROCK CHEST
-                          </span>
-                        ) : (item as any).isEquipOnly ? (
-                          <button
-                            type="button"
-                            onClick={() => handleBuyItem(item)}
-                            className="min-h-[36px] w-full px-3.5 py-1.5 font-pixel-arcade text-[9px] font-bold transition-all cursor-pointer bg-gradient-to-r from-teal-400 to-cyan-500 hover:from-teal-300 hover:to-cyan-400 text-slate-950 border-2 border-cyan-700 shadow-[0_3px_0_#164e63] active:translate-y-0.5 active:shadow-none"
-                          >
-                            EQUIP ARMOR
-                          </button>
                         ) : (
                           <>
                             <div className="flex items-center gap-1.5">

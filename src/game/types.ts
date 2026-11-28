@@ -17,6 +17,7 @@ export type GameScreen =
   | 'LEVEL_CLEAR'
   | 'GAME_OVER'
   | 'VICTORY'
+  | 'BOSS_RUSH_VICTORY'
   | 'HOW_TO_PLAY'
   | 'SETTINGS'
   | 'QUESTS_BADGES'
@@ -24,7 +25,7 @@ export type GameScreen =
   | 'BESTIARY';
 
 export type ArmorType = 'none' | 'iron' | 'gold' | 'diamond' | 'netherite' | 'coral';
-export type SwordType = 'none' | 'iron' | 'gold' | 'diamond' | 'netherite';
+export type SwordType = 'none' | 'iron' | 'gold' | 'diamond' | 'coral' | 'netherite';
 
 export interface PlayerStats {
   maxHealth: number;
@@ -81,6 +82,7 @@ export interface PlayerState {
   hasBrush?: boolean;
   isBrushing?: boolean;
   brushTimer?: number;
+  selectedItem?: 'sword' | 'axe' | 'brush';
 }
 
 export type PlatformType = 'wood' | 'grass' | 'stone' | 'ruins' | 'bridge' | 'fence';
@@ -136,6 +138,7 @@ export interface TreasureChest {
     | 'diamond_sword'
     | 'netherite_armor'
     | 'coral_armor'
+    | 'coral_sword'
     | 'shield';
   rewardAmount: number;
   animProgress: number;
@@ -727,6 +730,8 @@ export interface SaveData {
   gender: ChickenGender;
   hasSeenIntro: boolean;
   hasCompletedGame?: boolean;
+  hasFinishedEntireGame?: boolean;
+  hasDefeatedFarmerBoss?: boolean;
   hasShield?: boolean;
   levelCoinsCollected: Record<number, number>;
   soundEnabled: boolean;
@@ -752,9 +757,12 @@ export interface SaveData {
   collectedCoinIds?: string[];
   activatedCheckpointIds?: string[];
   openedChestIds?: string[];
+  defeatedWorldEnemyIds?: string[];
   encounteredEnemies?: string[];
   enemyDefeatCounts?: Record<string, number>;
   unlockedEmotes?: EmoteId[];
   hasBrush?: boolean;
+  hasAxe?: boolean;
   unlockedArmors?: ArmorType[];
+  unlockedSwords?: SwordType[];
 }

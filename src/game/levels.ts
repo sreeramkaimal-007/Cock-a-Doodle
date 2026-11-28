@@ -1869,7 +1869,7 @@ export const LEVELS: LevelConfig[] = [
     {
       id: 40,
       title: 'Peckerin Horizon',
-      subtitle: 'Sail your raft across the final stretch of Peckerin Coast to the treasure island!',
+      subtitle: 'Paddle your raft across the final stretch of Peckerin Coast through open waters!',
       worldWidth: 3850,
       treeXs: [],
       woodTarget: 0,
@@ -1903,20 +1903,17 @@ export const LEVELS: LevelConfig[] = [
     const waterStartX = isFirstCoastLevel ? 840 : 0;
     // Spacious wide open ocean! Water spans from y=240 down to y=540 (300px tall sea), center sailing lane at y=385!
     const waterLevelY = 385;
-    const islandStartX = w - 340;
+    const seaEndX = w - 60;
 
-    const platforms: LevelConfig['platforms'] = [
-      ...(isFirstCoastLevel
-        ? [{ id: `c${spec.id}_shore`, x: 0, y: 460, width: waterStartX, height: 80, type: 'grass' as const }]
-        : []),
-      // Floating destination island with treasure chest sitting cleanly above the water at the end of every coast level!
-      { id: `c${spec.id}_island`, x: islandStartX, y: 460, width: 340, height: 80, type: 'grass' as const },
-    ];
+    // Only Level 36 has the starting raft-making shore; NO ending land island so you keep paddling across the open sea!
+    const platforms: LevelConfig['platforms'] = isFirstCoastLevel
+      ? [{ id: `c${spec.id}_shore`, x: 0, y: 460, width: waterStartX, height: 80, type: 'grass' as const }]
+      : [];
 
     const coins: LevelConfig['coins'] = [];
-    // Shore coins (Level 36) + wide ocean lane coins
+    // Shore coins (Level 36) + wide ocean lane coins all the way across the sea
     const firstCoinX = isFirstCoastLevel ? 340 : 360;
-    for (let cx = firstCoinX; cx < islandStartX - 100; cx += 210) {
+    for (let cx = firstCoinX; cx < seaEndX - 100; cx += 210) {
       const seaLaneY = (isFirstCoastLevel && cx < waterStartX) ? 416 : waterLevelY + ((cx % 5) - 2) * 44;
       coins.push({
         id: `c_co${spec.id}_${cx}`,
@@ -1995,7 +1992,7 @@ export const LEVELS: LevelConfig[] = [
       'silver_mackerel',
     ];
     const fishCount = 18 + idx * 2;
-    const seaSpan = Math.max(400, (islandStartX - 60) - (waterStartX + 60));
+    const seaSpan = Math.max(400, (seaEndX - 40) - (waterStartX + 60));
     const seaFish: SeaFish[] = Array.from({ length: fishCount }).map((_, fIdx) => {
       const fx = waterStartX + 75 + Math.round((fIdx / fishCount) * seaSpan + ((fIdx * 53) % 70) - 35);
       const depthBand = fIdx % 5;
@@ -2004,7 +2001,7 @@ export const LEVELS: LevelConfig[] = [
       const dir = fIdx % 2 === 0 ? 1 : -1;
       const patrolHalf = 130 + (fIdx % 3) * 55;
       const minX = Math.max(waterStartX + 36, fx - patrolHalf);
-      const maxX = Math.min(islandStartX - 36, fx + patrolHalf);
+      const maxX = Math.min(seaEndX - 24, fx + patrolHalf);
       const speed = 28 + (fIdx % 4) * 11;
       return {
         id: `fish_${spec.id}_${fIdx}`,
@@ -2052,7 +2049,7 @@ export const LEVELS: LevelConfig[] = [
       worldWidth: w,
       worldHeight: 540,
       spawnPoint: isFirstCoastLevel ? { x: 80, y: 400 } : { x: 120, y: waterLevelY - 40 },
-      exitPoint: { x: w - 80, y: 392 },
+      exitPoint: { x: w - 80, y: waterLevelY },
       theme: 'coast',
       platforms,
       coins,
@@ -2070,17 +2067,6 @@ export const LEVELS: LevelConfig[] = [
           isRockChest: true,
           rockId: chestRock.id,
         }] : []),
-        {
-          id: `ch_co${spec.id}_1`,
-          x: islandStartX + 95,
-          y: 428,
-          width: 36,
-          height: 32,
-          opened: false,
-          rewardType: 'coins',
-          rewardAmount: 80 + idx * 15,
-          animProgress: 0,
-        },
       ],
       checkpoints: isFirstCoastLevel
         ? [{ id: `cp_co${spec.id}_1`, x: 650, y: 460, reached: false }]
@@ -2113,7 +2099,7 @@ export const LEVELS: LevelConfig[] = [
             laneOffsetY: 0,
             vx: 0,
             vy: 0,
-            dockX: islandStartX - 88,
+            dockX: w + 120,
           }
         : {
             x: 90,
@@ -2130,7 +2116,7 @@ export const LEVELS: LevelConfig[] = [
             laneOffsetY: 0,
             vx: 110,
             vy: 0,
-            dockX: islandStartX - 88,
+            dockX: w + 120,
           },
       seaRocks,
       sharks,
@@ -2140,8 +2126,8 @@ export const LEVELS: LevelConfig[] = [
       waterLevelY,
       woodTarget: spec.woodTarget,
       hint: isFirstCoastLevel
-        ? 'Pick up the Axe in the stump, press X/K to chop trees, build & push your Raft into the wide sea, then steer ▲▼ to dodge rocks & Sharks!'
-        : 'You are sailing aboard your Raft! Steer ▲▼ across the open sea to dodge rocks & Sharks, then dock at the floating island to claim the chest!',
+        ? 'Pick up the Axe in the stump, press X/K to chop trees, build & push your Raft into the wide sea, then keep paddling past rocks & Sharks!'
+        : 'Keep paddling aboard your Raft! Steer ▲▼ across the open sea to dodge rocks & Sharks and sail straight into the next stretch!',
     };
   }),
 ];

@@ -11,6 +11,8 @@ const DEFAULT_SAVE: SaveData = {
   gender: 'rooster',
   hasSeenIntro: false,
   hasCompletedGame: false,
+  hasFinishedEntireGame: false,
+  hasDefeatedFarmerBoss: false,
   levelCoinsCollected: {},
   soundEnabled: true,
   musicEnabled: true,
@@ -24,11 +26,14 @@ const DEFAULT_SAVE: SaveData = {
   collectedCoinIds: [],
   activatedCheckpointIds: [],
   openedChestIds: [],
+  defeatedWorldEnemyIds: [],
   encounteredEnemies: [],
   enemyDefeatCounts: {},
   unlockedEmotes: ['squawk'],
   hasBrush: false,
+  hasAxe: false,
   unlockedArmors: [],
+  unlockedSwords: [],
 };
 
 export function loadSaveData(): SaveData {
@@ -47,15 +52,28 @@ export function loadSaveData(): SaveData {
     const rawUnlocked = typeof parsed.unlockedLevel === 'number' ? Math.max(1, Math.min(40, parsed.unlockedLevel)) : 1;
     const effectiveUnlocked = parsed.hasCompletedGame ? Math.max(31, rawUnlocked) : rawUnlocked;
 
+    const validSwords: SwordType[] = ['none', 'iron', 'gold', 'diamond', 'coral', 'netherite'];
+    const parsedSword: SwordType = validSwords.includes(parsed.sword) ? parsed.sword : 'none';
+    const parsedUnlockedSwords: SwordType[] = Array.isArray(parsed.unlockedSwords)
+      ? Array.from(new Set(parsed.unlockedSwords.filter((s: unknown) => typeof s === 'string' && ['iron', 'gold', 'diamond', 'coral', 'netherite'].includes(s)))) as SwordType[]
+      : (parsedSword !== 'none' ? [parsedSword] : []);
+    if (parsedSword !== 'none' && !parsedUnlockedSwords.includes(parsedSword)) {
+      parsedUnlockedSwords.push(parsedSword);
+    }
+
     return {
       unlockedLevel: effectiveUnlocked,
       totalCoins: typeof parsed.totalCoins === 'number' ? parsed.totalCoins : 0,
       armor: (['none', 'iron', 'gold', 'diamond', 'netherite', 'coral'].includes(parsed.armor) ? parsed.armor : 'none') as ArmorType,
-      sword: (['none', 'iron', 'gold', 'diamond', 'netherite'].includes(parsed.sword) ? parsed.sword : 'none') as SwordType,
-      preBossSword: (['none', 'iron', 'gold', 'diamond'].includes(parsed.preBossSword) ? parsed.preBossSword : (parsed.sword !== 'netherite' ? parsed.sword : 'diamond')) as SwordType,
+      sword: parsedSword,
+      preBossSword: (['none', 'iron', 'gold', 'diamond', 'coral'].includes(parsed.preBossSword) ? parsed.preBossSword : (parsedSword !== 'netherite' ? parsedSword : 'diamond')) as SwordType,
       gender: (parsed.gender === 'hen' ? 'hen' : 'rooster') as ChickenGender,
       hasSeenIntro: Boolean(parsed.hasSeenIntro),
       hasCompletedGame: Boolean(parsed.hasCompletedGame),
+      hasFinishedEntireGame: Boolean(parsed.hasFinishedEntireGame),
+      hasDefeatedFarmerBoss: parsed.hasDefeatedFarmerBoss !== undefined
+        ? Boolean(parsed.hasDefeatedFarmerBoss)
+        : Boolean((parsed.enemyDefeatCounts?.farmer || 0) > 0 && effectiveUnlocked >= 20),
       levelCoinsCollected: parsed.levelCoinsCollected && typeof parsed.levelCoinsCollected === 'object' ? parsed.levelCoinsCollected : {},
       soundEnabled: parsed.soundEnabled !== undefined ? Boolean(parsed.soundEnabled) : true,
       musicEnabled: parsed.musicEnabled !== undefined ? Boolean(parsed.musicEnabled) : true,
@@ -79,15 +97,18 @@ export function loadSaveData(): SaveData {
       collectedCoinIds: Array.isArray(parsed.collectedCoinIds) ? parsed.collectedCoinIds : [],
       activatedCheckpointIds: Array.isArray(parsed.activatedCheckpointIds) ? parsed.activatedCheckpointIds : [],
       openedChestIds: Array.isArray(parsed.openedChestIds) ? parsed.openedChestIds : [],
+      defeatedWorldEnemyIds: Array.isArray(parsed.defeatedWorldEnemyIds) ? parsed.defeatedWorldEnemyIds.filter((id: unknown) => typeof id === 'string') : [],
       encounteredEnemies: Array.isArray(parsed.encounteredEnemies) ? parsed.encounteredEnemies.filter((id: unknown) => typeof id === 'string') : [],
       enemyDefeatCounts: parsed.enemyDefeatCounts && typeof parsed.enemyDefeatCounts === 'object' ? parsed.enemyDefeatCounts : {},
       unlockedEmotes: Array.isArray(parsed.unlockedEmotes)
         ? Array.from(new Set(['squawk', ...parsed.unlockedEmotes.filter((id: unknown) => typeof id === 'string')])) as SaveData['unlockedEmotes']
         : ['squawk'],
       hasBrush: Boolean(parsed.hasBrush),
+      hasAxe: Boolean(parsed.hasAxe),
       unlockedArmors: Array.isArray(parsed.unlockedArmors)
         ? Array.from(new Set(parsed.unlockedArmors.filter((a: unknown) => typeof a === 'string' && ['iron', 'gold', 'diamond', 'netherite', 'coral'].includes(a)))) as ArmorType[]
         : (['iron', 'gold', 'diamond', 'netherite', 'coral'].includes(parsed.armor) ? [parsed.armor as ArmorType] : []),
+      unlockedSwords: parsedUnlockedSwords,
       upgrades: parsed.upgrades && typeof parsed.upgrades === 'object' ? parsed.upgrades : {
         extraHearts: 0,
         speedBoost: 0,

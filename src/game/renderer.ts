@@ -17,6 +17,10 @@ export class GameRenderer {
   private outlineTintCanvas: HTMLCanvasElement | null = null;
   private outlineTintCtx: CanvasRenderingContext2D | null = null;
   private spriteStampCache: Map<string, { canvas: HTMLCanvasElement; anchorX: number; anchorY: number }> = new Map();
+  private livePlantStampCache: Map<
+    string,
+    { lastAnimKey: number; canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; anchorX: number; anchorY: number }
+  > = new Map();
   private isInsideOutline: boolean = false;
   private lastRenderTime: number = 0;
 
@@ -129,6 +133,81 @@ export class GameRenderer {
     } else {
       targetCtx.drawImage(cached.canvas, Math.round(-cached.anchorX), Math.round(-cached.anchorY));
     }
+  }
+
+  /**
+   * Renders full bespoke 60fps plant animations with zero lag:
+   * - Bestiary Log (lastRenderTime === 0): renders live directly every frame.
+   * - Gameplay (lastRenderTime > 0): updates each (plant, variant, scale) at most ONCE per frame
+   *   in a reused offscreen canvas (zero per-frame allocations & zero choppy frame snapping) and
+   *   blits all other matching instances in 1 drawImage call.
+   */
+  private drawLiveOutlinedStamp(
+    targetCtx: CanvasRenderingContext2D,
+    cacheKey: string,
+    frameAnimTime: number,
+    boxW: number,
+    boxH: number,
+    anchorX: number,
+    anchorY: number,
+    drawFn: (ctx: CanvasRenderingContext2D) => void,
+    thickness: number = 1.75
+  ) {
+    if (this.isInsideOutline || typeof document === 'undefined') {
+      drawFn(targetCtx);
+      return;
+    }
+    if (this.lastRenderTime === 0) {
+      this.drawCartoonOutlined(targetCtx, boxW, boxH, anchorX, anchorY, drawFn, thickness);
+      return;
+    }
+    const pad = Math.ceil(thickness) + 2;
+    const bw = Math.max(16, Math.ceil(boxW));
+    const bh = Math.max(16, Math.ceil(boxH));
+    const cw = bw + pad * 2;
+    const ch = bh + pad * 2;
+    let entry = this.livePlantStampCache.get(cacheKey);
+    if (!entry) {
+      const stampCanvas = document.createElement('canvas');
+      stampCanvas.width = cw;
+      stampCanvas.height = ch;
+      const stampCtx = stampCanvas.getContext('2d');
+      if (!stampCtx) {
+        this.drawCartoonOutlined(targetCtx, bw, bh, anchorX, anchorY, drawFn, thickness);
+        return;
+      }
+      stampCtx.imageSmoothingEnabled = false;
+      if (this.livePlantStampCache.size >= 64) {
+        const oldestKey = this.livePlantStampCache.keys().next().value;
+        if (oldestKey !== undefined) this.livePlantStampCache.delete(oldestKey);
+      }
+      entry = {
+        lastAnimKey: NaN,
+        canvas: stampCanvas,
+        ctx: stampCtx,
+        anchorX: anchorX + pad,
+        anchorY: anchorY + pad,
+      };
+      this.livePlantStampCache.set(cacheKey, entry);
+    } else if (entry.canvas.width !== cw || entry.canvas.height !== ch) {
+      entry.canvas.width = cw;
+      entry.canvas.height = ch;
+      entry.ctx.imageSmoothingEnabled = false;
+      entry.anchorX = anchorX + pad;
+      entry.anchorY = anchorY + pad;
+      entry.lastAnimKey = NaN;
+    }
+
+    if (entry.lastAnimKey !== frameAnimTime) {
+      entry.ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height);
+      entry.ctx.save();
+      entry.ctx.translate(entry.anchorX, entry.anchorY);
+      this.drawCartoonOutlined(entry.ctx, bw, bh, anchorX, anchorY, drawFn, thickness);
+      entry.ctx.restore();
+      entry.lastAnimKey = frameAnimTime;
+    }
+
+    targetCtx.drawImage(entry.canvas, Math.round(-entry.anchorX), Math.round(-entry.anchorY));
   }
 
   /**
@@ -10631,15 +10710,15 @@ export class GameRenderer {
     const isJumping = !isGrounded && player.vy < 0;
     const isFalling = !isGrounded && player.vy >= 0;
 
-    const effArmor: ArmorType =
-      equippedArmor && equippedArmor !== 'none'
-        ? equippedArmor
-        : (player.stage === 'baby' ? 'none' : (player.stage === 'juvenile' ? 'iron' : 'gold'));
+    const effArmor: ArmorType = equippedArmor ?? 'none';
 
+    const selectedItem = player.selectedItem || 'sword';
+    const holdingAxe = Boolean(player.hasAxe && !player.onRaft && selectedItem === 'axe');
+    const holdingBrush = Boolean((player.isBrushing && (player.brushTimer ?? 0) > 0) || (player.hasBrush && selectedItem === 'brush'));
     const effSword: SwordType =
-      equippedSword && equippedSword !== 'none'
-        ? equippedSword
-        : (player.stage === 'baby' ? 'none' : (player.stage === 'juvenile' ? 'iron' : 'gold'));
+      holdingAxe || holdingBrush
+        ? 'none'
+        : (equippedSword ?? 'none');
 
     const isBlinking = isGrounded && !isMoving && ((time % 3.6) < 0.14);
 
@@ -10754,8 +10833,8 @@ export class GameRenderer {
       }
     );
 
-    // Draw gleaming woodcutter's axe when carrying the Peckerin Coast axe on shore
-    if (player.hasAxe && !player.onRaft) {
+    // Draw gleaming woodcutter's axe when selected (or actively chopping on shore)
+    if (holdingAxe) {
       const ctx = this.ctx;
       const dir = player.facing === 'right' ? 1 : -1;
       const swingAngle = player.isAttacking ? 1.15 : -0.25 + Math.sin(time * 5) * 0.06;
@@ -10778,13 +10857,16 @@ export class GameRenderer {
       ctx.restore();
     }
 
-    // Draw Archaeology Brush sweeping smoothly when excavating a buried dig site!
-    if (player.isBrushing && (player.brushTimer ?? 0) > 0) {
+    // Draw Archaeology Brush when selected in inventory or actively sweeping a buried dig site!
+    if (holdingBrush) {
       const ctx = this.ctx;
       const dir = player.facing === 'right' ? 1 : -1;
-      const sweepAngle = 0.55 + Math.sin(time * 28) * 0.48;
+      const activelySweeping = Boolean(player.isBrushing && (player.brushTimer ?? 0) > 0);
+      const sweepAngle = activelySweeping
+        ? 0.55 + Math.sin(time * 28) * 0.48
+        : 0.25 + Math.sin(time * 4) * 0.07;
       ctx.save();
-      ctx.translate(cx + dir * 11, renderCenterY + 5);
+      ctx.translate(cx + dir * 11, renderCenterY + 4);
       ctx.scale(dir, 1);
       ctx.rotate(sweepAngle);
       // Cedar wood handle
@@ -11889,7 +11971,9 @@ export class GameRenderer {
         ctx.fillRect(2 - footCycle, footY + 1.5, 8, 3);
 
         // 10. Masterwork Sword
-        this.drawSword(ctx, walkBounce, isAttacking, sword === 'none' ? 'gold' : sword);
+        if (sword !== 'none') {
+          this.drawSword(ctx, walkBounce, isAttacking, sword);
+        }
 
       } else {
         // --- TEEN HEN ---
@@ -11997,7 +12081,9 @@ export class GameRenderer {
         ctx.fillRect(2 - footCycle, footY + 1.5, 8, 3);
 
         // 8. Sword
-        this.drawSword(ctx, walkBounce, isAttacking, sword === 'none' ? 'gold' : sword);
+        if (sword !== 'none') {
+          this.drawSword(ctx, walkBounce, isAttacking, sword);
+        }
       }
 
     // =========================================================================
@@ -12178,7 +12264,9 @@ export class GameRenderer {
         ctx.fillRect(4.5 - footCycle, footY - 1, 4, 0.9);
 
         // 9. Colossal Mighty Sword
-        this.drawSword(ctx, walkBounce, isAttacking, sword === 'none' ? 'gold' : sword, true);
+        if (sword !== 'none') {
+          this.drawSword(ctx, walkBounce, isAttacking, sword, true);
+        }
 
       } else {
         // --- ADULT LEGENDARY QUEEN HEN ---
@@ -12308,7 +12396,9 @@ export class GameRenderer {
         ctx.fillRect(4.5 - footCycle, footY - 1, 4, 0.9);
 
         // 8. Colossal Mighty Sword
-        this.drawSword(ctx, walkBounce, isAttacking, sword === 'none' ? 'gold' : sword, true);
+        if (sword !== 'none') {
+          this.drawSword(ctx, walkBounce, isAttacking, sword, true);
+        }
       }
     }
 
@@ -12705,14 +12795,15 @@ export class GameRenderer {
     ctx: CanvasRenderingContext2D,
     walkBounce: number,
     isAttacking: boolean,
-    type: 'iron' | 'gold' | 'diamond' | 'netherite',
+    type: 'iron' | 'gold' | 'diamond' | 'coral' | 'netherite',
     isLarge = false
   ) {
     const isNetherite = type === 'netherite';
+    const isCoral = type === 'coral';
     const isDiamond = type === 'diamond';
     const isGold = type === 'gold';
-    const bladeLen = isLarge ? (isNetherite ? 30 : 28) : (isNetherite ? 22 : 20);
-    const bladeW = isLarge ? (isNetherite ? 5.5 : 5) : (isNetherite ? 4 : 3.5);
+    const bladeLen = isLarge ? (isNetherite ? 30 : isCoral ? 29 : 28) : (isNetherite ? 22 : isCoral ? 21 : 20);
+    const bladeW = isLarge ? (isNetherite ? 5.5 : isCoral ? 5.2 : 5) : (isNetherite ? 4 : isCoral ? 3.8 : 3.5);
 
     ctx.save();
 
@@ -12730,6 +12821,11 @@ export class GameRenderer {
         windGrad1.addColorStop(0, 'rgba(126, 34, 206, 0)');
         windGrad1.addColorStop(0.45, 'rgba(192, 132, 252, 0.42)');
         windGrad1.addColorStop(0.85, 'rgba(232, 121, 249, 0.55)');
+        windGrad1.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      } else if (isCoral) {
+        windGrad1.addColorStop(0, 'rgba(244, 63, 94, 0)');
+        windGrad1.addColorStop(0.45, 'rgba(45, 212, 191, 0.38)');
+        windGrad1.addColorStop(0.85, 'rgba(251, 113, 133, 0.48)');
         windGrad1.addColorStop(1, 'rgba(255, 255, 255, 0)');
       } else if (isDiamond) {
         windGrad1.addColorStop(0, 'rgba(56, 189, 248, 0)');
@@ -12769,6 +12865,8 @@ export class GameRenderer {
           0.5,
           isNetherite
             ? `rgba(192, 132, 252, ${wv.alpha})`
+            : isCoral
+            ? `rgba(94, 234, 212, ${wv.alpha})`
             : isDiamond
             ? `rgba(186, 230, 253, ${wv.alpha})`
             : isGold
@@ -12790,6 +12888,11 @@ export class GameRenderer {
         ctx.fillStyle = '#c084fc';
         ctx.fillRect(bladeLen - 4, -8, 2.5, 2.5);
         ctx.fillRect(bladeLen + 2, 4, 2, 2);
+      } else if (isCoral) {
+        ctx.fillStyle = '#5eead4';
+        ctx.fillRect(bladeLen - 4, -8, 2.5, 2.5);
+        ctx.fillStyle = '#fda4af';
+        ctx.fillRect(bladeLen + 2, 4, 2, 2);
       } else if (isDiamond) {
         ctx.fillStyle = '#bae6fd';
         ctx.fillRect(bladeLen - 4, -8, 2.5, 2.5);
@@ -12808,9 +12911,9 @@ export class GameRenderer {
     const hiltLen = isLarge ? 8 : 6;
     ctx.fillStyle = '#000000';
     ctx.fillRect(-hiltLen - 1, -2.5, hiltLen + 2, 5);
-    ctx.fillStyle = isNetherite ? '#09090b' : (isDiamond ? '#0f172a' : '#78350f');
+    ctx.fillStyle = isNetherite ? '#09090b' : (isCoral ? '#134e4a' : (isDiamond ? '#0f172a' : '#78350f'));
     ctx.fillRect(-hiltLen, -1.5, hiltLen, 3);
-    ctx.fillStyle = isNetherite ? '#7e22ce' : (isDiamond ? '#0369a1' : '#92400e');
+    ctx.fillStyle = isNetherite ? '#7e22ce' : (isCoral ? '#fb7185' : (isDiamond ? '#0369a1' : '#92400e'));
     for (let b = 1; b < hiltLen - 1; b += 2.5) {
       ctx.fillRect(-hiltLen + b, -1.5, 1, 3);
     }
@@ -12819,10 +12922,10 @@ export class GameRenderer {
     const pommelR = isLarge ? 3.5 : 2.5;
     ctx.fillStyle = '#000000';
     ctx.fillRect(-hiltLen - pommelR - 1, -pommelR - 0.5, pommelR * 2 + 1, pommelR * 2 + 1);
-    ctx.fillStyle = isNetherite ? '#18181b' : (isDiamond ? '#0284c7' : (isGold ? '#f59e0b' : '#64748b'));
+    ctx.fillStyle = isNetherite ? '#18181b' : (isCoral ? '#f43f5e' : (isDiamond ? '#0284c7' : (isGold ? '#f59e0b' : '#64748b')));
     ctx.fillRect(-hiltLen - pommelR, -pommelR, pommelR * 2, pommelR * 2);
     // Gem glint in pommel
-    ctx.fillStyle = isNetherite ? '#c084fc' : (isDiamond ? '#38bdf8' : (isGold ? '#ef4444' : '#cbd5e1'));
+    ctx.fillStyle = isNetherite ? '#c084fc' : (isCoral ? '#fef08a' : (isDiamond ? '#38bdf8' : (isGold ? '#ef4444' : '#cbd5e1')));
     ctx.fillRect(-hiltLen - 1.5, -1, 2, 2);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(-hiltLen - 1, -1, 1, 1);
@@ -12831,12 +12934,12 @@ export class GameRenderer {
     const guardH = isLarge ? 15 : 11;
     ctx.fillStyle = '#000000';
     ctx.fillRect(-1, -guardH / 2 - 1, 5, guardH + 2);
-    ctx.fillStyle = isNetherite ? '#18181b' : (isDiamond ? '#0284c7' : (isGold ? '#ca8a04' : '#475569'));
+    ctx.fillStyle = isNetherite ? '#18181b' : (isCoral ? '#0d9488' : (isDiamond ? '#0284c7' : (isGold ? '#ca8a04' : '#475569')));
     ctx.fillRect(0, -guardH / 2, 3, guardH);
-    ctx.fillStyle = isNetherite ? '#c084fc' : (isDiamond ? '#bae6fd' : (isGold ? '#fde047' : '#94a3b8'));
+    ctx.fillStyle = isNetherite ? '#c084fc' : (isCoral ? '#5eead4' : (isDiamond ? '#bae6fd' : (isGold ? '#fde047' : '#94a3b8')));
     ctx.fillRect(1, -guardH / 2 + 1, 1, guardH - 2);
     // Guard tips & rivets
-    ctx.fillStyle = isNetherite ? '#a855f7' : (isDiamond ? '#38bdf8' : (isGold ? '#eab308' : '#334155'));
+    ctx.fillStyle = isNetherite ? '#a855f7' : (isCoral ? '#fb7185' : (isDiamond ? '#38bdf8' : (isGold ? '#eab308' : '#334155')));
     ctx.fillRect(-1, -guardH / 2 - 1, 3, 2);
     ctx.fillRect(-1, guardH / 2 - 1, 3, 2);
     ctx.fillStyle = '#ffffff';
@@ -12844,10 +12947,9 @@ export class GameRenderer {
     ctx.fillRect(0, guardH / 2 - 1, 1, 1);
 
     // 4. Double-Edged Blade with stepped pixel tip and edge bevels
-    // Netherite: obsidian black blade body with sharp purple shine
-    const bColor = isNetherite ? '#18181b' : (isDiamond ? '#38bdf8' : (isGold ? '#facc15' : '#cbd5e1'));
-    const highlightColor = isNetherite ? '#c084fc' : (isDiamond ? '#ffffff' : (isGold ? '#fef9c3' : '#ffffff'));
-    const shadowColor = isNetherite ? '#09090b' : (isDiamond ? '#0369a1' : (isGold ? '#a16207' : '#64748b'));
+    const bColor = isNetherite ? '#18181b' : (isCoral ? '#f43f5e' : (isDiamond ? '#38bdf8' : (isGold ? '#facc15' : '#cbd5e1')));
+    const highlightColor = isNetherite ? '#c084fc' : (isCoral ? '#5eead4' : (isDiamond ? '#ffffff' : (isGold ? '#fef9c3' : '#ffffff')));
+    const shadowColor = isNetherite ? '#09090b' : (isCoral ? '#9f1239' : (isDiamond ? '#0369a1' : (isGold ? '#a16207' : '#64748b')));
 
     // Black pixel blade outline
     ctx.fillStyle = '#000000';
@@ -12859,11 +12961,11 @@ export class GameRenderer {
     // Upper blade half (lit)
     ctx.fillStyle = bColor;
     ctx.fillRect(3, -bladeW / 2, bladeLen, bladeW / 2);
-    // Razor edge highlight (radiant purple on Netherite)
+    // Razor edge highlight
     ctx.fillStyle = highlightColor;
-    ctx.fillRect(3, -bladeW / 2, bladeLen, isNetherite ? 1.4 : 1);
+    ctx.fillRect(3, -bladeW / 2, bladeLen, isNetherite || isCoral ? 1.4 : 1);
     // Central fuller ridge
-    ctx.fillStyle = isNetherite ? '#a855f7' : (isDiamond ? '#0284c7' : (isGold ? '#854d0e' : '#475569'));
+    ctx.fillStyle = isNetherite ? '#a855f7' : (isCoral ? '#fef08a' : (isDiamond ? '#0284c7' : (isGold ? '#854d0e' : '#475569')));
     ctx.fillRect(4, -0.5, bladeLen - 4, 1);
 
     // Stepped Pixel Blade Tip
@@ -12883,7 +12985,7 @@ export class GameRenderer {
     ctx.fillRect(tipX + 4, -0.5, 1.5, 1);
 
     // Glint Sparkles on blade
-    ctx.fillStyle = isNetherite ? '#e879f9' : '#ffffff';
+    ctx.fillStyle = isNetherite ? '#e879f9' : (isCoral ? '#fef9c3' : '#ffffff');
     ctx.fillRect(bladeLen * 0.45 + 3, -bladeW / 2, 1.5, 1.5);
     ctx.fillRect(bladeLen * 0.8 + 3, -bladeW / 2, 1.5, 1.5);
 
@@ -13074,229 +13176,215 @@ export class GameRenderer {
         return;
       }
 
-      // Standard Baby Chick / Colorful Skin Adaptive Feather Armor (shifted cleanly lower onto chest)
-      const bW = 10 * babyScale;
-      const bH = 7.5 * babyScale;
+      // Standard Baby Chick / Colorful Skin Adaptive Feather Armor (centered & level on torso & crown)
+      const bW = Math.max(8, Math.floor((10 * babyScale) / 2) * 2);
+      const bH = Math.max(6, Math.round(6.5 * babyScale));
       const bX = -bW / 2;
-      const bY = 1.5 + walkBounce;
+      const bY = Math.round(1.5 + walkBounce);
 
       // Subtle glowing magical aura for netherite/coral/diamond/gold or colorful skin
       if (isNetherite || isCoral || isDiamond || isGold || hasColorfulSkin) {
         ctx.fillStyle = auraGlow;
         ctx.beginPath();
-        ctx.ellipse(0, walkBounce, bW * 0.9, bH * 0.9, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, walkBounce, bW * 0.85, bH * 0.85, 0, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // A. Cute Mini Feathered Crest Diadem on Baby Head (steady position above eyes)
-      const hW = 9.5 * babyScale;
+      // A. Straight, Snug Baby Comb Helmet / Crown Diadem (moves with walkBounce!)
+      const hW = Math.max(8, Math.floor((9 * babyScale) / 2) * 2);
       const hX = -hW / 2;
-      const hY = -halfH - 2.5;
+      const hY = Math.round(-halfH - 2 + walkBounce);
 
       ctx.fillStyle = pal.dark;
       ctx.fillRect(hX - 1, hY - 1, hW + 2, 5);
       ctx.fillStyle = pal.base;
-      ctx.fillRect(hX, hY, hW, 3.5);
-      // 3 Mini swept feather tips
+      ctx.fillRect(hX, hY, hW, 3);
+      ctx.fillStyle = pal.bright;
+      ctx.fillRect(hX + 1, hY, hW - 2, 1);
+      // 3 Straight, symmetrical upright crest tips
+      ctx.fillStyle = pal.dark;
+      ctx.fillRect(hX + 1, hY - 3, 2, 3);
+      ctx.fillRect(-1, hY - 4, 2, 4);
+      ctx.fillRect(hX + hW - 3, hY - 3, 2, 3);
       ctx.fillStyle = accentTrim;
-      ctx.fillRect(hX + 1, hY - 2.5, 2, 3);
-      ctx.fillRect(hX + hW / 2 - 1, hY - 3.5, 2, 4);
-      ctx.fillRect(hX + hW - 3, hY - 2.5, 2, 3);
+      ctx.fillRect(hX + 1, hY - 2, 2, 2);
+      ctx.fillRect(-1, hY - 3, 2, 3);
+      ctx.fillRect(hX + hW - 3, hY - 2, 2, 2);
       // Center baby rune gem
       ctx.fillStyle = gemAccent;
-      ctx.fillRect(hX + hW / 2 - 1, hY + 1, 2, 2);
+      ctx.fillRect(-1, hY + 1, 2, 2);
 
-      // B. Mini Layered Feather Cuirass (2 Overlapping Baby Feather Scales)
+      // B. Straight Centered Baby Breastplate (Cuirass)
       ctx.fillStyle = pal.dark;
       ctx.fillRect(bX - 1, bY - 1, bW + 2, bH + 2);
       ctx.fillStyle = pal.base;
       ctx.fillRect(bX, bY, bW, bH);
 
-      // Overlapping feather scale lines
-      ctx.fillStyle = pal.shadow;
-      ctx.fillRect(bX + 1, bY + bH - 3, bW - 2, 2);
+      // Crisp straight gorget & plate lines
       ctx.fillStyle = pal.bright;
-      ctx.fillRect(bX + 1, bY + 1, bW - 2, 2);
+      ctx.fillRect(bX, bY, bW, 1.5);
+      ctx.fillStyle = pal.shadow;
+      ctx.fillRect(bX, bY + bH - 2, bW, 2);
       ctx.fillStyle = accentTrim;
-      ctx.fillRect(bX + 1, bY + bH / 2, bW - 2, 1);
+      ctx.fillRect(bX + 1, bY + Math.floor(bH / 2), bW - 2, 1);
 
       // Center baby hero emblem
       ctx.fillStyle = pal.shine;
-      ctx.fillRect(bX + bW / 2 - 1.5, bY + bH / 2 - 1.5, 3, 3);
+      ctx.fillRect(-1.5, bY + Math.floor(bH / 2) - 1, 3, 3);
       ctx.fillStyle = gemAccent;
-      ctx.fillRect(bX + bW / 2 - 0.5, bY + bH / 2 - 0.5, 1, 1);
+      ctx.fillRect(-0.5, bY + Math.floor(bH / 2), 1, 1);
 
-      // C. Mini Feathered Shoulder Winglet
-      const wW = 5 * babyScale;
-      const wH = 5 * babyScale;
-      const wx = -halfW * 0.65;
-      const wy = -halfH * 0.15 + walkBounce;
+      // C. Snug Baby Shoulder Guard (tucked cleanly against left shoulder)
+      const wW = Math.max(4, Math.round(4.5 * babyScale));
+      const wH = Math.max(4, Math.round(4.5 * babyScale));
+      const wx = bX - Math.round(wW * 0.65);
+      const wy = bY;
 
       ctx.fillStyle = pal.dark;
       ctx.fillRect(wx - 1, wy - 1, wW + 2, wH + 2);
       ctx.fillStyle = pal.base;
       ctx.fillRect(wx, wy, wW, wH);
       ctx.fillStyle = accentTrim;
-      ctx.fillRect(wx + 1, wy + 1, wW - 2, 1.5);
-      ctx.fillRect(wx + 1, wy + wH - 1, wW - 1, 1.5);
+      ctx.fillRect(wx + 1, wy + 1, wW - 2, 1);
 
       ctx.restore();
       return;
     }
 
     // =========================================================================
-    // 2. POWERFUL LOOKING FEATHER ARMOR (JUVENILE, TEEN, AND ADULT)
+    // 2. STRAIGHT, TAILORED FEATHER ARMOR (JUVENILE, TEEN, AND ADULT)
     // =========================================================================
-    // Moved lower onto chest/torso below eyes, beak, and chin wattles
-    const cuirassW = isJuvenile ? 14 : (isTeen ? 18 : 22);
-    const maxTorsoH = Math.max(8, Math.round(halfH - 6));
-    const cuirassH = Math.min(isJuvenile ? 10 : (isTeen ? 13 : 16), maxTorsoH);
-    const cuirassX = -cuirassW / 2 + 0.5;
-    const cuirassY = (isJuvenile ? 2.5 : (isTeen ? 3 : 4)) + walkBounce;
+    // Even-width, straight, symmetrical breastplate centered cleanly on torso above legs
+    const rawCuirassW = Math.min(isJuvenile ? 12 : (isTeen ? 16 : 18), Math.round(halfW * 1.12));
+    const cuirassW = Math.max(10, Math.floor(rawCuirassW / 2) * 2);
+    const cuirassH = Math.min(isJuvenile ? 8 : (isTeen ? 10 : 12), Math.max(7, Math.round(halfH * 0.52)));
+    const cuirassX = -cuirassW / 2;
+    const cuirassY = Math.round((isJuvenile ? 2 : (isTeen ? 2.5 : 3)) + walkBounce);
 
     // A. Radiant Enchanted Aura
     if (isNetherite || isCoral || isDiamond || isGold || hasColorfulSkin) {
       ctx.fillStyle = auraGlow;
       ctx.beginPath();
-      ctx.ellipse(0, walkBounce, halfW * 0.95, halfH * 0.85, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, walkBounce, halfW * 0.9, halfH * 0.82, 0, 0, Math.PI * 2);
       ctx.fill();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 1. FEATHERED BATTLE CREST / HELM PLUME (Steady at crown above eyes/comb)
+    // 1. STRAIGHT, SYMMETRICAL COMB HELMET (Anchored snugly on crown with walkBounce)
     // ─────────────────────────────────────────────────────────────────────────
-    const helmW = isJuvenile ? 13 : (isTeen ? 16 : 19);
-    const hx = isJuvenile ? -3.5 : (isTeen ? -4 : -4.5);
-    const hy = -halfH - (isJuvenile ? 5.5 : (isTeen ? 7 : 9));
+    const helmW = isJuvenile ? 12 : (isTeen ? 14 : 16);
+    const helmCenterX = isRooster ? 1 : 0;
+    const hx = Math.round(helmCenterX - helmW / 2);
+    const hy = Math.round(-halfH - (isJuvenile ? 2.5 : (isTeen ? 3.5 : 4.5)) + walkBounce);
 
-    // Base diadem browplate band
+    // Straight level browplate band
     ctx.fillStyle = pal.dark;
-    ctx.fillRect(hx - 2, hy - 1, helmW + 4, 5.5);
+    ctx.fillRect(hx - 1, hy - 1, helmW + 2, 6);
     ctx.fillStyle = pal.base;
-    ctx.fillRect(hx - 1, hy, helmW + 2, 4);
+    ctx.fillRect(hx, hy, helmW, 4);
     ctx.fillStyle = pal.bright;
-    ctx.fillRect(hx, hy + 0.5, helmW, 1.5);
+    ctx.fillRect(hx, hy, helmW, 1.5);
+    ctx.fillStyle = pal.shadow;
+    ctx.fillRect(hx, hy + 3, helmW, 1);
+    // Symmetrical corner brow rivets
     ctx.fillStyle = pal.shine;
-    ctx.fillRect(hx + 1, hy + 2, 2, 1.5);
-    ctx.fillRect(hx + helmW - 2, hy + 2, 2, 1.5);
+    ctx.fillRect(hx + 1, hy + 1.5, 1.5, 1.5);
+    ctx.fillRect(hx + helmW - 2.5, hy + 1.5, 1.5, 1.5);
 
-    // Sweeping Articulated Metallic Feather Blades Over Comb
-    const bladeCount = isJuvenile ? 3 : (isTeen ? 4 : 5);
-    for (let b = 0; b < bladeCount; b++) {
-      const bOffset = b * (helmW / bladeCount);
-      const bladeH = (isJuvenile ? 5 : (isTeen ? 7 : 9)) + (b === 2 ? 3.5 : 1);
-      const bx = hx + bOffset;
-      const by = hy - bladeH;
+    // Straight, Upright, Symmetrical Pixel Comb Crest Fins (tallest peak dead-center)
+    const finSpecs = isJuvenile
+      ? [
+          { dx: -4, w: 2, h: 4 },
+          { dx: -1, w: 2, h: 6 },
+          { dx: 2, w: 2, h: 4 },
+        ]
+      : isTeen
+      ? [
+          { dx: -5, w: 2, h: 4 },
+          { dx: -1.5, w: 3, h: 7 },
+          { dx: 3, w: 2, h: 4 },
+        ]
+      : [
+          { dx: -6, w: 2, h: 4 },
+          { dx: -3.5, w: 2, h: 6 },
+          { dx: -1, w: 2, h: 8 },
+          { dx: 1.5, w: 2, h: 6 },
+          { dx: 4, w: 2, h: 4 },
+        ];
 
-      // Dark outline
+    for (const fin of finSpecs) {
+      const fx = Math.round(helmCenterX + fin.dx);
+      const fy = hy - fin.h;
       ctx.fillStyle = pal.dark;
-      ctx.beginPath();
-      ctx.moveTo(bx - 1.5, hy);
-      ctx.lineTo(bx - 0.5, by - 1);
-      ctx.lineTo(bx + 3.5, hy);
-      ctx.closePath();
-      ctx.fill();
-
-      // Metallic feather blade fill
+      ctx.fillRect(fx - 1, fy - 1, fin.w + 2, fin.h + 1);
       ctx.fillStyle = pal.base;
-      ctx.beginPath();
-      ctx.moveTo(bx - 0.5, hy);
-      ctx.lineTo(bx, by);
-      ctx.lineTo(bx + 2.5, hy);
-      ctx.closePath();
-      ctx.fill();
-
-      // Illuminated central feather quill & razor tip
+      ctx.fillRect(fx, fy, fin.w, fin.h);
       ctx.fillStyle = accentTrim;
-      ctx.fillRect(bx, by, 1.5, bladeH);
+      ctx.fillRect(fx, fy, fin.w, Math.max(2, fin.h - 2));
       ctx.fillStyle = pal.shine;
-      ctx.fillRect(bx, by, 1.5, 2);
+      ctx.fillRect(fx, fy, fin.w, 1.5);
     }
 
-    // Forehead Inlaid Rune Gem / Royal Diadem Jewel
-    const gemW = isJuvenile ? 3 : (isTeen ? 4 : 5);
+    // Centered Forehead Inlaid Rune Gem
+    const gemW = isJuvenile ? 2 : (isTeen ? 3 : 4);
+    const gemX = Math.round(helmCenterX - gemW / 2);
     ctx.fillStyle = pal.dark;
-    ctx.fillRect(hx + helmW / 2 - gemW / 2 - 0.5, hy - 1.5, gemW + 1, gemW + 1);
+    ctx.fillRect(gemX - 1, hy - 0.5, gemW + 2, gemW + 1);
     ctx.fillStyle = gemAccent;
-    ctx.fillRect(hx + helmW / 2 - gemW / 2, hy - 1, gemW, gemW);
+    ctx.fillRect(gemX, hy + 0.5, gemW, Math.max(2, gemW - 1));
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(hx + helmW / 2 - 0.5, hy - 0.5, 1.5, 1.5);
+    ctx.fillRect(gemX, hy + 0.5, 1, 1);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2. LAYERED ARMORED FEATHER BREASTPLATE (PLUMED CUIRASS ON CHEST)
+    // 2. STRAIGHT, TAILORED CHEST PLATE / CUIRASS (Centered squarely on chest)
     // ─────────────────────────────────────────────────────────────────────────
-    // A. Gorget Plate (Armored neck collar resting cleanly below beak)
+    // A. Level Gorget Collar Plate (sits straight beneath beak & chin)
     ctx.fillStyle = pal.dark;
-    ctx.fillRect(cuirassX - 2, cuirassY - 2, cuirassW + 4, 4.5);
+    ctx.fillRect(cuirassX - 2, cuirassY - 2, cuirassW + 4, 4);
     ctx.fillStyle = pal.base;
-    ctx.fillRect(cuirassX - 1, cuirassY - 1, cuirassW + 2, 3);
+    ctx.fillRect(cuirassX - 1, cuirassY - 1, cuirassW + 2, 2.5);
     ctx.fillStyle = accentTrim;
-    ctx.fillRect(cuirassX, cuirassY - 0.5, cuirassW, 1.5);
+    ctx.fillRect(cuirassX, cuirassY - 1, cuirassW, 1);
 
-    // B. Main Cuirass Outer Border
+    // B. Straight Main Breastplate Body
     ctx.fillStyle = pal.dark;
-    ctx.fillRect(cuirassX - 1, cuirassY + 1.5, cuirassW + 2, cuirassH - 1);
+    ctx.fillRect(cuirassX - 1, cuirassY + 1, cuirassW + 2, cuirassH);
     ctx.fillStyle = pal.base;
-    ctx.fillRect(cuirassX, cuirassY + 2.5, cuirassW, cuirassH - 2.5);
+    ctx.fillRect(cuirassX, cuirassY + 2, cuirassW, cuirassH - 2);
+    // Crisp top bevel & bottom shadow across full straight plate
+    ctx.fillStyle = pal.bright;
+    ctx.fillRect(cuirassX, cuirassY + 2, cuirassW, 1.5);
+    ctx.fillStyle = pal.shadow;
+    ctx.fillRect(cuirassX, cuirassY + cuirassH - 2, cuirassW, 2);
 
-    // C. Overlapping Sculpted Feather Scale Rows (Avian Scallop / Chevron Plumes)
+    // C. Neat Symmetrical Horizontal Armored Bands & Corner Rivets
     const rowCount = isJuvenile ? 2 : 3;
-    const scalesPerRow = isJuvenile ? 3 : 4;
-    const rowH = Math.max(2, (cuirassH - 4) / rowCount);
-
-    for (let r = 0; r < rowCount; r++) {
-      const ry = cuirassY + 3.5 + r * rowH;
-      const scaleW = cuirassW / scalesPerRow;
-
-      for (let s = 0; s < scalesPerRow; s++) {
-        const sx = cuirassX + s * scaleW;
-
-        // Individual feather scale plate with chevron vane
-        ctx.fillStyle = pal.shadow;
-        ctx.fillRect(sx + 0.5, ry + rowH - 1.5, scaleW - 1, 1.5);
-        ctx.fillStyle = pal.bright;
-        ctx.fillRect(sx + 1, ry + 0.5, scaleW - 2, 1.2);
-
-        // Center spine / feather quill on each scale
-        ctx.fillStyle = accentTrim;
-        ctx.fillRect(sx + scaleW / 2 - 0.5, ry + 0.8, 1, Math.max(1, rowH - 1.5));
-
-        // Micro rivet stud on outer scales
-        if (s === 0 || s === scalesPerRow - 1) {
-          ctx.fillStyle = pal.shine;
-          ctx.fillRect(sx + (s === 0 ? 1 : scaleW - 2), ry + 0.8, 1, 1);
-        }
-      }
+    const bandStep = Math.max(2, Math.floor((cuirassH - 2) / rowCount));
+    for (let r = 1; r < rowCount; r++) {
+      const ry = cuirassY + 2 + r * bandStep;
+      ctx.fillStyle = pal.shadow;
+      ctx.fillRect(cuirassX + 1, ry, cuirassW - 2, 1);
+      ctx.fillStyle = pal.bright;
+      ctx.fillRect(cuirassX + 1, ry + 1, cuirassW - 2, 0.8);
     }
+    // Symmetrical chest rivets on left & right edges
+    ctx.fillStyle = pal.shine;
+    ctx.fillRect(cuirassX + 1, cuirassY + 3, 1.5, 1.5);
+    ctx.fillRect(cuirassX + cuirassW - 2.5, cuirassY + 3, 1.5, 1.5);
+    ctx.fillRect(cuirassX + 1, cuirassY + cuirassH - 3.5, 1.5, 1.5);
+    ctx.fillRect(cuirassX + cuirassW - 2.5, cuirassY + cuirassH - 3.5, 1.5, 1.5);
 
-    // D. Lower Plume Vanes (Pointed feather armor tails curving down over lower belly)
-    const bottomPoints = isJuvenile ? 3 : (isTeen ? 4 : 5);
-    const ptW = cuirassW / bottomPoints;
-    for (let p = 0; p < bottomPoints; p++) {
-      const px = cuirassX + p * ptW;
-      const py = cuirassY + cuirassH;
-      ctx.fillStyle = pal.dark;
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.lineTo(px + ptW / 2, py + 2.5);
-      ctx.lineTo(px + ptW, py);
-      ctx.closePath();
-      ctx.fill();
+    // D. Tidy Straight Waist Trim / Fauld Plate (never hangs into feet)
+    ctx.fillStyle = pal.dark;
+    ctx.fillRect(cuirassX + 1, cuirassY + cuirassH, cuirassW - 2, 2.5);
+    ctx.fillStyle = accentTrim;
+    ctx.fillRect(cuirassX + 2, cuirassY + cuirassH, cuirassW - 4, 1.5);
 
-      ctx.fillStyle = accentTrim;
-      ctx.beginPath();
-      ctx.moveTo(px + 0.5, py);
-      ctx.lineTo(px + ptW / 2, py + 1.8);
-      ctx.lineTo(px + ptW - 0.5, py);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // E. Majestic Center Heraldic Crest (Diamond Star / Sun Ruby / Mythril Blade)
-    const emW = isJuvenile ? 4.5 : (isTeen ? 6 : 7.5);
+    // E. Dead-Center Heraldic Chest Emblem
+    const emW = isJuvenile ? 4 : (isTeen ? 5 : 6);
     const emH = emW;
-    const emX = cuirassX + cuirassW / 2 - emW / 2;
-    const emY = cuirassY + 2 + (cuirassH - 2) / 2 - emH / 2;
+    const emX = Math.round(-emW / 2);
+    const emY = Math.round(cuirassY + 2 + (cuirassH - 2 - emH) / 2);
 
     ctx.fillStyle = pal.dark;
     ctx.fillRect(emX - 1, emY - 1, emW + 2, emH + 2);
@@ -13305,15 +13393,15 @@ export class GameRenderer {
     ctx.fillStyle = gemAccent;
     ctx.fillRect(emX + 1, emY + 1, emW - 2, emH - 2);
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(emX + emW / 2 - 0.5, emY + emH / 2 - 0.5, 1.5, 1.5);
+    ctx.fillRect(emX + 1, emY + 1, 1.2, 1.2);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 3. RAZOR FEATHER WING PAULDRONS (Lowered to sit cleanly on shoulder/wing)
+    // 3. SNUG SHOULDER PAULDRON (Tucked neatly against left edge of chestplate)
     // ─────────────────────────────────────────────────────────────────────────
-    const pwX = -halfW * 0.72 - (isAdult ? 3 : 1);
-    const pwY = (isJuvenile ? 1.5 : (isTeen ? 2 : 2.5)) + walkBounce;
-    const pW = isJuvenile ? 7.5 : (isTeen ? 10 : 12.5);
-    const pH = isJuvenile ? 7 : (isTeen ? 9 : 11);
+    const pW = isJuvenile ? 5 : (isTeen ? 6 : 7);
+    const pH = isJuvenile ? 5 : (isTeen ? 6 : 7);
+    const pwX = Math.round(cuirassX - pW + 2);
+    const pwY = cuirassY + 1;
 
     // Base shoulder plate
     ctx.fillStyle = pal.dark;
@@ -13321,60 +13409,47 @@ export class GameRenderer {
     ctx.fillStyle = pal.base;
     ctx.fillRect(pwX, pwY, pW, pH);
     ctx.fillStyle = pal.bright;
-    ctx.fillRect(pwX + 1, pwY + 1, pW - 2, 2);
-    ctx.fillStyle = pal.shine;
-    ctx.fillRect(pwX + 1.5, pwY + 1.5, 2, 1.5);
+    ctx.fillRect(pwX + 1, pwY + 1, pW - 2, 1.5);
+    ctx.fillStyle = accentTrim;
+    ctx.fillRect(pwX + 1, pwY + pH - 2, pW - 2, 1);
 
-    // Trailing razor flight-feather blades cascading off shoulder
-    const wFeatherCount = isJuvenile ? 2 : (isTeen ? 3 : 4);
+    // Compact tidy shoulder feather trim
+    const wFeatherCount = isJuvenile ? 2 : 3;
     for (let wf = 0; wf < wFeatherCount; wf++) {
-      const fx = pwX - (wf + 1) * (isAdult ? 2.8 : 2.2);
-      const fy = pwY + 2 + wf * (isAdult ? 2.8 : 2.4);
-      const fLen = (isAdult ? 8 : 6.5) - wf * 1.1;
-
+      const fx = pwX - 2 - wf;
+      const fy = pwY + 1 + wf * 2;
+      const fLen = 3;
       ctx.fillStyle = pal.dark;
-      ctx.fillRect(fx - 0.5, fy - 0.5, fLen + 1, 2.5);
-      ctx.fillStyle = pal.base;
-      ctx.fillRect(fx, fy, fLen, 1.8);
+      ctx.fillRect(fx - 0.5, fy - 0.5, fLen + 1, 2);
       ctx.fillStyle = accentTrim;
-      ctx.fillRect(fx, fy, 2, 1.8);
-      ctx.fillStyle = pal.quill;
-      ctx.fillRect(fx + 2, fy + 0.5, fLen - 2, 0.8);
+      ctx.fillRect(fx, fy, fLen, 1.2);
     }
 
     // 3B. SIGNATURE DETAILS FOR NETHERITE & CORAL ARMOR!
     if (isNetherite) {
-      // Molten volcanic gold-amethyst forged shoulder ridge spikes & ember glint
       const emberPulse = 0.65 + Math.sin(time * 7) * 0.35;
+      // Straight obsidian-gold shoulder ridge studs
       ctx.fillStyle = '#09090b';
-      ctx.fillRect(pwX + 2, pwY - 4, 3, 4);
-      ctx.fillRect(pwX + pW - 4, pwY - 3, 3, 3);
+      ctx.fillRect(pwX + 1, pwY - 3, 2, 3);
       ctx.fillStyle = '#f59e0b';
-      ctx.fillRect(pwX + 2.5, pwY - 3.5, 2, 3);
-      ctx.fillRect(pwX + pW - 3.5, pwY - 2.5, 2, 2);
-      // Glowing ancient-debris rune vein across chestplate
+      ctx.fillRect(pwX + 1.5, pwY - 2.5, 1, 2);
+      // Symmetrical glowing rune trim across breastplate
       ctx.fillStyle = `rgba(192, 132, 252, ${emberPulse.toFixed(2)})`;
-      ctx.fillRect(cuirassX + 2, cuirassY + 4, cuirassW - 4, 1.4);
+      ctx.fillRect(cuirassX + 2, cuirassY + 3, cuirassW - 4, 1);
       ctx.fillStyle = `rgba(245, 158, 11, ${emberPulse.toFixed(2)})`;
-      ctx.fillRect(cuirassX + cuirassW / 2 - 1, cuirassY + 2, 2, cuirassH - 3);
+      ctx.fillRect(-0.5, cuirassY + 2, 1, cuirassH - 2);
     } else if (isCoral) {
-      // Vibrant branching staghorn-coral shoulder antlers, tangerine polyps & lustrous sea pearls!
+      // Straight symmetrical coral crown tips & gleaming sea pearls on breastplate
       ctx.fillStyle = '#fb7185';
-      ctx.fillRect(pwX + 1, pwY - 5, 2.5, 6);
-      ctx.fillRect(pwX - 1.5, pwY - 4, 3, 2);
-      ctx.fillStyle = '#fb923c';
-      ctx.fillRect(pwX + pW - 4, pwY - 6, 2.5, 7);
-      ctx.fillRect(pwX + pW - 1.5, pwY - 5, 2.5, 2);
-      // Iridescent sea-glass turquoise tips & shimmering reef pearls on cuirass
+      ctx.fillRect(pwX + 1, pwY - 3, 2, 3);
       ctx.fillStyle = '#2dd4bf';
-      ctx.fillRect(pwX + 1, pwY - 6, 2.5, 2);
-      ctx.fillRect(pwX + pW - 4, pwY - 7, 2.5, 2);
+      ctx.fillRect(pwX + 1, pwY - 4, 2, 1.5);
       ctx.fillStyle = '#fef9c3';
-      ctx.fillRect(cuirassX + 2, cuirassY + 2.5, 2, 2);
-      ctx.fillRect(cuirassX + cuirassW - 4, cuirassY + 2.5, 2, 2);
+      ctx.fillRect(cuirassX + 2, cuirassY + 2, 1.5, 1.5);
+      ctx.fillRect(cuirassX + cuirassW - 3.5, cuirassY + 2, 1.5, 1.5);
       ctx.fillStyle = '#5eead4';
-      ctx.fillRect(hx + 2, hy - 3, 2, 3);
-      ctx.fillRect(hx + helmW - 4, hy - 3, 2, 3);
+      ctx.fillRect(hx + 1, hy - 3, 2, 2);
+      ctx.fillRect(hx + helmW - 3, hy - 3, 2, 2);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -15566,11 +15641,10 @@ export class GameRenderer {
 
       // Colorful real-life Sea Starfish clinging inside ONLY SOME of the ocean kelp beds!
       if (Math.abs(k * 7 + 3) % 3 === 0) {
-        const kelpT = time + k * 0.65;
+        const kelpT = time + (Math.abs(k) % 3) * 0.72;
         const starSide = k % 2 === 0 ? -10 : 11;
         const starLift = k % 2 === 0 ? -24 : -17;
-        const kelpWave = Math.sin(kelpT * 2.4) + Math.sin(kelpT * (2.4 * 0.53) + 1.1) * 0.25;
-        const swayX = kelpWave * 0.115 * Math.abs(starLift);
+        const swayX = Math.sin(kelpT * 2.8 - (k % 2 === 0 ? 9 : 2)) * 2.6;
         ctx.save();
         ctx.translate(starSide + swayX, starLift);
         ctx.rotate((k % 2 === 0 ? -0.24 : 0.28) + Math.sin(time * 1.6 + k) * 0.05);
@@ -17200,23 +17274,19 @@ export class GameRenderer {
     const bw = Math.ceil(74 * s);
     const bh = Math.ceil(96 * s);
     const scaleBucket = Math.round(s * 20);
-    const cacheKey = `cactus_${variant}_${hasFlower ? 1 : 0}_${scaleBucket}`;
-    ctx.save();
-    // Silky-smooth 60fps desert breeze sway anchored cleanly at cactus roots (y = 0)
-    const shearX = -Math.sin(animTime * 1.8) * 0.02;
-    ctx.transform(1, 0, shearX, 1, 0, 0);
-    this.drawCachedOutlinedStamp(
+    const liveTime = this.lastRenderTime > 0 ? (animTime === 0 ? 0 : this.lastRenderTime + variant * 0.72) : animTime;
+    const cacheKey = `live_cactus_${variant}_${hasFlower ? 1 : 0}_${scaleBucket}`;
+    this.drawLiveOutlinedStamp(
       ctx,
       cacheKey,
+      liveTime,
       bw,
       bh,
       Math.ceil(bw / 2),
       Math.ceil(bh - 14 * s),
-      (octx) => this._drawCactusSprite(octx, 0, scale, variant, hasFlower),
-      Math.max(1.45, Math.min(2.4, 1.65 * Math.sqrt(s))),
-      true
+      (octx) => this._drawCactusSprite(octx, liveTime, scale, variant, hasFlower),
+      Math.max(1.45, Math.min(2.4, 1.65 * Math.sqrt(s)))
     );
-    ctx.restore();
   }
 
   private _drawCactusSprite(
@@ -17415,12 +17485,12 @@ export class GameRenderer {
       if (hasFlower) {
         ctx.fillStyle = '#facc15';
         ctx.beginPath();
-        ctx.arc(-3.5, -22.5, 2.8, 0, Math.PI * 2);
-        ctx.arc(0, -23.5, 3.1, 0, Math.PI * 2);
-        ctx.arc(3.5, -22.5, 2.8, 0, Math.PI * 2);
+        ctx.arc(-3.5 + sway * 0.3, -22.5, 2.8, 0, Math.PI * 2);
+        ctx.arc(0 + sway * 0.3, -23.5, 3.1, 0, Math.PI * 2);
+        ctx.arc(3.5 + sway * 0.3, -22.5, 2.8, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ca8a04';
-        ctx.fillRect(-1.5, -24.2, 3, 2);
+        ctx.fillRect(-1.5 + sway * 0.3, -24.2, 3, 2);
       }
     }
 
@@ -17486,39 +17556,21 @@ export class GameRenderer {
     const bh = Math.ceil(116 * s);
     const scaleBucket = Math.round(s * 20);
     const vBucket = Math.abs(variantIndex) % 3;
-    // Cache ONE crisp outlined plant stamp & drive wind sway with a hardware-accelerated 60fps root-anchored shear!
-    const cacheKey = `plant_${plantId}_${vBucket}_${scaleBucket}`;
+    // Full bespoke 60fps plant animations in both Bestiary profiles and gameplay with zero-lag per-frame stamp reuse!
+    const liveTime = this.lastRenderTime > 0 ? (animTime === 0 ? 0 : this.lastRenderTime + vBucket * 0.72) : animTime;
+    const cacheKey = `live_plant_${plantId}_${vBucket}_${scaleBucket}`;
 
-    const windAmp =
-      plantId === 'sea_kelp_coral' ? 0.115 :
-      plantId === 'grass_wildflower' ? 0.09 :
-      plantId === 'meadow_sunflower' ? 0.08 :
-      plantId === 'jungle_fern' ? 0.08 :
-      plantId === 'jungle_palm' || plantId === 'coastal_tree' ? 0.055 :
-      plantId === 'volcanic_ember_bush' ? 0.05 :
-      plantId === 'desert_oasis_shrub' ? 0.045 :
-      0.038;
-    const windSpeed = plantId === 'sea_kelp_coral' ? 2.4 : 2.0;
-    const wave = Math.sin(animTime * windSpeed) + Math.sin(animTime * (windSpeed * 0.53) + 1.1) * 0.25;
-    const shearX = -wave * windAmp;
-    const breathY = plantId === 'volcanic_ember_bush'
-      ? 1 + Math.sin(animTime * 4.2) * 0.028
-      : 1 + Math.cos(animTime * windSpeed * 2) * (windAmp * 0.12);
-
-    ctx.save();
-    ctx.transform(1, 0, shearX, breathY, 0, 0);
-    this.drawCachedOutlinedStamp(
+    this.drawLiveOutlinedStamp(
       ctx,
       cacheKey,
+      liveTime,
       bw,
       bh,
       Math.ceil(bw / 2),
       Math.ceil(bh - 16 * s),
-      (octx) => this._drawPlantSprite(octx, plantId, 0, scale, variantIndex),
-      Math.max(1.5, Math.min(2.5, 1.65 * Math.sqrt(s))),
-      true
+      (octx) => this._drawPlantSprite(octx, plantId, liveTime, scale, variantIndex),
+      Math.max(1.5, Math.min(2.5, 1.65 * Math.sqrt(s)))
     );
-    ctx.restore();
   }
 
   private _drawPlantSprite(
@@ -17876,7 +17928,7 @@ export class GameRenderer {
       ctx.moveTo(9, -14); ctx.lineTo(17, -16); ctx.lineTo(8, -10); ctx.closePath(); ctx.fill();
 
       // Glowing ember blossoms pulsing gently
-      const pulse = animTime === 0 ? 1.0 : 0.85 + Math.sin(animTime * 5.2) * 0.2;
+      const pulse = 0.85 + Math.sin(animTime * 5.2) * 0.2;
       const buds = [
         { x: -14 + sway * 0.4, y: -27, r: 5.2 * pulse },
         { x: sway * 0.6, y: -34, r: 6.2 * pulse },

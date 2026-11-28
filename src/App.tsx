@@ -21,9 +21,9 @@ import { TouchControls } from './components/TouchControls';
 import { AdMobInterstitialModal } from './components/AdMobInterstitialModal';
 
 import { onAuthStateChanged, signOut, applyActionCode, User } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { ArrowLeft, LogOut, Maximize2, Minimize2, X } from 'lucide-react';
-import { auth, db } from './game/firebase';
+import { auth, db, OperationType, handleFirestoreError } from './game/firebase';
 import { AuthModal } from './components/AuthModal';
 
 export default function App() {
@@ -40,6 +40,14 @@ export default function App() {
   const [activeLevelId, setActiveLevelId] = useState<number>(1);
   const [coinsEarned, setCoinsEarned] = useState<number>(0);
   const [evolutionStage, setEvolutionStage] = useState<GrowthStage | null>(null);
+  const [bossRushRound, setBossRushRound] = useState<1 | 2 | null>(null);
+  const [bossRushBonusCoins, setBossRushBonusCoins] = useState<number>(0);
+  const [bossRushElapsedMs, setBossRushElapsedMs] = useState<number>(0);
+  const [bossRushLastClearMs, setBossRushLastClearMs] = useState<number | null>(null);
+  const [bossRushScoreStatus, setBossRushScoreStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'unverified'>('idle');
+  const bossRushRoundRef = useRef<1 | 2 | null>(null);
+  const bossRushElapsedMsRef = useRef<number>(0);
+  const bossRushHudSyncRef = useRef<number>(0);
   const [playerHealth, setPlayerHealth] = useState<number>(3);
   const [playerStage, setPlayerStage] = useState<GrowthStage>('baby');
   const [playerFireResistTimer, setPlayerFireResistTimer] = useState<number>(0);
@@ -49,12 +57,18 @@ export default function App() {
   const [activePlayerEmote, setActivePlayerEmote] = useState<EmoteId | null>(null);
   const [playerOnRaft, setPlayerOnRaft] = useState<boolean>(false);
   const [activeHasShield, setActiveHasShield] = useState<boolean>(false);
+  const [playerHasAxe, setPlayerHasAxe] = useState<boolean>(false);
+  const [playerHasBrush, setPlayerHasBrush] = useState<boolean>(false);
+  const [playerSelectedItem, setPlayerSelectedItem] = useState<'sword' | 'axe' | 'brush'>('sword');
   // Refs to prevent redundant React state updates every animation frame
   const hudSyncRef = useRef({
     fireResist: 0,
     emote: null as EmoteId | null,
     onRaft: false,
     hasShield: false,
+    hasAxe: false,
+    hasBrush: false,
+    selectedItem: 'sword' as 'sword' | 'axe' | 'brush',
     poison: 0,
     poisonMax: 0,
   });
@@ -101,7 +115,11 @@ export default function App() {
           armor: remote.armor || prev.armor,
           sword: remote.sword || prev.sword,
           selectedSkin: remote.selectedSkin || prev.selectedSkin,
+          unlockedArmors: Array.isArray(remote.unlockedArmors) ? remote.unlockedArmors : prev.unlockedArmors,
+          unlockedSwords: Array.isArray(remote.unlockedSwords) ? remote.unlockedSwords : prev.unlockedSwords,
           hasShield: remote.hasShield !== undefined ? Boolean(remote.hasShield) : prev.hasShield,
+          hasAxe: remote.hasAxe !== undefined ? Boolean(remote.hasAxe) : prev.hasAxe,
+          hasBrush: remote.hasBrush !== undefined ? Boolean(remote.hasBrush) : prev.hasBrush,
           hasCompletedGame: remote.hasCompletedGame !== undefined ? Boolean(remote.hasCompletedGame) : prev.hasCompletedGame,
         }));
       } else {
@@ -400,17 +418,28 @@ export default function App() {
       // Sync persistent progress to Firestore for verified users
       if (auth.currentUser && auth.currentUser.emailVerified) {
         const uid = auth.currentUser.uid;
+        const safeArmor = ['none', 'iron', 'gold', 'diamond', 'netherite', 'coral'].includes(next.armor) ? next.armor : 'none';
+        const safeSword = ['none', 'iron', 'gold', 'diamond', 'coral', 'netherite'].includes(next.sword) ? next.sword : 'none';
+        const safeGender = next.gender === 'hen' ? 'hen' : 'rooster';
+        const safeLevel = Math.max(1, Math.min(40, Math.round(Number(next.unlockedLevel) || 1)));
+        const safeCoins = Math.max(0, Math.floor(Number(next.totalCoins) || 0));
+        const safeUnlockedArmors = Array.from(new Set((next.unlockedArmors || []).filter(a => ['iron', 'gold', 'diamond', 'netherite', 'coral'].includes(a)))).slice(0, 10);
+        const safeUnlockedSwords = Array.from(new Set((next.unlockedSwords || []).filter(s => ['iron', 'gold', 'diamond', 'coral', 'netherite'].includes(s)))).slice(0, 10);
         setDoc(doc(db, 'users', uid), {
           userId: uid,
-          email: auth.currentUser.email || '',
-          displayName: auth.currentUser.displayName || '',
-          unlockedLevel: next.unlockedLevel,
-          totalCoins: next.totalCoins,
-          gender: next.gender,
-          armor: next.armor,
-          sword: next.sword,
-          selectedSkin: next.selectedSkin,
+          email: (auth.currentUser.email || '').slice(0, 256),
+          displayName: (auth.currentUser.displayName || '').slice(0, 64),
+          unlockedLevel: safeLevel,
+          totalCoins: safeCoins,
+          gender: safeGender,
+          armor: safeArmor,
+          sword: safeSword,
+          selectedSkin: String(next.selectedSkin || 'classic').slice(0, 64),
+          unlockedArmors: safeUnlockedArmors,
+          unlockedSwords: safeUnlockedSwords,
           hasShield: Boolean(next.hasShield),
+          hasAxe: Boolean(next.hasAxe),
+          hasBrush: Boolean(next.hasBrush),
           hasCompletedGame: Boolean(next.hasCompletedGame),
           updatedAt: new Date().toISOString()
         }, { merge: true }).catch(err => console.error('Firestore save sync error:', err));
@@ -469,10 +498,16 @@ export default function App() {
     }
   }, []);
 
-  // Initialize Engine for Level
-  const initLevelEngine = useCallback((levelId: number) => {
+  // Ref to always invoke the latest initLevelEngine cleanly for seamless adult-replay & Boss Rush auto-advancing
+  const initLevelEngineRef = useRef<(levelId: number, activeBossRushRound?: 1 | 2 | null) => void>(() => {});
+
+  // Initialize Engine for Level (or Boss Rush Round 1 / 2)
+  const initLevelEngine = useCallback((levelId: number, activeBossRushRound: 1 | 2 | null = null) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    bossRushRoundRef.current = activeBossRushRound;
+    setBossRushRound(activeBossRushRound);
 
     if (!rendererRef.current) {
       rendererRef.current = new GameRenderer(canvas);
@@ -484,16 +519,16 @@ export default function App() {
 
     const currentSave = loadSaveData();
     // When starting a new run or entering level 1, only reset equipment if player is not an evolved chicken!
-    const isEvolvedRevisit = (currentSave.unlockedLevel || 1) >= 10;
+    const isEvolvedRevisit = activeBossRushRound !== null || (currentSave.unlockedLevel || 1) >= 10;
     if (levelId === 1 && !isEvolvedRevisit) {
       currentSave.armor = 'none';
       currentSave.sword = 'none';
       currentSave.hasShield = false;
     }
 
-    // When playing levels 1 through 29:
+    // When playing levels 1 through 29 in normal campaign:
     // "when we defeat the boss with netherite sword and go back to levels 29-1 our sword will still be that normal diamond or etc"
-    if (levelId < 30) {
+    if (activeBossRushRound === null && levelId < 30) {
       if (currentSave.sword === 'netherite') {
         const regularSword = currentSave.preBossSword || 'diamond';
         currentSave.sword = regularSword;
@@ -504,10 +539,10 @@ export default function App() {
       }
     }
 
-    // When starting or replaying Level 30 (The Ancient Cockatrice Boss):
+    // When starting Level 30 (The Ancient Cockatrice Boss) in normal campaign before defeating him:
     // Player begins with their regular diamond sword (or owned non-netherite sword),
     // and shield starts uncollected so Silkie Sam can fly in and bestow the shield and netherite sword!
-    if (levelId === 30) {
+    if (activeBossRushRound === null && levelId === 30 && !currentSave.hasCompletedGame) {
       const regularSword = (currentSave.sword === 'netherite' ? currentSave.preBossSword : currentSave.sword) || 'diamond';
       currentSave.preBossSword = regularSword;
       currentSave.sword = regularSword;
@@ -530,7 +565,7 @@ export default function App() {
           setPlayerHealth(health);
           setCoinsEarned(coins);
           setPlayerStage(stage);
-          if (armor !== undefined || sword !== undefined || hasShield !== undefined) {
+          if (activeBossRushRound === null && (armor !== undefined || sword !== undefined || hasShield !== undefined)) {
             updateSaveData(prev => ({
               ...prev,
               armor: armor !== undefined ? armor : prev.armor,
@@ -540,6 +575,15 @@ export default function App() {
           }
         },
         onLevelClear: (completedLevelId, earnedCoins) => {
+          const latestSave = loadSaveData();
+          const isAdultPlayer = engineRef.current?.player.stage === 'adult' || (latestSave.unlockedLevel || 1) >= 20;
+          const isSeamlessAdultReplay = Boolean(
+            isAdultPlayer &&
+            (latestSave.hasFinishedEntireGame ||
+              (latestSave.hasCompletedGame &&
+                ((latestSave.unlockedLevel || 1) >= 40 || completedLevelId < (latestSave.unlockedLevel || 1))))
+          );
+
           updateSaveData(prev => {
             const nextLvl = Math.min(40, Math.max(prev.unlockedLevel, completedLevelId + 1));
             return {
@@ -547,12 +591,25 @@ export default function App() {
               unlockedLevel: nextLvl,
               totalCoins: prev.totalCoins + earnedCoins,
               hasCompletedGame: prev.hasCompletedGame || completedLevelId >= 30,
+              hasFinishedEntireGame: prev.hasFinishedEntireGame || completedLevelId >= 40,
               armor: engineRef.current?.armorType || prev.armor,
               sword: engineRef.current?.swordType || prev.sword,
               hasShield: engineRef.current?.hasShield || prev.hasShield,
             };
           });
           setCoinsEarned(earnedCoins);
+
+          // When replaying the game as an adult after finishing it, skip the big Level Clear modal,
+          // Evolution popups, and Next World loading screen — advance straight into the next level!
+          // If the Cockatrice boss (Level 30) was already defeated in this run, skip straight past Level 30 to Level 31!
+          if (isSeamlessAdultReplay && completedLevelId < 40) {
+            const nextLvl = (completedLevelId === 29 && latestSave.hasCompletedGame) ? 31 : completedLevelId + 1;
+            queueMicrotask(() => {
+              initLevelEngineRef.current(nextLvl);
+              setScreen('PLAYING');
+            });
+            return;
+          }
 
           // Route evolution milestones (9 -> 10 Juvenile, 19 -> 20 Adult) directly to EVOLUTION,
           // and all other cleared stages directly to LEVEL_CLEAR (no percentage loading modal)
@@ -572,9 +629,15 @@ export default function App() {
         },
         onEvolution: (stage) => {
           const nextLvl = Math.min(40, levelId + 1);
-          setActiveLevelId(nextLvl);
-          setEvolutionStage(stage);
-          audio.playEvolution();
+          const latestSave = loadSaveData();
+          const isAdultPlayer = engineRef.current?.player.stage === 'adult' || (latestSave.unlockedLevel || 1) >= 20;
+          const isSeamlessAdultReplay = Boolean(
+            isAdultPlayer &&
+            (latestSave.hasFinishedEntireGame ||
+              (latestSave.hasCompletedGame &&
+                ((latestSave.unlockedLevel || 1) >= 40 || levelId < (latestSave.unlockedLevel || 1))))
+          );
+
           updateSaveData(prev => {
             return {
               ...prev,
@@ -584,6 +647,18 @@ export default function App() {
               sword: engineRef.current?.swordType || prev.sword,
             };
           });
+
+          if (isSeamlessAdultReplay && levelId < 40) {
+            queueMicrotask(() => {
+              initLevelEngineRef.current(nextLvl);
+              setScreen('PLAYING');
+            });
+            return;
+          }
+
+          setActiveLevelId(nextLvl);
+          setEvolutionStage(stage);
+          audio.playEvolution();
           setScreen('EVOLUTION');
         },
         onGameOver: () => {
@@ -595,6 +670,7 @@ export default function App() {
             unlockedLevel: Math.min(40, Math.max(prev.unlockedLevel, levelId + 1)),
             totalCoins: prev.totalCoins + earnedCoins,
             hasCompletedGame: true,
+            hasFinishedEntireGame: prev.hasFinishedEntireGame || levelId >= 40,
           }));
           setCoinsEarned(earnedCoins);
           if (levelId >= 40) {
@@ -660,7 +736,62 @@ export default function App() {
             };
           });
         },
-      }
+        onBossRushRoundClear: (round, bonusCoins) => {
+          updateSaveData(prev => ({
+            ...prev,
+            totalCoins: prev.totalCoins + bonusCoins,
+          }));
+          setBossRushBonusCoins(prev => prev + bonusCoins);
+          if (round === 1) {
+            queueMicrotask(() => {
+              initLevelEngineRef.current(30, 2);
+              setScreen('PLAYING');
+            });
+          } else {
+            const finalClearTimeMs = Math.min(3600000, Math.max(1000, Math.round(bossRushElapsedMsRef.current)));
+            setBossRushElapsedMs(finalClearTimeMs);
+            setBossRushLastClearMs(finalClearTimeMs);
+            bossRushRoundRef.current = null;
+            setBossRushRound(null);
+            audio.playVictory();
+            setScreen('BOSS_RUSH_VICTORY');
+
+            // Persist Boss Rush clear time to Firestore leaderboard (verified users only, PII-free)
+            const user = auth.currentUser;
+            if (user && user.emailVerified) {
+              setBossRushScoreStatus('saving');
+              const latestSave = loadSaveData();
+              const rawName = (user.displayName || '').trim() || (user.email ? user.email.split('@')[0] : '') || 'Hero Chick';
+              const safePlayerName = rawName.replace(/\s+/g, ' ').trim().slice(0, 40) || 'Hero Chick';
+              const safeDifficulty = latestSave.difficulty === 'easy' || latestSave.difficulty === 'hard' ? latestSave.difficulty : 'normal';
+              const safeGender = latestSave.gender === 'hen' ? 'hen' : 'rooster';
+              addDoc(collection(db, 'bossRushScores'), {
+                userId: user.uid,
+                playerName: safePlayerName,
+                clearTimeMs: finalClearTimeMs,
+                difficulty: safeDifficulty,
+                gender: safeGender,
+                bonusCoins: 650,
+                createdAt: serverTimestamp(),
+              })
+                .then(() => {
+                  setBossRushScoreStatus('saved');
+                })
+                .catch((err) => {
+                  try {
+                    handleFirestoreError(err, OperationType.CREATE, 'bossRushScores');
+                  } catch {
+                    // Structured error logged via handleFirestoreError
+                  }
+                  setBossRushScoreStatus('error');
+                });
+            } else {
+              setBossRushScoreStatus('unverified');
+            }
+          }
+        },
+      },
+      activeBossRushRound
     );
 
     setActiveLevelId(levelId);
@@ -672,10 +803,14 @@ export default function App() {
     updateMusicForLevel(levelId);
   }, [updateSaveData, updateMusicForLevel]);
 
+  initLevelEngineRef.current = initLevelEngine;
+
   const pendingRestartActionRef = useRef<'level' | 'new_run' | 'respawn'>('level');
 
   // Execute a brand new run (invoked after heavenly reincarnation loading finishes)
   const executeStartNewRun = useCallback(() => {
+    bossRushRoundRef.current = null;
+    setBossRushRound(null);
     updateSaveData(prev => ({
       ...prev,
       armor: 'none',
@@ -683,9 +818,12 @@ export default function App() {
       hasShield: false,
       unlockedLevel: 1,
       hasCompletedGame: false,
+      hasFinishedEntireGame: false,
+      hasDefeatedFarmerBoss: false,
       collectedCoinIds: [],
       activatedCheckpointIds: [],
       openedChestIds: [],
+      defeatedWorldEnemyIds: [],
       levelCoinsCollected: {},
       hasVisitedShop: false,
       hasSeenSamLevel1Joke: false,
@@ -727,9 +865,12 @@ export default function App() {
         sword: 'none', 
         hasShield: false,
         hasCompletedGame: false,
+        hasFinishedEntireGame: false,
+        hasDefeatedFarmerBoss: false,
         collectedCoinIds: [],
         activatedCheckpointIds: [],
         openedChestIds: [],
+        defeatedWorldEnemyIds: [],
         levelCoinsCollected: {},
         hasVisitedShop: false,
         hasSeenSamLevel1Joke: false,
@@ -753,15 +894,35 @@ export default function App() {
 
   // Next level handler
   const handleNextLevel = useCallback(() => {
-    // If clicking "CONTINUE ADVENTURE!" on the EVOLUTION screen, show the 1% -> 100% world loading screen first!
+    const latestSave = loadSaveData();
+    const isAdultPlayer = engineRef.current?.player.stage === 'adult' || (latestSave.unlockedLevel || 1) >= 20;
+    const isSeamlessAdultReplay = Boolean(
+      isAdultPlayer &&
+      (latestSave.hasFinishedEntireGame ||
+        (latestSave.hasCompletedGame &&
+          ((latestSave.unlockedLevel || 1) >= 40 || activeLevelId < (latestSave.unlockedLevel || 1))))
+    );
+
+    // If clicking "CONTINUE ADVENTURE!" on the EVOLUTION screen, show the 1% -> 100% world loading screen first (unless adult replay)!
     if (screen === 'EVOLUTION') {
-      setScreen('WORLD_LOADING');
+      if (isSeamlessAdultReplay) {
+        initLevelEngine(activeLevelId);
+        setScreen('PLAYING');
+      } else {
+        setScreen('WORLD_LOADING');
+      }
       return;
     }
 
-    const nextLvl = activeLevelId + 1;
+    const rawNextLvl = activeLevelId + 1;
+    // If the Cockatrice boss (Level 30) was already defeated in this run, skip Level 30 unless the player presses New Run!
+    const nextLvl = (rawNextLvl === 30 && latestSave.hasCompletedGame) ? 31 : rawNextLvl;
     if (nextLvl > 40) {
       setScreen('VICTORY');
+    } else if (isSeamlessAdultReplay) {
+      // Skip Evolution and Next World Loading screens when repeating as an adult!
+      initLevelEngine(nextLvl);
+      setScreen('PLAYING');
     } else if (nextLvl === 10) {
       setActiveLevelId(10);
       setEvolutionStage('juvenile');
@@ -800,6 +961,10 @@ export default function App() {
     const action = pendingRestartActionRef.current;
     if (action === 'new_run') {
       executeStartNewRun();
+    } else if (bossRushRoundRef.current !== null) {
+      const round = bossRushRoundRef.current;
+      initLevelEngine(round === 1 ? 1 : 30, round);
+      setScreen('PLAYING');
     } else if (action === 'respawn' && activeLevelId === 30 && engineRef.current) {
       engineRef.current.respawnAtSamSpot();
       setScreen('PLAYING');
@@ -823,7 +988,19 @@ export default function App() {
 
   // Level select handler
   const handleSelectLevel = useCallback((lvlId: number) => {
-    initLevelEngine(lvlId);
+    initLevelEngine(lvlId, null);
+    setScreen('PLAYING');
+  }, [initLevelEngine]);
+
+  // Boss Rush Mode launcher (sequential gauntlet: Round 1 Old Farmer Jed -> Round 2 Ancient Cockatrice for bonus coins!)
+  const handleStartBossRush = useCallback(() => {
+    setBossRushBonusCoins(0);
+    bossRushElapsedMsRef.current = 0;
+    bossRushHudSyncRef.current = 0;
+    setBossRushElapsedMs(0);
+    setBossRushLastClearMs(null);
+    setBossRushScoreStatus('idle');
+    initLevelEngine(1, 1);
     setScreen('PLAYING');
   }, [initLevelEngine]);
 
@@ -906,6 +1083,10 @@ export default function App() {
         nextShield = true;
       }
 
+      const nextUnlockedSwords = itemType === 'sword' && tierValue
+        ? Array.from(new Set([...(prev.unlockedSwords || []), tierValue as any]))
+        : (prev.unlockedSwords || []);
+
       const prevPurchases = prev.stats?.shopPurchases || 0;
       const nextPurchases = cost > 0 ? prevPurchases + 1 : prevPurchases;
       const newlyUnlocked = cost > 0 ? getNewlyUnlockedEmotes(prevPurchases, nextPurchases) : [];
@@ -923,6 +1104,7 @@ export default function App() {
         armor: nextArmor,
         unlockedArmors: nextUnlockedArmors,
         sword: nextSword,
+        unlockedSwords: nextUnlockedSwords,
         hasShield: nextShield,
         unlockedEmotes: nextUnlockedEmotes,
         stats: {
@@ -1329,6 +1511,13 @@ export default function App() {
       } else if (screen === 'PLAYING' && engineRef.current) {
         const engine = engineRef.current;
         engine.update(dt);
+        if (bossRushRoundRef.current !== null && !engine.isPaused) {
+          bossRushElapsedMsRef.current += dt * 1000;
+          if (bossRushElapsedMsRef.current - bossRushHudSyncRef.current >= 80) {
+            bossRushHudSyncRef.current = bossRushElapsedMsRef.current;
+            setBossRushElapsedMs(Math.round(bossRushElapsedMsRef.current));
+          }
+        }
 
         renderer.clear();
         const cockatrice = engine.level.cockatrice;
@@ -1533,6 +1722,24 @@ export default function App() {
           setActiveHasShield(nowHasShield);
         }
 
+        const nowHasAxe = Boolean(engine.player.hasAxe);
+        if (hud.hasAxe !== nowHasAxe) {
+          hud.hasAxe = nowHasAxe;
+          setPlayerHasAxe(nowHasAxe);
+        }
+
+        const nowHasBrush = Boolean(engine.player.hasBrush);
+        if (hud.hasBrush !== nowHasBrush) {
+          hud.hasBrush = nowHasBrush;
+          setPlayerHasBrush(nowHasBrush);
+        }
+
+        const nowSelectedItem = engine.player.selectedItem || 'sword';
+        if (hud.selectedItem !== nowSelectedItem) {
+          hud.selectedItem = nowSelectedItem;
+          setPlayerSelectedItem(nowSelectedItem);
+        }
+
         const currentPoison = engine.player.poisonTimer ?? 0;
         const currentPoisonMax = engine.player.poisonMaxDuration ?? 0;
         if (
@@ -1641,8 +1848,15 @@ export default function App() {
             }}
             onToggleFullscreen={handleToggleFullscreen}
             onPause={() => setScreen('PAUSED')}
-            onReturnToMenu={() => setScreen('MENU')}
+            onReturnToMenu={() => {
+              bossRushRoundRef.current = null;
+              setBossRushRound(null);
+              setScreen('MENU');
+            }}
             onLogOut={handleLogOut}
+            bossRushRound={bossRushRound}
+            bossRushBonusCoins={bossRushBonusCoins}
+            bossRushElapsedMs={bossRushElapsedMs}
             unlockedEmotes={getUnlockedEmotes(saveData)}
             activeEmote={activePlayerEmote}
             shopPurchases={saveData.stats?.shopPurchases || 0}
@@ -1656,6 +1870,20 @@ export default function App() {
                 if (next) setEmoteTrayOpen(false);
                 return next;
               });
+            }}
+            unlockedArmors={saveData.unlockedArmors}
+            unlockedSwords={saveData.unlockedSwords}
+            hasAxe={playerHasAxe || Boolean(saveData.hasAxe)}
+            hasBrush={playerHasBrush || Boolean(saveData.hasBrush)}
+            selectedItem={playerSelectedItem}
+            onEquipArmor={(armorType) => {
+              engineRef.current?.equipArmor(armorType);
+            }}
+            onEquipSword={(swordType) => {
+              engineRef.current?.equipSword(swordType);
+            }}
+            onSelectInventoryItem={(item) => {
+              engineRef.current?.selectInventoryItem(item);
             }}
           />
 
@@ -1695,6 +1923,11 @@ export default function App() {
         onDismissFoundBadge={() => setFoundBadge(null)}
         onStartGame={handleStartGame}
         onStartNewRun={handleStartNewRun}
+        onStartBossRush={handleStartBossRush}
+        bossRushBonusCoins={bossRushBonusCoins}
+        bossRushClearTimeMs={bossRushLastClearMs}
+        bossRushScoreStatus={bossRushScoreStatus}
+        isBossRush={bossRushRound !== null}
         onSelectGender={handleSelectGender}
         onResume={() => setScreen('PLAYING')}
         onRestartLevel={handleRestartLevel}
@@ -1702,6 +1935,8 @@ export default function App() {
         onNextLevel={handleNextLevel}
         onSelectLevel={handleSelectLevel}
         onReturnToMenu={() => {
+          bossRushRoundRef.current = null;
+          setBossRushRound(null);
           setScreen('MENU');
         }}
         onOpenScreen={(s) => {

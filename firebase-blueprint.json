@@ -35,15 +35,24 @@
         },
         "sword": {
           "type": "string",
-          "description": "Equipped sword type."
+          "description": "Equipped sword type (none, iron, gold, diamond, coral, netherite)."
         },
         "selectedSkin": {
           "type": "string",
+          "maxLength": 64,
           "description": "Equipped chicken skin ID."
         },
         "hasShield": {
           "type": "boolean",
           "description": "Whether player has acquired the shield."
+        },
+        "hasAxe": {
+          "type": "boolean",
+          "description": "Whether player has acquired the woodcutter axe."
+        },
+        "hasBrush": {
+          "type": "boolean",
+          "description": "Whether player has acquired the archaeology brush."
         },
         "hasCompletedGame": {
           "type": "boolean",
@@ -51,14 +60,58 @@
         },
         "createdAt": {
           "type": "string",
+          "maxLength": 64,
           "description": "Account registration timestamp."
         },
         "updatedAt": {
           "type": "string",
+          "maxLength": 64,
           "description": "Last save timestamp."
         }
       },
       "required": ["userId", "email"]
+    },
+    "BossRushScore": {
+      "title": "BossRushScore",
+      "description": "Public leaderboard entry storing a verified player's Boss Rush fastest clear time.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Firebase Auth UID of the player who achieved the score."
+        },
+        "playerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Public display nickname for the leaderboard (never raw email PII)."
+        },
+        "clearTimeMs": {
+          "type": "number",
+          "description": "Total Boss Rush completion time in milliseconds (1000 to 3600000)."
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": ["easy", "normal", "hard"],
+          "description": "Difficulty setting during the Boss Rush run."
+        },
+        "gender": {
+          "type": "string",
+          "enum": ["rooster", "hen"],
+          "description": "Chicken character gender used during the run."
+        },
+        "bonusCoins": {
+          "type": "number",
+          "description": "Bonus coins earned in the Boss Rush run."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned Firestore timestamp when the clear was recorded."
+        }
+      },
+      "required": ["userId", "playerName", "clearTimeMs", "difficulty", "gender", "bonusCoins", "createdAt"]
     }
   },
   "firestore": {
@@ -67,6 +120,12 @@
         "$ref": "#/entities/UserProfile"
       },
       "description": "Stores user account profile and persistent progress for registered players."
+    },
+    "/bossRushScores/{scoreId}": {
+      "schema": {
+        "$ref": "#/entities/BossRushScore"
+      },
+      "description": "Stores verified players' Boss Rush clear times for the Top 5 fastest clear times leaderboard."
     }
   }
 }

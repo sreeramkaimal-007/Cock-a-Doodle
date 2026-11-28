@@ -16,6 +16,7 @@ export interface GameEngineCallbacks {
   onSaveDataUpdate?: (patch: Partial<SaveData>) => void;
   onEnemyEncountered?: (enemyId: string) => void;
   onEnemyDefeated?: (enemyId: string) => void;
+  onBossRushRoundClear?: (round: 1 | 2, bonusCoins: number) => void;
 }
 
 export class GameEngine {
@@ -64,6 +65,9 @@ export class GameEngine {
   public samLevel1Timer = 0;
   private reportedEncounters = new Set<string>();
   private emoteParticleTimer = 0;
+  public bossRushRound: 1 | 2 | null = null;
+  private bossRushAdvanceTimer = -1;
+  private bossRushRoundCompleted = false;
 
   public setDifficulty(diff: 'easy' | 'normal' | 'hard') {
     this.saveData.difficulty = diff;
@@ -74,12 +78,14 @@ export class GameEngine {
     saveData: SaveData,
     canvasWidth: number,
     canvasHeight: number,
-    callbacks: GameEngineCallbacks
+    callbacks: GameEngineCallbacks,
+    bossRushRound: 1 | 2 | null = null
   ) {
     this.canvasWidth = canvasWidth;
     this.canvasHeight = canvasHeight;
     this.callbacks = callbacks;
     this.saveData = saveData;
+    this.bossRushRound = bossRushRound;
     if (Array.isArray(saveData.encounteredEnemies)) {
       saveData.encounteredEnemies.forEach(id => this.reportedEncounters.add(id));
     }
@@ -97,8 +103,8 @@ export class GameEngine {
       worldHeight: this.level.worldHeight,
     };
 
-    // Keep evolved form if level was already unlocked or chicken grew up
-    const stage = this.getStageForLevel(levelId, saveData.unlockedLevel || 1);
+    // Keep evolved form if level was already unlocked or chicken grew up (always Adult in Boss Rush)
+    const stage = this.bossRushRound !== null ? 'adult' : this.getStageForLevel(levelId, saveData.unlockedLevel || 1);
     const gender = saveData.gender || 'rooster';
     const size = this.getSizeForStage(stage, gender);
     const maxHP = 3 + (saveData.upgrades?.extraHearts || 0);
@@ -151,7 +157,7 @@ export class GameEngine {
       isCrouching: false,
       standingHeight: size.h,
       shieldSnatched: this.level.theme === 'desert',
-      hasAxe: false,
+      hasAxe: Boolean(this.level.theme === 'coast' && this.level.id > 36 && saveData.hasAxe),
       woodCount: 0,
       woodTarget: this.level.woodTarget || 0,
       onRaft: false,
@@ -159,6 +165,7 @@ export class GameEngine {
       hasBrush: Boolean(saveData.hasBrush || this.level.theme === 'desert'),
       isBrushing: false,
       brushTimer: 0,
+      selectedItem: 'sword',
     };
 
     // World 7: the Desert lands — Falcon snatches the Royal Shield in Level 31 cutscene,
@@ -340,59 +347,177 @@ export class GameEngine {
       }
     });
 
-    // In Level 30, Silkie Sam always prepares to gift the Royal Shield and Netherite Sword!
-    if (this.level.silkieSam) {
-      this.level.silkieSam.shieldCollected = false;
-      this.level.silkieSam.shieldDropped = false;
-      this.level.silkieSam.swordCollected = false;
-      this.level.silkieSam.swordDropped = false;
-      this.level.silkieSam.state = 'waiting';
+    // In Desert (World 7) and Sea / Peckerin Coast (World 8), permanently remove only the specific enemies
+    // the player already killed — any enemies missed remain in the level on replay!
+    if (this.level.theme === 'desert' || this.level.theme === 'coast') {
+      const defeatedSet = new Set(this.saveData.defeatedWorldEnemyIds || []);
+      if (this.level.falcons) {
+        this.level.falcons = this.level.falcons.filter(f => !defeatedSet.has(`${levelId}_${f.id}`));
+      }
+      if (this.level.sharks) {
+        this.level.sharks = this.level.sharks.filter(s => !defeatedSet.has(`${levelId}_${s.id}`));
+      }
+      if (this.level.enemies) {
+        this.level.enemies = this.level.enemies.filter(e => !defeatedSet.has(`${levelId}_${e.id}`));
+      }
     }
 
-    if (!this.level.enemies) {
+    // Boss Rush Mode overrides: force sequential full-power boss encounters with zero campaign lockouts!
+    if (this.bossRushRound === 1) {
+      // Round 1/2: Old Farmer Jed (Adult Rematch Gauntlet)
+      this.level.coins = [];
+      this.level.chests = [];
+      this.level.checkpoints = [];
       this.level.enemies = [];
-    }
-
-    // Configure Level 1 Mini-Boss: Old Farmer Jed
-    // - As Baby Chick: use peck (X / K) -> Farmer gets injured & limps aside (not permanently defeated)
-    // - Returning as Adult (even after completing the game!): full adult rematch fight!
-    // - Returning as Juvenile / Teen: Farmer nurses his shin and challenges you to return as an adult
-    if (this.level.farmer) {
-      const f = this.level.farmer;
-      if (this.player.stage === 'baby') {
-        f.mode = 'baby_encounter';
-        f.maxHealth = 4;
-        f.health = 4;
-        f.displayHealth = 4;
-        f.state = 'idle';
-      } else if (this.player.stage === 'adult') {
+      this.samLevel1State = 'done';
+      if (this.swordType === 'none' || this.swordType === 'iron' || this.swordType === 'gold') {
+        this.swordType = 'diamond';
+      }
+      if (this.level.farmer) {
+        const f = this.level.farmer;
         f.mode = 'adult_rematch';
         f.maxHealth = 24;
         f.health = 24;
         f.displayHealth = 24;
         f.state = 'idle';
-      } else {
-        f.mode = 'growing_visit';
-        f.maxHealth = 12;
-        f.health = 12;
-        f.displayHealth = 12;
-        f.state = 'injured';
-        f.x = 32;
-        f.facing = 'right';
+        f.x = 240;
+        f.patrolLeft = 20;
+        f.patrolRight = 460;
+        f.facing = 'left';
+        f.hasIntroduced = false;
+        f.hasMidFightLine = false;
+        f.projectiles = [];
       }
-      f.projectiles = [];
-    }
-
-    if (levelId === 1 && saveData.hasSeenSamLevel1Joke) {
-      this.samLevel1State = 'done';
-    }
-
-    // Secret Badge: "Back Home" - Revisit level 1 as an evolved chicken!
-    if (levelId === 1 && isEvolvedRevisit) {
-      this.callbacks.onActionStat?.('visitedCoopEvolved');
       setTimeout(() => {
-        this.addFloatingText('★ SECRET BADGE UNLOCKED: BACK HOME! ★', this.player.x + this.player.width / 2, this.player.y - 35, '#fde047');
-      }, 400);
+        this.addFloatingText('⚔️ BOSS RUSH · ROUND 1/2: OLD FARMER JED! ⚔️', this.player.x + 110, this.player.y - 42, '#fde047');
+      }, 280);
+    } else if (this.bossRushRound === 2) {
+      // Round 2/2: Ancient Cockatrice (Final Boss Gauntlet — starts armed with Royal Shield & Netherite Sword!)
+      this.level.coins = [];
+      this.level.chests = [];
+      this.level.checkpoints = [];
+      this.level.enemies = [];
+      this.hasShield = true;
+      this.player.hasShield = true;
+      this.swordType = 'netherite';
+      if (this.level.silkieSam) {
+        this.level.silkieSam.state = 'gone';
+        this.level.silkieSam.shieldDropped = false;
+        this.level.silkieSam.shieldCollected = true;
+        this.level.silkieSam.swordDropped = false;
+        this.level.silkieSam.swordCollected = true;
+      }
+      if (this.level.cockatrice) {
+        const boss = this.level.cockatrice;
+        boss.health = boss.maxHealth;
+        boss.displayHealth = boss.maxHealth;
+        boss.phase = 1;
+        boss.rageMode = 'sky rage';
+        boss.burntMarksCount = 0;
+        boss.burnIntensity = 0;
+        boss.state = 'countdown';
+        boss.countdownTimer = 3.99;
+        boss.countdownText = '3..';
+        boss.stateTimer = 0;
+        boss.defeatSubState = undefined;
+        boss.ashExplodeFlash = 0;
+        boss.fireProjectiles = [];
+        boss.shockwaves = [];
+        boss.slashTrails = [];
+        boss.bittenLandCraters = [];
+        boss.summonWaveIndex = 0;
+        boss.attacksSinceSummon = 0;
+        audio.playCountdownPip(3);
+      }
+      setTimeout(() => {
+        this.addFloatingText('🔥 BOSS RUSH · FINAL ROUND 2/2: ANCIENT COCKATRICE! 🔥', this.player.x + 160, this.player.y - 42, '#fb7185');
+      }, 280);
+    } else {
+      // In Level 30, if the Cockatrice boss was already defeated in this run, keep it defeated & gone until New Run!
+      if (this.level.cockatrice && this.saveData.hasCompletedGame) {
+        const boss = this.level.cockatrice;
+        boss.health = 0;
+        boss.displayHealth = 0;
+        boss.state = 'defeated';
+        boss.defeatSubState = 'escaped';
+        boss.ashExplodeFlash = 0;
+        boss.fireProjectiles = [];
+        boss.shockwaves = [];
+        boss.slashTrails = [];
+        boss.bittenLandCraters = [];
+        if (this.level.silkieSam) {
+          this.level.silkieSam.state = 'gone';
+          this.level.silkieSam.shieldDropped = false;
+          this.level.silkieSam.shieldCollected = true;
+          this.level.silkieSam.swordDropped = false;
+          this.level.silkieSam.swordCollected = true;
+        }
+        setTimeout(() => {
+          this.addFloatingText('★ BOSS ALREADY DEFEATED — PRESS NEW RUN TO FIGHT AGAIN! ★', this.player.x + 120, this.player.y - 36, '#fde047');
+        }, 350);
+      } else if (this.level.silkieSam) {
+        // In Level 30, Silkie Sam always prepares to gift the Royal Shield and Netherite Sword!
+        this.level.silkieSam.shieldCollected = false;
+        this.level.silkieSam.shieldDropped = false;
+        this.level.silkieSam.swordCollected = false;
+        this.level.silkieSam.swordDropped = false;
+        this.level.silkieSam.state = 'waiting';
+      }
+
+      if (!this.level.enemies) {
+        this.level.enemies = [];
+      }
+
+      // Configure Level 1 Mini-Boss: Old Farmer Jed
+      // - Once defeated in Adult Rematch, he stays defeated & gone until the player starts a New Run!
+      // - As Baby Chick: use peck (X / K) -> Farmer gets injured & limps aside (not permanently defeated)
+      // - Returning as Adult (before defeating him): full adult rematch fight!
+      // - Returning as Juvenile / Teen: Farmer nurses his shin and challenges you to return as an adult
+      const farmerAlreadyDefeated = Boolean(this.saveData.hasDefeatedFarmerBoss);
+      if (this.level.farmer) {
+        if (farmerAlreadyDefeated) {
+          this.level.farmer = undefined;
+          setTimeout(() => {
+            this.addFloatingText('★ FARMER JED ALREADY DEFEATED — PRESS NEW RUN TO REMATCH! ★', this.player.x + 90, this.player.y - 54, '#fde047');
+          }, 450);
+        } else {
+          const f = this.level.farmer;
+          if (this.player.stage === 'baby') {
+            f.mode = 'baby_encounter';
+            f.maxHealth = 4;
+            f.health = 4;
+            f.displayHealth = 4;
+            f.state = 'idle';
+          } else if (this.player.stage === 'adult') {
+            f.mode = 'adult_rematch';
+            f.maxHealth = 24;
+            f.health = 24;
+            f.displayHealth = 24;
+            f.state = 'idle';
+          } else {
+            f.mode = 'growing_visit';
+            f.maxHealth = 12;
+            f.health = 12;
+            f.displayHealth = 12;
+            f.state = 'injured';
+            f.x = 32;
+            f.facing = 'right';
+          }
+          f.projectiles = [];
+        }
+      }
+
+      if (levelId === 1 && saveData.hasSeenSamLevel1Joke) {
+        this.samLevel1State = 'done';
+      }
+
+      // Secret Badge: "Back Home" - Revisit level 1 as an evolved chicken!
+      if (levelId === 1 && isEvolvedRevisit) {
+        this.callbacks.onActionStat?.('visitedCoopEvolved');
+        setTimeout(() => {
+          this.addFloatingText('★ SECRET BADGE UNLOCKED: BACK HOME! ★', this.player.x + this.player.width / 2, this.player.y - 35, '#fde047');
+        }, 400);
+      }
     }
   }
 
@@ -455,7 +580,8 @@ export class GameEngine {
     this.floatingTexts = [];
 
     const boss = this.level.cockatrice;
-    if (boss) {
+    const allowBossReset = this.bossRushRound === 2 || !this.saveData.hasCompletedGame;
+    if (boss && allowBossReset) {
       boss.x = 680;
       boss.y = 160;
       boss.vx = 0;
@@ -485,8 +611,12 @@ export class GameEngine {
     }
 
     this.isPaused = false;
-    audio.playCountdownPip(3);
-    audio.playMusic('boss');
+    if (!allowBossReset) {
+      audio.playMusic('coop');
+    } else {
+      audio.playCountdownPip(3);
+      audio.playMusic('boss');
+    }
     this.addFloatingText("★ BACK AT SAM'S WEAPON SPOT! ★", this.player.x + this.player.width / 2, this.player.y - 28, '#38bdf8');
     this.callbacks.onStatsUpdate(
       this.player.health,
@@ -720,10 +850,10 @@ export class GameEngine {
       this.player.vx = dashDir * Math.max(Math.abs(this.player.vx), 330);
     }
     this.addDashAttackPixelTrail(8);
-    audio.playAttack(this.swordType === 'gold' || this.swordType === 'diamond' || this.swordType === 'netherite');
+    audio.playAttack(this.swordType === 'gold' || this.swordType === 'diamond' || this.swordType === 'coral' || this.swordType === 'netherite');
 
     // Attack hitbox in front of player (generous baby peck reach for Level 1 Farmer encounter)
-    const reach = this.swordType === 'netherite' ? 56 : (this.swordType === 'diamond' ? 44 : (this.swordType === 'gold' ? 36 : (this.swordType === 'iron' ? 30 : 30)));
+    const reach = this.swordType === 'netherite' ? 56 : (this.swordType === 'coral' ? 50 : (this.swordType === 'diamond' ? 44 : (this.swordType === 'gold' ? 36 : (this.swordType === 'iron' ? 30 : 30))));
     const hitX = this.player.facing === 'right' ? this.player.x + this.player.width - 2 : this.player.x - reach + 2;
     const hitW = reach;
     const hitY = this.player.y - 8;
@@ -740,7 +870,7 @@ export class GameEngine {
           hitY + hitH > enemy.y
         ) {
           const ironBeakBonus = this.saveData.upgrades?.ironBeak || 0;
-          const baseDmg = this.swordType === 'netherite' ? 10 : (this.swordType === 'diamond' ? 6 : (this.swordType === 'gold' ? 4 : (this.swordType === 'iron' ? 2 : 1)));
+          const baseDmg = this.swordType === 'netherite' ? 10 : (this.swordType === 'coral' ? 8 : (this.swordType === 'diamond' ? 6 : (this.swordType === 'gold' ? 4 : (this.swordType === 'iron' ? 2 : 1))));
           const dmg = baseDmg + ironBeakBonus;
           this.damageEnemy(enemy, dmg);
         }
@@ -758,7 +888,7 @@ export class GameEngine {
           hitY + hitH > f.y
         ) {
           const ironBeakBonus = this.saveData.upgrades?.ironBeak || 0;
-          const baseDmg = this.swordType === 'netherite' ? 8 : (this.swordType === 'diamond' ? 5 : (this.swordType === 'gold' ? 4 : (this.swordType === 'iron' ? 2 : 1)));
+          const baseDmg = this.swordType === 'netherite' ? 8 : (this.swordType === 'coral' ? 7 : (this.swordType === 'diamond' ? 5 : (this.swordType === 'gold' ? 4 : (this.swordType === 'iron' ? 2 : 1))));
           const dmg = f.mode === 'baby_encounter' ? 1 : (baseDmg + ironBeakBonus);
           this.damageFarmer(f, dmg);
         }
@@ -868,7 +998,7 @@ export class GameEngine {
           hitY + hitH > falcon.y - 14
         ) {
           const ironBeakBonus = this.saveData.upgrades?.ironBeak || 0;
-          const baseDmg = this.swordType === 'netherite' ? 5 : this.swordType === 'diamond' ? 4 : 2;
+          const baseDmg = this.swordType === 'netherite' ? 5 : this.swordType === 'coral' ? 5 : this.swordType === 'diamond' ? 4 : 2;
           const dmg = baseDmg + ironBeakBonus;
           falcon.health -= dmg;
           falcon.hurtTimer = 0.3;
@@ -876,6 +1006,7 @@ export class GameEngine {
           this.addFloatingText(`-${dmg}`, falcon.x + falcon.width / 2, falcon.y - 10, '#f87171');
           if (falcon.health <= 0) {
             falcon.state = 'defeated';
+            this.recordDefeatedWorldEnemy(falcon.id);
             this.addDefeatExplosion(falcon.x + falcon.width / 2, falcon.y + falcon.height / 2);
             this.callbacks.onActionStat?.('enemiesDefeated');
             this.reportEncounter('falcon');
@@ -933,7 +1064,7 @@ export class GameEngine {
         );
         if (dist < 94 && (shark.state === 'lunging' || shark.state === 'telegraph' || shark.state === 'submerging')) {
           const ironBeakBonus = this.saveData.upgrades?.ironBeak || 0;
-          const baseDmg = this.swordType === 'netherite' ? 5 : this.swordType === 'diamond' ? 4 : 3;
+          const baseDmg = this.swordType === 'coral' ? 6 : this.swordType === 'netherite' ? 5 : this.swordType === 'diamond' ? 4 : 3;
           const dmg = baseDmg + ironBeakBonus;
           shark.health -= dmg;
           shark.hurtTimer = 0.35;
@@ -941,6 +1072,7 @@ export class GameEngine {
           this.addFloatingText(`-${dmg} SHARK!`, shark.x, shark.y - 24, '#38bdf8');
           if (shark.health <= 0) {
             shark.state = 'defeated';
+            this.recordDefeatedWorldEnemy(shark.id);
             this.addDefeatExplosion(shark.x, shark.y);
             this.callbacks.onActionStat?.('enemiesDefeated');
             this.reportEncounter('shark');
@@ -952,6 +1084,17 @@ export class GameEngine {
           }
         }
       }
+    }
+  }
+
+  private recordDefeatedWorldEnemy(enemyInstanceId: string) {
+    if (this.level.theme !== 'desert' && this.level.theme !== 'coast') return;
+    const key = `${this.level.id}_${enemyInstanceId}`;
+    const current = this.saveData.defeatedWorldEnemyIds || [];
+    if (!current.includes(key)) {
+      const next = [...current, key];
+      this.saveData.defeatedWorldEnemyIds = next;
+      this.callbacks.onSaveDataUpdate?.({ defeatedWorldEnemyIds: next });
     }
   }
 
@@ -971,6 +1114,7 @@ export class GameEngine {
 
     if (enemy.health <= 0) {
       enemy.state = 'defeated';
+      this.recordDefeatedWorldEnemy(enemy.id);
       this.addDefeatExplosion(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
       this.callbacks.onActionStat?.('enemiesDefeated');
       this.reportEncounter(enemy.type);
@@ -986,6 +1130,16 @@ export class GameEngine {
     // Cap delta time to prevent tunneling during lag spikes
     const delta = Math.min(dt, 0.05);
     this.time += delta;
+
+    // Boss Rush Round 1 -> Round 2 transition countdown
+    if (this.bossRushRound === 1 && this.bossRushAdvanceTimer > 0) {
+      this.bossRushAdvanceTimer -= delta;
+      if (this.bossRushAdvanceTimer <= 0 && !this.bossRushRoundCompleted) {
+        this.bossRushRoundCompleted = true;
+        this.callbacks.onBossRushRoundClear?.(1, 150);
+        return;
+      }
+    }
 
     // Coyote timer & jump buffer timer
     if (this.player.isGrounded) {
@@ -1094,9 +1248,19 @@ export class GameEngine {
           5.5,
           'defeat'
         );
-        this.addFloatingText('FARMER JED DEFEATED!', f.x + f.width / 2, f.y - 34, '#fde047');
+        this.addFloatingText(
+          this.bossRushRound === 1 ? '★ ROUND 1 CLEAR! +150 BONUS COINS! ★' : 'FARMER JED DEFEATED!',
+          f.x + f.width / 2,
+          f.y - 34,
+          '#fde047'
+        );
         this.callbacks.onActionStat?.('enemiesDefeated');
         this.callbacks.onEnemyDefeated?.('farmer');
+        if (this.bossRushRound === 1) {
+          this.bossRushAdvanceTimer = 1.9;
+        } else {
+          this.callbacks.onSaveDataUpdate?.({ hasDefeatedFarmerBoss: true });
+        }
       } else if (!f.hasMidFightLine && f.health <= f.maxHealth * 0.5) {
         f.hasMidFightLine = true;
         this.setFarmerSpeech(f, "Whoa—that sword's sharp! Taste my barn-sweeper pitchfork!", 3.4, 'rematch');
@@ -1902,9 +2066,10 @@ export class GameEngine {
     }
 
     // Check reaching the end of the level (goal area)
+    // In Boss Rush, rounds advance automatically when the boss is defeated — keep player inside the arena!
     // On the boss level, do NOT play the ending cutscene when reaching the end until the boss is defeated!
     // On Level 1, Old Farmer Jed guards the coop exit until injured (baby) or defeated (adult rematch)!
-    if (p.x >= this.level.exitPoint.x - 20) {
+    if (this.bossRushRound === null && p.x >= this.level.exitPoint.x - 20) {
       if (this.level.cockatrice) {
         if (this.level.cockatrice.state === 'defeated') {
           this.handleLevelClear();
@@ -2746,6 +2911,11 @@ export class GameEngine {
       if (Math.abs(pCenterX - stump.x) < 44 && Math.abs((p.y + p.height) - stump.y) < 42) {
         stump.axeTaken = true;
         p.hasAxe = true;
+        p.selectedItem = 'axe';
+        if (!this.saveData.hasAxe) {
+          this.saveData.hasAxe = true;
+          this.callbacks.onSaveDataUpdate?.({ hasAxe: true });
+        }
         audio.playChest();
         this.addFloatingText('🪓 AXE EQUIPPED! PRESS X/K TO CHOP TREES!', stump.x, stump.y - 54, '#fde047');
         for (let i = 0; i < 12; i++) {
@@ -3047,21 +3217,10 @@ export class GameEngine {
           }
         }
 
-        // Dock cleanly onto the floating destination island!
-        if (raft.x >= raft.dockX) {
-          raft.x = raft.dockX;
-          raft.y = 438;
-          raft.laneOffsetY = 438 - waterLevelY;
-          raft.vx = 0;
-          raft.vy = 0;
-          raft.state = 'docked';
-          p.onRaft = false;
-          p.x = raft.dockX + raft.width + 14;
-          p.y = 460 - p.height - 6;
-          p.vy = -170;
-          p.vx = 85;
-          audio.playChest();
-          this.addFloatingText('🏝️ LAND HO! OPEN THE CHEST & FINISH!', p.x, p.y - 34, '#4ade80');
+        // Keep paddling right across the open water until reaching the end of the stage!
+        if (raft.x + raft.width * 0.65 >= this.level.exitPoint.x - 20) {
+          this.handleLevelClear();
+          return;
         }
       }
     }
@@ -3553,7 +3712,14 @@ export class GameEngine {
           this.callbacks.onStatsUpdate(this.player.health, this.coinsEarnedThisLevel, this.player.stage, this.armorType, this.swordType, this.player.hasShield);
           audio.playBossDefeat();
           audio.playMusic('coop');
-          this.callbacks.onSaveDataUpdate?.({ hasCompletedGame: true });
+          if (this.bossRushRound === 2) {
+            if (!this.bossRushRoundCompleted) {
+              this.bossRushRoundCompleted = true;
+              this.callbacks.onBossRushRoundClear?.(2, 500);
+            }
+          } else {
+            this.callbacks.onSaveDataUpdate?.({ hasCompletedGame: true });
+          }
         }
         return;
       }
@@ -4710,7 +4876,7 @@ export class GameEngine {
 
     const isNetherite = this.swordType === 'netherite';
     // Netherite sword deals 20 heavy strike damage (exactly 1 full health cube down!)
-    const dmg = isNetherite ? 20 : (this.swordType === 'diamond' ? 15 : (this.swordType === 'gold' ? 10 : 6));
+    const dmg = isNetherite ? 20 : (this.swordType === 'coral' ? 18 : (this.swordType === 'diamond' ? 15 : (this.swordType === 'gold' ? 10 : 6)));
 
     const slashCenterX = this.player.facing === 'right' ? this.player.x + this.player.width + 12 : this.player.x - 12;
     const slashCenterY = this.player.y + this.player.height / 2;
@@ -5152,8 +5318,7 @@ export class GameEngine {
       if (distToPlayer < 44) {
         sam.swordCollected = true;
         this.swordType = 'netherite';
-        this.saveData.sword = 'netherite';
-        this.callbacks.onSaveDataUpdate?.({ sword: 'netherite' });
+        this.unlockSwordInSave('netherite');
         audio.playEvolution();
         this.addFloatingText('★ NETHERITE SWORD EQUIPPED! ★', swordX, swordY - 38, '#c084fc');
         this.addFloatingText('PRESS X OR K TO SLASH & COUNTER ATTACKS!', swordX, swordY - 14, '#fde047');
@@ -5381,9 +5546,106 @@ export class GameEngine {
 
   private unlockArmorInSave(armor: ArmorType) {
     const existing = this.saveData.unlockedArmors || [];
-    const nextArmors = Array.from(new Set([...existing, armor]));
+    const nextArmors = armor === 'none' ? existing : Array.from(new Set([...existing, armor]));
     this.saveData.unlockedArmors = nextArmors;
+    this.saveData.armor = armor;
     this.callbacks.onSaveDataUpdate?.({ unlockedArmors: nextArmors, armor });
+  }
+
+  private unlockSwordInSave(sword: SwordType) {
+    const existing = this.saveData.unlockedSwords || [];
+    const nextSwords = sword === 'none' ? existing : Array.from(new Set([...existing, sword]));
+    this.saveData.unlockedSwords = nextSwords;
+    this.saveData.sword = sword;
+    this.callbacks.onSaveDataUpdate?.({ unlockedSwords: nextSwords, sword });
+  }
+
+  public equipArmor(armor: ArmorType) {
+    this.armorType = armor;
+    this.saveData.armor = armor;
+    const cx = this.player.x + this.player.width / 2;
+    const cy = this.player.y + this.player.height / 2;
+    audio.playCoin();
+    const label = armor === 'none' ? 'ARMOR UNEQUIPPED' : `${armor.toUpperCase()} ARMOR EQUIPPED!`;
+    const color =
+      armor === 'netherite' ? '#c084fc' :
+      armor === 'coral' ? '#fb7185' :
+      armor === 'diamond' ? '#38bdf8' :
+      armor === 'gold' ? '#fde047' :
+      armor === 'iron' ? '#e2e8f0' : '#94a3b8';
+    this.addFloatingText(`🛡️ ${label}`, cx, this.player.y - 18, color);
+    for (let i = 0; i < 12; i++) {
+      this.particles.push({
+        x: cx,
+        y: cy,
+        vx: (Math.random() - 0.5) * 140,
+        vy: -30 - Math.random() * 90,
+        size: 3 + Math.random() * 2,
+        color,
+        life: 0.45,
+        maxLife: 0.45,
+      });
+    }
+    this.callbacks.onSaveDataUpdate?.({ armor });
+    this.callbacks.onStatsUpdate(
+      this.player.health,
+      this.coinsEarnedThisLevel,
+      this.player.stage,
+      this.armorType,
+      this.swordType,
+      this.hasShield
+    );
+  }
+
+  public equipSword(sword: SwordType) {
+    this.swordType = sword;
+    this.player.selectedItem = 'sword';
+    this.saveData.sword = sword;
+    const cx = this.player.x + this.player.width / 2;
+    const cy = this.player.y + this.player.height / 2;
+    audio.playCoin();
+    const label = sword === 'none' ? 'SWORD SHEATHED' : `${sword.toUpperCase()} SWORD EQUIPPED!`;
+    const color =
+      sword === 'netherite' ? '#c084fc' :
+      sword === 'coral' ? '#2dd4bf' :
+      sword === 'diamond' ? '#38bdf8' :
+      sword === 'gold' ? '#fde047' :
+      sword === 'iron' ? '#e2e8f0' : '#94a3b8';
+    this.addFloatingText(`⚔️ ${label}`, cx, this.player.y - 18, color);
+    for (let i = 0; i < 12; i++) {
+      this.particles.push({
+        x: cx,
+        y: cy,
+        vx: (Math.random() - 0.5) * 140,
+        vy: -30 - Math.random() * 90,
+        size: 3 + Math.random() * 2,
+        color,
+        life: 0.45,
+        maxLife: 0.45,
+      });
+    }
+    this.callbacks.onSaveDataUpdate?.({ sword });
+    this.callbacks.onStatsUpdate(
+      this.player.health,
+      this.coinsEarnedThisLevel,
+      this.player.stage,
+      this.armorType,
+      this.swordType,
+      this.hasShield
+    );
+  }
+
+  public selectInventoryItem(item: 'sword' | 'axe' | 'brush') {
+    if (item === 'axe') {
+      if (!this.player.hasAxe && !this.saveData.hasAxe) return;
+      this.player.hasAxe = true;
+    }
+    if (item === 'brush') {
+      if (!this.player.hasBrush && !this.saveData.hasBrush) return;
+      this.player.hasBrush = true;
+    }
+    this.player.selectedItem = item;
+    audio.playCoin();
   }
 
   private awardRandomizedLoot(chest: TreasureChest) {
@@ -5411,16 +5673,18 @@ export class GameEngine {
       }
     };
 
-    const roll = Math.random();
-
-    // 1. Mystery Gear Discovery (unowned armor/sword suitable for current world!)
-    if (roll < 0.16) {
+    // 1. 89% Chance for Armor Discovery in Dig Spots & Chests!
+    if (Math.random() < 0.89) {
       const candidateArmor: ArmorType | null =
         isCoast && !ownedArmors.has('coral') ? 'coral' :
-        isDesert && !ownedArmors.has('netherite') ? 'netherite' :
+        (isDesert || this.level.world >= 7) && !ownedArmors.has('netherite') ? 'netherite' :
         this.level.world >= 5 && !ownedArmors.has('diamond') ? 'diamond' :
-        this.level.world >= 4 && !ownedArmors.has('gold') ? 'gold' :
-        this.level.world >= 2 && !ownedArmors.has('iron') ? 'iron' :
+        this.level.world >= 3 && !ownedArmors.has('gold') ? 'gold' :
+        !ownedArmors.has('iron') ? 'iron' :
+        !ownedArmors.has('gold') ? 'gold' :
+        !ownedArmors.has('diamond') ? 'diamond' :
+        (this.level.world >= 7 && !ownedArmors.has('netherite')) ? 'netherite' :
+        (isCoast && !ownedArmors.has('coral')) ? 'coral' :
         null;
 
       if (candidateArmor) {
@@ -5428,9 +5692,9 @@ export class GameEngine {
         this.unlockArmorInSave(candidateArmor);
         audio.playEvolution();
         const labelMap: Record<Exclude<ArmorType, 'none'>, { text: string; color: string; cols: string[] }> = {
-          iron: { text: isDig ? '🖌️ DUG UP IRON ARMOR!' : '🛡️ LUCKY IRON ARMOR!', color: '#e2e8f0', cols: ['#e2e8f0', '#94a3b8'] },
-          gold: { text: isDig ? '🖌️ DUG UP GOLD ARMOR!' : '🛡️ LUCKY GOLD ARMOR!', color: '#fde047', cols: ['#fde047', '#f59e0b'] },
-          diamond: { text: isDig ? '🖌️ DUG UP DIAMOND ARMOR!' : '💎 LUCKY DIAMOND ARMOR!', color: '#38bdf8', cols: ['#38bdf8', '#e0f2fe'] },
+          iron: { text: isDig ? '🖌️ DUG UP IRON ARMOR!' : '🛡️ FOUND IRON ARMOR!', color: '#e2e8f0', cols: ['#e2e8f0', '#94a3b8'] },
+          gold: { text: isDig ? '🖌️ DUG UP GOLD ARMOR!' : '🛡️ FOUND GOLD ARMOR!', color: '#fde047', cols: ['#fde047', '#f59e0b'] },
+          diamond: { text: isDig ? '🖌️ DUG UP DIAMOND ARMOR!' : '💎 FOUND DIAMOND ARMOR!', color: '#38bdf8', cols: ['#38bdf8', '#e0f2fe'] },
           netherite: { text: '🔥 NETHERITE ARMOR UNEARTHED! 🔥', color: '#c084fc', cols: ['#c084fc', '#f59e0b', '#292524'] },
           coral: { text: '🪸 CORAL ARMOR DISCOVERED! 🪸', color: '#fb7185', cols: ['#fb7185', '#2dd4bf', '#fef08a'] },
         };
@@ -5440,6 +5704,8 @@ export class GameEngine {
         return;
       }
     }
+
+    const roll = Math.random();
 
     // 2. Heart & Antidote / Full Vitality Feast
     if (roll < 0.34) {
@@ -5542,14 +5808,11 @@ export class GameEngine {
     if (this.level.id === 10 && chest.id === 'j10_chest') {
       const savedSword = this.saveData.sword;
       const grantedSword: SwordType =
-        savedSword === 'netherite' || savedSword === 'diamond' || savedSword === 'gold'
+        savedSword === 'netherite' || savedSword === 'coral' || savedSword === 'diamond' || savedSword === 'gold'
           ? savedSword
           : 'iron';
       this.swordType = grantedSword;
-      if (this.saveData.sword === 'none' || !this.saveData.sword) {
-        this.saveData.sword = grantedSword;
-        this.callbacks.onSaveDataUpdate?.({ sword: grantedSword });
-      }
+      this.unlockSwordInSave(grantedSword);
       const bonusCoins = 15 + Math.floor(Math.random() * 20);
       this.coinsEarnedThisLevel += bonusCoins;
       audio.playEvolution();
@@ -5590,17 +5853,34 @@ export class GameEngine {
           maxLife: 0.8
         });
       }
-    } else if (chest.rewardType === 'coral_armor') {
-      // Peckerin Coast Sea Rock Chest: strong chance for Coral Armor if not owned, else randomized ocean loot!
-      const alreadyOwned = (this.saveData.unlockedArmors || []).includes('coral') || this.armorType === 'coral';
-      const priorRockChestsOpened = (this.saveData.openedChestIds || []).filter(id => id.includes('ch_rock_')).length;
-      const foundCoralArmor = !alreadyOwned && (priorRockChestsOpened >= 1 || this.level.id >= 37 || Math.random() < 0.68);
-      if (foundCoralArmor) {
-        this.armorType = 'coral';
-        this.unlockArmorInSave('coral');
-        audio.playEvolution();
-        this.addFloatingText('🪸 CORAL ARMOR DISCOVERED! 🪸', chest.x + chest.width / 2, chest.y - 36, '#fb7185');
-        this.addFloatingText('GUARDED AGAINST SHARKS & SEA ROCKS!', chest.x + chest.width / 2, chest.y - 16, '#2dd4bf');
+    } else if (chest.rewardType === 'coral_armor' || chest.rewardType === 'coral_sword' || chest.isRockChest) {
+      // Peckerin Coast Coral Sea Rock Chest: 89% chance to discover Coral Armor OR Coral Sword!
+      const ownsCoralArmor = (this.saveData.unlockedArmors || []).includes('coral') || this.armorType === 'coral';
+      const ownsCoralSword = (this.saveData.unlockedSwords || []).includes('coral') || this.swordType === 'coral';
+      const wantsCoralGear = !ownsCoralArmor || !ownsCoralSword;
+      if (wantsCoralGear && Math.random() < 0.89) {
+        const giveCoralSword =
+          chest.rewardType === 'coral_sword'
+            ? !ownsCoralSword
+            : ownsCoralArmor
+            ? true
+            : ownsCoralSword
+            ? false
+            : Math.random() < 0.5;
+        if (giveCoralSword) {
+          this.swordType = 'coral';
+          this.player.selectedItem = 'sword';
+          this.unlockSwordInSave('coral');
+          audio.playEvolution();
+          this.addFloatingText('🪸 CORAL SWORD DISCOVERED! ⚔️', chest.x + chest.width / 2, chest.y - 36, '#2dd4bf');
+          this.addFloatingText('SHARK-SLAYER REEF BLADE EQUIPPED!', chest.x + chest.width / 2, chest.y - 16, '#fb7185');
+        } else {
+          this.armorType = 'coral';
+          this.unlockArmorInSave('coral');
+          audio.playEvolution();
+          this.addFloatingText('🪸 CORAL ARMOR DISCOVERED! 🪸', chest.x + chest.width / 2, chest.y - 36, '#fb7185');
+          this.addFloatingText('GUARDED AGAINST SHARKS & SEA ROCKS!', chest.x + chest.width / 2, chest.y - 16, '#2dd4bf');
+        }
         for (let s = 0; s < 26; s++) {
           this.particles.push({
             x: chest.x + chest.width / 2,
@@ -5617,9 +5897,9 @@ export class GameEngine {
         this.awardRandomizedLoot(chest);
       }
     } else if (chest.rewardType === 'netherite_armor') {
-      // Desert Lands Dig Spot: high chance for Netherite Armor if not yet owned, else randomized desert dig loot!
+      // Desert Lands Dig Spot: 89% chance for Netherite Armor if not yet owned, else randomized desert dig loot!
       const alreadyOwned = (this.saveData.unlockedArmors || []).includes('netherite') || this.armorType === 'netherite';
-      if (!alreadyOwned && (this.level.id >= 32 || Math.random() < 0.72)) {
+      if (!alreadyOwned && Math.random() < 0.89) {
         this.armorType = 'netherite';
         this.unlockArmorInSave('netherite');
         audio.playEvolution();
@@ -5640,7 +5920,7 @@ export class GameEngine {
         this.awardRandomizedLoot(chest);
       }
     } else {
-      // ALL other treasure chests & dig spots award randomized items!
+      // ALL other treasure chests & dig spots roll 89% for unowned armor, else randomized treasure!
       this.awardRandomizedLoot(chest);
     }
 
@@ -5743,15 +6023,10 @@ export class GameEngine {
       }
     }
 
-    // Respawn safely on coast island or raft for Peckerin Coast levels without a starting shore
+    // Respawn safely on raft for Peckerin Coast levels sailing on open water
     if (this.level.theme === 'coast' && this.level.raft) {
       const raft = this.level.raft;
-      if (raft.state === 'docked') {
-        const endIsland = this.level.platforms[this.level.platforms.length - 1];
-        this.player.onRaft = false;
-        this.player.x = (endIsland ? endIsland.x : raft.dockX + raft.width) + 32;
-        this.player.y = 460 - this.player.height - 6;
-      } else if (this.level.id > 36) {
+      if (this.level.id > 36 || raft.state === 'sailing') {
         raft.state = 'sailing';
         raft.laneOffsetY = 0;
         raft.y = this.level.waterLevelY ?? 385;
@@ -5802,9 +6077,9 @@ export class GameEngine {
       this.callbacks.onVictory(this.coinsEarnedThisLevel);
     } else {
       // Level 30 clears smoothly without an end cutscene and unlocks World 7: the Desert lands!
-      // Level 15 triggers Teen Chicken evolution inside World 4
+      // Level 15 triggers Teen Chicken evolution inside World 4 (unless already replaying as an adult!)
       const nextLevel = this.level.id + 1;
-      if (nextLevel === 15) {
+      if (nextLevel === 15 && this.player.stage !== 'adult') {
         this.callbacks.onEvolution('teen');
       } else {
         this.callbacks.onLevelClear(this.level.id, this.coinsEarnedThisLevel);
@@ -5919,6 +6194,8 @@ export class GameEngine {
     const weaponColors =
       this.swordType === 'netherite'
         ? ['#c084fc', '#a855f7', '#f472b6', '#38bdf8', '#fde047', '#ffffff']
+        : this.swordType === 'coral'
+        ? ['#fb7185', '#f43f5e', '#2dd4bf', '#5eead4', '#fef08a', '#ffffff']
         : this.swordType === 'diamond'
         ? ['#38bdf8', '#22d3ee', '#818cf8', '#fde047', '#ffffff']
         : this.swordType === 'gold'

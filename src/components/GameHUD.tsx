@@ -37,6 +37,17 @@ interface GameHUDProps {
   onTriggerEmote?: (emoteId: EmoteId) => void;
   hideUI?: boolean;
   onToggleHideUI?: () => void;
+  unlockedArmors?: ArmorType[];
+  unlockedSwords?: SwordType[];
+  hasAxe?: boolean;
+  hasBrush?: boolean;
+  selectedItem?: 'sword' | 'axe' | 'brush';
+  onEquipArmor?: (armor: ArmorType) => void;
+  onEquipSword?: (sword: SwordType) => void;
+  onSelectInventoryItem?: (item: 'sword' | 'axe' | 'brush') => void;
+  bossRushRound?: 1 | 2 | null;
+  bossRushBonusCoins?: number;
+  bossRushElapsedMs?: number;
 }
 
 // Retro 8-bit Pixelated Flame Icon Component
@@ -298,12 +309,13 @@ const PixelHUDShield: React.FC<{ type: ArmorType; className?: string }> = ({ typ
 // Retro 8-bit Pixelated Sword Component
 const PixelHUDSword: React.FC<{ type: SwordType; className?: string }> = ({ type, className = 'w-4 h-4' }) => {
   const isNetherite = type === 'netherite';
+  const isCoral = type === 'coral';
   const isDiamond = type === 'diamond';
   const isGold = type === 'gold';
   const isIron = type === 'iron';
-  const bladeColor = isNetherite ? '#18181b' : (isDiamond ? '#38bdf8' : (isGold ? '#facc15' : (isIron ? '#cbd5e1' : '#64748b')));
-  const shineColor = isNetherite ? '#c084fc' : (isDiamond ? '#ffffff' : (isGold ? '#fef9c3' : (isIron ? '#ffffff' : '#94a3b8')));
-  const hiltColor = isNetherite ? '#7e22ce' : (isDiamond ? '#0369a1' : (isGold ? '#eab308' : (isIron ? '#475569' : '#334155')));
+  const bladeColor = isNetherite ? '#18181b' : (isCoral ? '#f43f5e' : (isDiamond ? '#38bdf8' : (isGold ? '#facc15' : (isIron ? '#cbd5e1' : '#64748b'))));
+  const shineColor = isNetherite ? '#c084fc' : (isCoral ? '#5eead4' : (isDiamond ? '#ffffff' : (isGold ? '#fef9c3' : (isIron ? '#ffffff' : '#94a3b8'))));
+  const hiltColor = isNetherite ? '#7e22ce' : (isCoral ? '#0d9488' : (isDiamond ? '#0369a1' : (isGold ? '#eab308' : (isIron ? '#475569' : '#334155'))));
 
   return (
     <svg viewBox="0 0 10 10" className={className} style={{ shapeRendering: 'crispEdges' }}>
@@ -311,7 +323,7 @@ const PixelHUDSword: React.FC<{ type: SwordType; className?: string }> = ({ type
       <rect x="0" y="8" width="2" height="2" fill="#000000" />
       <rect x="0.5" y="8.5" width="1" height="1" fill={hiltColor} />
       {/* Hilt */}
-      <rect x="1.5" y="6.5" width="2" height="2" fill="#78350f" />
+      <rect x="1.5" y="6.5" width="2" height="2" fill={isCoral ? '#134e4a' : '#78350f'} />
       {/* Crossguard */}
       <rect x="1" y="5" width="5" height="1" fill="#000000" />
       <rect x="1" y="5.5" width="4" height="1" fill={hiltColor} />
@@ -325,6 +337,43 @@ const PixelHUDSword: React.FC<{ type: SwordType; className?: string }> = ({ type
     </svg>
   );
 };
+
+// Retro 8-bit Pixelated Woodcutter Axe Component
+const PixelHUDAxe: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg viewBox="0 0 10 10" className={className} style={{ shapeRendering: 'crispEdges' }}>
+    {/* Wooden Handle */}
+    <rect x="1" y="7" width="2" height="2" fill="#451a03" />
+    <rect x="2" y="6" width="2" height="2" fill="#92400e" />
+    <rect x="3" y="5" width="2" height="2" fill="#92400e" />
+    <rect x="4" y="4" width="2" height="2" fill="#b45309" />
+    <rect x="5" y="3" width="2" height="2" fill="#92400e" />
+    {/* Steel Axe Blade */}
+    <rect x="4" y="0" width="4" height="1" fill="#000000" />
+    <rect x="3" y="1" width="6" height="4" fill="#334155" />
+    <rect x="4" y="1" width="4" height="3" fill="#cbd5e1" />
+    <rect x="7" y="1" width="2" height="3" fill="#f8fafc" />
+    <rect x="6" y="4" width="3" height="2" fill="#94a3b8" />
+    <rect x="8" y="4" width="1" height="2" fill="#f8fafc" />
+  </svg>
+);
+
+// Retro 8-bit Pixelated Archaeology Brush Component
+const PixelHUDBrush: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg viewBox="0 0 10 10" className={className} style={{ shapeRendering: 'crispEdges' }}>
+    {/* Cedar Handle */}
+    <rect x="1" y="7" width="2" height="2" fill="#451a03" />
+    <rect x="2" y="6" width="2" height="2" fill="#b45309" />
+    <rect x="3" y="5" width="2" height="2" fill="#d97706" />
+    {/* Brass Ferrule */}
+    <rect x="4" y="3" width="3" height="3" fill="#a16207" />
+    <rect x="5" y="4" width="1" height="1" fill="#fef08a" />
+    {/* Bristle Fan */}
+    <rect x="5" y="1" width="4" height="3" fill="#fde68a" />
+    <rect x="6" y="0" width="3" height="2" fill="#f59e0b" />
+    <rect x="7" y="1" width="2" height="2" fill="#fef3c7" />
+    <rect x="8" y="2" width="1" height="2" fill="#b45309" />
+  </svg>
+);
 
 export const GameHUD: React.FC<GameHUDProps> = ({
   health,
@@ -355,11 +404,60 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onTriggerEmote,
   hideUI = false,
   onToggleHideUI,
+  unlockedArmors = [],
+  unlockedSwords = [],
+  hasAxe = false,
+  hasBrush = false,
+  selectedItem = 'sword',
+  onEquipArmor,
+  onEquipSword,
+  onSelectInventoryItem,
+  bossRushRound = null,
+  bossRushBonusCoins = 0,
+  bossRushElapsedMs = 0,
 }) => {
+  const [openSlotMenu, setOpenSlotMenu] = React.useState<'none' | 'armor' | 'sword'>('none');
+
+  React.useEffect(() => {
+    if (hideUI) {
+      setOpenSlotMenu('none');
+    }
+  }, [hideUI]);
+
   const isFireResistActive = fireResistTimer > 0;
   const isPoisoned = poisonTimer > 0;
   const poisonBaseDuration = Math.max(poisonMaxDuration, poisonTimer, 0.1);
   const poisonPercent = isPoisoned ? Math.max(0, Math.min(100, (poisonTimer / poisonBaseDuration) * 100)) : 0;
+
+  const effectiveUnlockedArmors: ArmorType[] = React.useMemo(() => {
+    const list = new Set<ArmorType>(unlockedArmors);
+    if (armor && armor !== 'none') list.add(armor);
+    return Array.from(list);
+  }, [unlockedArmors, armor]);
+
+  const effectiveUnlockedSwords: SwordType[] = React.useMemo(() => {
+    const list = new Set<SwordType>(unlockedSwords);
+    if (sword && sword !== 'none') list.add(sword);
+    return Array.from(list);
+  }, [unlockedSwords, sword]);
+
+  const armorChoices: { id: ArmorType; label: string; shortLabel: string; accent: string }[] = [
+    { id: 'none', label: 'No Armor', shortLabel: 'NONE', accent: 'text-slate-300 border-slate-600 bg-slate-900' },
+    { id: 'iron', label: 'Iron Armor', shortLabel: 'IRON', accent: 'text-slate-100 border-slate-400 bg-slate-800' },
+    { id: 'gold', label: 'Gold Armor', shortLabel: 'GOLD', accent: 'text-yellow-300 border-yellow-400 bg-yellow-950' },
+    { id: 'diamond', label: 'Diamond Armor', shortLabel: 'DIAM', accent: 'text-cyan-200 border-cyan-400 bg-cyan-950' },
+    { id: 'coral', label: 'Coral Armor', shortLabel: 'CORAL', accent: 'text-teal-200 border-rose-400 bg-rose-950' },
+    { id: 'netherite', label: 'Netherite Armor', shortLabel: 'NETH', accent: 'text-purple-200 border-purple-400 bg-stone-950' },
+  ];
+
+  const swordChoices: { id: SwordType; label: string; shortLabel: string; accent: string }[] = [
+    { id: 'none', label: 'No Sword', shortLabel: 'NONE', accent: 'text-slate-300 border-slate-600 bg-slate-900' },
+    { id: 'iron', label: 'Iron Sword', shortLabel: 'IRON', accent: 'text-slate-100 border-slate-400 bg-slate-800' },
+    { id: 'gold', label: 'Gold Sword', shortLabel: 'GOLD', accent: 'text-yellow-300 border-yellow-400 bg-yellow-950' },
+    { id: 'diamond', label: 'Diamond Sword', shortLabel: 'DIAM', accent: 'text-cyan-200 border-cyan-400 bg-cyan-950' },
+    { id: 'coral', label: 'Coral Sword', shortLabel: 'CORAL', accent: 'text-teal-200 border-rose-400 bg-rose-950' },
+    { id: 'netherite', label: 'Netherite Sword', shortLabel: 'NETH', accent: 'text-purple-200 border-purple-400 bg-purple-950' },
+  ];
 
   return (
     <>
@@ -401,6 +499,35 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               );
             })}
           </div>
+
+          {/* Boss Rush Round, Live Timer & Bonus Coins HUD Indicator (respects Hide UI toggle) */}
+          {bossRushRound !== null && !hideUI && (() => {
+            const safeMs = Math.max(0, Math.round(bossRushElapsedMs));
+            const totalSecs = Math.floor(safeMs / 1000);
+            const mins = Math.floor(totalSecs / 60);
+            const secs = totalSecs % 60;
+            const tenths = Math.floor((safeMs % 1000) / 100);
+            const timerLabel = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${tenths}`;
+            return (
+              <div
+                className="flex items-center gap-2 bg-gradient-to-r from-rose-950 via-slate-950 to-amber-950 border-[2.5px] border-amber-400 px-2.5 py-1 shadow-[2px_2px_0_#000000] whitespace-nowrap"
+                title={bossRushRound === 1 ? 'Boss Rush Round 1/2: Old Farmer Jed (+150 Bonus Coins)' : 'Boss Rush Round 2/2: Ancient Cockatrice (+500 Bonus Coins)'}
+              >
+                <PixelFlameIcon className="w-3.5 h-3.5 shrink-0" />
+                <span className="font-pixel-arcade text-[8px] sm:text-[9px] text-rose-300 font-bold tracking-tight">
+                  BOSS RUSH R{bossRushRound}/2
+                </span>
+                <span className="text-slate-600 text-[8px]" aria-hidden="true">·</span>
+                <span className="font-pixel-arcade text-[8px] sm:text-[9px] text-emerald-300 font-bold tabular-nums">
+                  {timerLabel}
+                </span>
+                <span className="text-slate-600 text-[8px]" aria-hidden="true">·</span>
+                <span className="font-pixel-arcade text-[8px] sm:text-[9px] text-yellow-300 font-bold tabular-nums">
+                  +{bossRushBonusCoins}
+                </span>
+              </div>
+            );
+          })()}
 
           {/* Active Snake Venom Poison Status & Countdown Timer */}
           {isPoisoned && (
@@ -638,6 +765,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <div className={`border-[3px] border-black px-3 sm:px-3.5 py-1.5 shadow-[3px_3px_0_#000000] flex items-center gap-1.5 text-[8px] sm:text-[9.5px] font-pixel-arcade transition-all ${
               sword === 'netherite'
                 ? 'bg-purple-950 text-purple-300 drop-shadow-[0_1px_0_#3b0764] ring-1 ring-purple-500/50'
+                : sword === 'coral'
+                ? 'bg-rose-950 text-teal-200 drop-shadow-[0_1px_0_#4c0519] ring-1 ring-rose-400/70'
                 : (sword === 'diamond'
                   ? 'bg-cyan-950 text-cyan-300 drop-shadow-[0_1px_0_#083344]'
                   : (sword === 'gold'
@@ -648,7 +777,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             }`}>
               <PixelHUDSword type={sword} className="w-3.5 h-3.5" />
               <span>
-                Sword: {sword === 'netherite' ? 'netherite sword' : (sword === 'diamond' ? 'diamond sword' : (sword === 'gold' ? 'gold sword' : (sword === 'iron' ? 'iron sword' : 'none')))}
+                Sword: {sword === 'netherite' ? 'netherite sword' : sword === 'coral' ? 'coral sword' : (sword === 'diamond' ? 'diamond sword' : (sword === 'gold' ? 'gold sword' : (sword === 'iron' ? 'iron sword' : 'none')))}
               </span>
             </div>
           </div>
@@ -733,6 +862,211 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       </div>
       )}
       </div>
+
+      {/* Bottom-Center Gameplay Inventory Hotbar (Sword, Axe, Brush) + Armor Selection Slot (hidden with Hide UI button!) */}
+      {!hideUI && (
+        <div
+          onClick={e => e.stopPropagation()}
+          onPointerDown={e => e.stopPropagation()}
+          className="fixed bottom-2.5 sm:bottom-3.5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto select-none flex flex-col items-center gap-1.5"
+        >
+          {/* Upward Sword Picker Popup */}
+          {openSlotMenu === 'sword' && onEquipSword && (
+            <div className="bg-slate-950/95 border-[3px] border-black p-1.5 shadow-[4px_4px_0_#000000] flex items-center gap-1 flex-wrap justify-center max-w-[290px] sm:max-w-[360px]">
+              {swordChoices.map(choice => {
+                const isUnlocked = choice.id === 'none' || effectiveUnlockedSwords.includes(choice.id);
+                const isEquipped = sword === choice.id;
+                return (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    disabled={!isUnlocked}
+                    onClick={() => {
+                      if (!isUnlocked) return;
+                      onEquipSword(choice.id);
+                      onSelectInventoryItem?.('sword');
+                      setOpenSlotMenu('none');
+                    }}
+                    className={`px-1.5 py-1 border-2 flex flex-col items-center justify-center gap-0.5 min-w-[44px] transition-all ${
+                      isUnlocked
+                        ? isEquipped
+                          ? `${choice.accent} ring-2 ring-yellow-300 cursor-pointer`
+                          : 'bg-slate-900 hover:bg-slate-800 border-slate-700 hover:border-yellow-400 text-slate-200 cursor-pointer'
+                        : 'bg-slate-900/50 border-slate-800 text-slate-600 opacity-60 cursor-not-allowed'
+                    }`}
+                    title={isUnlocked ? `Equip ${choice.label}` : `${choice.label} (Find in chests/shop to unlock)`}
+                  >
+                    {isUnlocked ? (
+                      <PixelHUDSword type={choice.id} className="w-4 h-4" />
+                    ) : (
+                      <Lock className="w-3.5 h-3.5 text-slate-600" />
+                    )}
+                    <span className="font-pixel-arcade text-[6.5px] font-bold tracking-tight">
+                      {choice.shortLabel}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Upward Armor Selection Popup */}
+          {openSlotMenu === 'armor' && onEquipArmor && (
+            <div className="bg-slate-950/95 border-[3px] border-black p-1.5 shadow-[4px_4px_0_#000000] flex items-center gap-1 flex-wrap justify-center max-w-[290px] sm:max-w-[360px]">
+              {armorChoices.map(choice => {
+                const isUnlocked = choice.id === 'none' || effectiveUnlockedArmors.includes(choice.id);
+                const isEquipped = armor === choice.id;
+                return (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    disabled={!isUnlocked}
+                    onClick={() => {
+                      if (!isUnlocked) return;
+                      onEquipArmor(choice.id);
+                      setOpenSlotMenu('none');
+                    }}
+                    className={`px-1.5 py-1 border-2 flex flex-col items-center justify-center gap-0.5 min-w-[44px] transition-all ${
+                      isUnlocked
+                        ? isEquipped
+                          ? `${choice.accent} ring-2 ring-yellow-300 cursor-pointer`
+                          : 'bg-slate-900 hover:bg-slate-800 border-slate-700 hover:border-yellow-400 text-slate-200 cursor-pointer'
+                        : 'bg-slate-900/50 border-slate-800 text-slate-600 opacity-60 cursor-not-allowed'
+                    }`}
+                    title={isUnlocked ? `Equip ${choice.label}` : `${choice.label} (Find in chests or dig spots to unlock)`}
+                  >
+                    {isUnlocked ? (
+                      <PixelHUDShield type={choice.id} className="w-4 h-4" />
+                    ) : (
+                      <Lock className="w-3.5 h-3.5 text-slate-600" />
+                    )}
+                    <span className="font-pixel-arcade text-[6.5px] font-bold tracking-tight">
+                      {choice.shortLabel}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Main Compact Inventory Hotbar + Armor Slot */}
+          <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-950/92 border-[3px] border-black px-1.5 sm:px-2 py-1 shadow-[3px_3px_0_#000000]">
+            {/* Slot 1: Sword Slot */}
+            <button
+              type="button"
+              onClick={() => {
+                onSelectInventoryItem?.('sword');
+                if (effectiveUnlockedSwords.length > 0 && onEquipSword) {
+                  setOpenSlotMenu(prev => (prev === 'sword' ? 'none' : 'sword'));
+                } else {
+                  setOpenSlotMenu('none');
+                }
+              }}
+              className={`relative w-10 h-10 sm:w-11 sm:h-11 border-2 flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer touch-manipulation ${
+                selectedItem === 'sword'
+                  ? 'bg-amber-950/90 border-yellow-400 text-yellow-200 shadow-[inset_0_0_8px_rgba(250,204,21,0.3)]'
+                  : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300'
+              }`}
+              aria-label="Sword Inventory Slot"
+              title={effectiveUnlockedSwords.length > 0 ? 'Sword Slot (Click to hold or swap swords)' : 'Sword Slot (No sword yet)'}
+            >
+              <PixelHUDSword type={sword} className={`w-4 h-4 sm:w-4.5 sm:h-4.5 ${sword === 'none' ? 'opacity-45' : ''}`} />
+              <span className="font-pixel-arcade text-[6px] sm:text-[6.5px] font-bold leading-none tracking-tight">
+                {sword === 'none' ? 'SWORD' : sword.slice(0, 4).toUpperCase()}
+              </span>
+            </button>
+
+            {/* Slot 2: Axe Slot */}
+            <button
+              type="button"
+              onClick={() => {
+                setOpenSlotMenu('none');
+                if (hasAxe) {
+                  onSelectInventoryItem?.('axe');
+                }
+              }}
+              className={`relative w-10 h-10 sm:w-11 sm:h-11 border-2 flex flex-col items-center justify-center gap-0.5 transition-all touch-manipulation ${
+                hasAxe
+                  ? selectedItem === 'axe'
+                    ? 'bg-amber-950/90 border-yellow-400 text-yellow-200 shadow-[inset_0_0_8px_rgba(250,204,21,0.3)] cursor-pointer'
+                    : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-amber-200 cursor-pointer'
+                  : 'bg-slate-900/55 border-slate-800 text-slate-600 opacity-60 cursor-not-allowed'
+              }`}
+              aria-label="Axe Inventory Slot"
+              title={hasAxe ? 'Woodcutter Axe (Click to hold)' : 'Axe Slot (Locked — find the axe on Peckerin Coast)'}
+            >
+              {hasAxe ? (
+                <PixelHUDAxe className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+              ) : (
+                <Lock className="w-3.5 h-3.5 text-slate-600" />
+              )}
+              <span className="font-pixel-arcade text-[6px] sm:text-[6.5px] font-bold leading-none tracking-tight">
+                AXE
+              </span>
+            </button>
+
+            {/* Slot 3: Brush Slot */}
+            <button
+              type="button"
+              onClick={() => {
+                setOpenSlotMenu('none');
+                if (hasBrush) {
+                  onSelectInventoryItem?.('brush');
+                }
+              }}
+              className={`relative w-10 h-10 sm:w-11 sm:h-11 border-2 flex flex-col items-center justify-center gap-0.5 transition-all touch-manipulation ${
+                hasBrush
+                  ? selectedItem === 'brush'
+                    ? 'bg-amber-950/90 border-yellow-400 text-yellow-200 shadow-[inset_0_0_8px_rgba(250,204,21,0.3)] cursor-pointer'
+                    : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-amber-200 cursor-pointer'
+                  : 'bg-slate-900/55 border-slate-800 text-slate-600 opacity-60 cursor-not-allowed'
+              }`}
+              aria-label="Brush Inventory Slot"
+              title={hasBrush ? 'Archaeology Brush (Click to hold)' : 'Brush Slot (Locked — get the brush in Desert Lands)'}
+            >
+              {hasBrush ? (
+                <PixelHUDBrush className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+              ) : (
+                <Lock className="w-3.5 h-3.5 text-slate-600" />
+              )}
+              <span className="font-pixel-arcade text-[6px] sm:text-[6.5px] font-bold leading-none tracking-tight">
+                BRUSH
+              </span>
+            </button>
+
+            {/* Pixel Divider */}
+            <div className="w-[2px] h-8 bg-slate-700/80 mx-0.5" />
+
+            {/* Armor Selection Slot */}
+            <button
+              type="button"
+              onClick={() => setOpenSlotMenu(prev => (prev === 'armor' ? 'none' : 'armor'))}
+              className={`relative h-10 sm:h-11 px-2 border-2 flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer touch-manipulation ${
+                openSlotMenu === 'armor'
+                  ? 'bg-indigo-950 border-yellow-300 text-yellow-200 ring-1 ring-yellow-300/60'
+                  : armor === 'coral'
+                  ? 'bg-rose-950/90 border-rose-400 text-teal-200 hover:bg-rose-900'
+                  : armor === 'netherite'
+                  ? 'bg-stone-950 border-purple-400 text-purple-200 hover:bg-stone-900'
+                  : armor === 'diamond'
+                  ? 'bg-cyan-950/90 border-cyan-400 text-cyan-200 hover:bg-cyan-900'
+                  : armor === 'gold'
+                  ? 'bg-yellow-950/90 border-yellow-400 text-yellow-200 hover:bg-yellow-900'
+                  : armor === 'iron'
+                  ? 'bg-slate-800 border-slate-400 text-slate-100 hover:bg-slate-700'
+                  : 'bg-slate-900 border-slate-600 text-slate-300 hover:bg-slate-800'
+              }`}
+              aria-label="Armor Selection Slot"
+              title="Armor Selection Slot (Click to swap unlocked armors)"
+            >
+              <PixelHUDShield type={armor} className={`w-4 h-4 sm:w-4.5 sm:h-4.5 ${armor === 'none' ? 'opacity-55' : ''}`} />
+              <span className="font-pixel-arcade text-[6px] sm:text-[6.5px] font-bold leading-none tracking-tight">
+                {armor === 'none' ? 'ARMOR' : armor.slice(0, 4).toUpperCase()}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 };

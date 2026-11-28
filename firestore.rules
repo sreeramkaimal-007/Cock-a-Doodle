@@ -38,40 +38,94 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'userId', 'email', 'displayName', 'unlockedLevel', 'totalCoins',
           'gender', 'armor', 'sword', 'selectedSkin', 'unlockedSkins',
-          'unlockedBadges', 'upgrades', 'hasShield', 'hasCompletedGame',
+          'unlockedBadges', 'unlockedArmors', 'unlockedSwords', 'upgrades',
+          'hasShield', 'hasAxe', 'hasBrush', 'hasCompletedGame',
           'shopClosedUntil', 'createdAt', 'updatedAt'
         ])
-        && data.userId is string && data.userId.size() <= 128
+        && data.userId is string && data.userId.size() <= 128 && data.userId == request.auth.uid
         && data.email is string && data.email.size() <= 256
         && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 64))
         && (!('unlockedLevel' in data) || (data.unlockedLevel is number && data.unlockedLevel >= 1 && data.unlockedLevel <= 40))
         && (!('totalCoins' in data) || (data.totalCoins is number && data.totalCoins >= 0))
         && (!('gender' in data) || (data.gender is string && (data.gender == 'rooster' || data.gender == 'hen')))
         && (!('armor' in data) || (data.armor is string && (data.armor == 'none' || data.armor == 'iron' || data.armor == 'gold' || data.armor == 'diamond' || data.armor == 'netherite' || data.armor == 'coral')))
-        && (!('sword' in data) || (data.sword is string && (data.sword == 'none' || data.sword == 'iron' || data.sword == 'gold' || data.sword == 'diamond' || data.sword == 'netherite')))
+        && (!('sword' in data) || (data.sword is string && (data.sword == 'none' || data.sword == 'iron' || data.sword == 'gold' || data.sword == 'diamond' || data.sword == 'coral' || data.sword == 'netherite')))
+        && (!('selectedSkin' in data) || (data.selectedSkin is string && data.selectedSkin.size() <= 64))
+        && (!('unlockedArmors' in data) || (data.unlockedArmors is list && data.unlockedArmors.size() <= 10))
+        && (!('unlockedSwords' in data) || (data.unlockedSwords is list && data.unlockedSwords.size() <= 10))
         && (!('hasShield' in data) || data.hasShield is bool)
-        && (!('hasCompletedGame' in data) || data.hasCompletedGame is bool);
+        && (!('hasAxe' in data) || data.hasAxe is bool)
+        && (!('hasBrush' in data) || data.hasBrush is bool)
+        && (!('hasCompletedGame' in data) || data.hasCompletedGame is bool)
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    // Validation Blueprint for BossRushScore entity (PII-free public leaderboard)
+    function isValidBossRushScore(data) {
+      return data.keys().hasAll([
+          'userId', 'playerName', 'clearTimeMs', 'difficulty', 'gender', 'bonusCoins', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'userId', 'playerName', 'clearTimeMs', 'difficulty', 'gender', 'bonusCoins', 'createdAt'
+        ])
+        && data.userId is string && data.userId.size() <= 128 && data.userId == request.auth.uid
+        && data.playerName is string && data.playerName.size() >= 1 && data.playerName.size() <= 40
+        && data.clearTimeMs is number && data.clearTimeMs >= 1000 && data.clearTimeMs <= 3600000
+        && data.difficulty is string && (data.difficulty == 'easy' || data.difficulty == 'normal' || data.difficulty == 'hard')
+        && data.gender is string && (data.gender == 'rooster' || data.gender == 'hen')
+        && data.bonusCoins is number && data.bonusCoins >= 0 && data.bonusCoins <= 1000
+        && data.createdAt is timestamp;
     }
 
     // --- User Profile & Game Save Collection ---
     match /users/{userId} {
       allow get: if isOwner(userId) && isValidId(userId);
       allow list: if false; // Blanket queries forbidden to protect user PII
-      
+
       allow create: if isOwner(userId)
         && isValidId(userId)
         && isValidUserProfile(incoming())
         && incoming().userId == userId
         && incoming().userId == request.auth.uid;
-        
+
       allow update: if isOwner(userId)
         && isValidId(userId)
         && isValidUserProfile(incoming())
         && incoming().userId == existing().userId
         && incoming().userId == request.auth.uid
-        && incoming().email == existing().email;
-        
+        && (!('email' in existing()) || incoming().email == existing().email)
+        && (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'unlockedLevel', 'totalCoins', 'gender',
+          'armor', 'sword', 'selectedSkin', 'unlockedSkins',
+          'unlockedBadges', 'unlockedArmors', 'unlockedSwords', 'upgrades',
+          'hasShield', 'hasAxe', 'hasBrush', 'hasCompletedGame',
+          'shopClosedUntil', 'updatedAt'
+        ]);
+
       allow delete: if isOwner(userId) && isValidId(userId);
+    }
+
+    // --- Boss Rush High Scores Leaderboard (PII-Free, Immutable Records) ---
+    match /bossRushScores/{scoreId} {
+      allow get: if isVerified()
+        && isValidId(scoreId)
+        && existing().clearTimeMs is number
+        && existing().clearTimeMs >= 1000;
+
+      allow list: if isVerified()
+        && resource.data.clearTimeMs >= 1000
+        && request.query.limit <= 20;
+
+      allow create: if isVerified()
+        && isValidId(scoreId)
+        && isValidBossRushScore(incoming())
+        && incoming().createdAt == request.time;
+
+      allow update: if false; // Leaderboard clear times are immutable once recorded
+
+      allow delete: if isOwner(existing().userId) && isValidId(scoreId);
     }
   }
 }
