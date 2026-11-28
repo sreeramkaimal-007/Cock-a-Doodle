@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Sword, Shield, Maximize2, Minimize2, Pause, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Sword, Shield, Maximize2, Minimize2, Pause, EyeOff } from 'lucide-react';
 import { audio } from '../game/audio';
 
 interface TouchControlsProps {
@@ -11,6 +11,8 @@ interface TouchControlsProps {
   onPause?: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  hideExtraUI?: boolean;
+  onToggleHideUI?: () => void;
 }
 
 export const TouchControls: React.FC<TouchControlsProps> = ({
@@ -20,7 +22,9 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   onRaft = false,
   onPause,
   isFullscreen = false,
-  onToggleFullscreen
+  onToggleFullscreen,
+  hideExtraUI = false,
+  onToggleHideUI,
 }) => {
   const [pressedState, setPressedState] = useState<{
     left: boolean;
@@ -37,9 +41,6 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     block: false,
     down: false,
   });
-
-  // Toggle for extra/other buttons
-  const [showOtherButtons, setShowOtherButtons] = useState<boolean>(true);
 
   const setKey = useCallback((key: 'left' | 'right' | 'jump' | 'attack' | 'block' | 'down', pressed: boolean) => {
     setPressedState(prev => (prev[key] === pressed ? prev : { ...prev, [key]: pressed }));
@@ -86,11 +87,13 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           LEFT: 8-BIT DIRECTIONAL CURSOR BUTTONS (LEFT ◀ & RIGHT ▶)
           ═══════════════════════════════════════════════════════════════ */}
       <div className="flex flex-col items-start gap-1.5 pointer-events-auto">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900/95 border-2 border-black text-[7.5px] font-pixel-arcade text-amber-300 shadow-[2px_2px_0_#000000]">
-          <span>◀</span>
-          <span>{onRaft ? 'RAFT SPEED' : 'MOVE CURSORS'}</span>
-          <span>▶</span>
-        </div>
+        {!hideExtraUI && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900/95 border-2 border-black text-[7.5px] font-pixel-arcade text-amber-300 shadow-[2px_2px_0_#000000]">
+            <span>◀</span>
+            <span>{onRaft ? 'RAFT SPEED' : 'MOVE CURSORS'}</span>
+            <span>▶</span>
+          </div>
+        )}
 
         <div className="flex items-center gap-2.5">
           {/* LEFT CURSOR */}
@@ -133,51 +136,54 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           - Jump / Steer Up (▲)
           ═══════════════════════════════════════════════════════════════ */}
       <div className="flex flex-col items-end gap-2 pointer-events-auto">
-        {/* Always-Visible Fullscreen + Extra Tray Row on Mobile */}
-        <div className="flex items-center gap-2">
-          {onToggleFullscreen && (
-            <button
-              type="button"
-              onClick={onToggleFullscreen}
-              onPointerDown={e => e.stopPropagation()}
-              className={`h-8 px-2.5 border-2 border-black text-[8px] sm:text-[9px] font-pixel-arcade flex items-center gap-1.5 shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer select-none touch-manipulation ${
-                isFullscreen
-                  ? 'bg-emerald-950 text-emerald-300'
-                  : 'bg-slate-900 text-yellow-400'
-              }`}
-              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-              aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-            >
-              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-              <span className="font-bold">{isFullscreen ? 'EXIT FULL' : 'FULL SCREEN'}</span>
-            </button>
-          )}
+        {/* Utility Buttons Row (completely hidden when Hide UI is active so only player controls remain!) */}
+        {!hideExtraUI && (
+          <div className="flex items-center gap-2">
+            {onToggleFullscreen && (
+              <button
+                type="button"
+                onClick={onToggleFullscreen}
+                onPointerDown={e => e.stopPropagation()}
+                className={`h-8 px-2.5 border-2 border-black text-[8px] sm:text-[9px] font-pixel-arcade flex items-center gap-1.5 shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer select-none touch-manipulation ${
+                  isFullscreen
+                    ? 'bg-emerald-950 text-emerald-300'
+                    : 'bg-slate-900 text-yellow-400'
+                }`}
+                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+                aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              >
+                {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                <span className="font-bold">{isFullscreen ? 'EXIT FULL' : 'FULL SCREEN'}</span>
+              </button>
+            )}
 
-          <button
-            type="button"
-            onClick={() => setShowOtherButtons(p => !p)}
-            onPointerDown={e => e.stopPropagation()}
-            className="h-8 flex items-center gap-1.5 px-2.5 bg-slate-900 border-2 border-black text-[8px] sm:text-[9px] font-pixel-arcade text-yellow-300 shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none cursor-pointer select-none touch-manipulation"
-            aria-label={showOtherButtons ? 'Hide Extra Buttons' : 'Show Extra Buttons'}
-          >
-            {showOtherButtons ? <ChevronDown className="w-3.5 h-3.5 text-yellow-400 stroke-[2.5]" /> : <ChevronUp className="w-3.5 h-3.5 text-yellow-400 stroke-[2.5]" />}
-            <span className="font-bold">{showOtherButtons ? 'HIDE' : 'MORE'}</span>
-          </button>
-        </div>
+            {onPause && (
+              <button
+                type="button"
+                onClick={onPause}
+                onPointerDown={e => e.stopPropagation()}
+                className="h-8 px-2.5 bg-slate-900 active:bg-slate-800 border-2 border-black text-slate-200 flex items-center gap-1.5 text-[8px] font-pixel-arcade shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer touch-manipulation"
+                title="Pause Game"
+                aria-label="Pause Game"
+              >
+                <Pause className="w-3.5 h-3.5" />
+                <span>PAUSE</span>
+              </button>
+            )}
 
-        {/* Secondary Utility Buttons Row */}
-        {showOtherButtons && onPause && (
-          <div className="flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-150">
-            <button
-              type="button"
-              onClick={onPause}
-              className="h-9 px-2.5 bg-slate-900 active:bg-slate-800 border-2 border-black text-slate-200 flex items-center gap-1.5 text-[8px] font-pixel-arcade shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer"
-              title="Pause Game"
-              aria-label="Pause Game"
-            >
-              <Pause className="w-3.5 h-3.5" />
-              <span>PAUSE</span>
-            </button>
+            {onToggleHideUI && (
+              <button
+                type="button"
+                onClick={onToggleHideUI}
+                onPointerDown={e => e.stopPropagation()}
+                className="h-8 flex items-center gap-1.5 px-2.5 bg-slate-900 border-2 border-black text-[8px] sm:text-[9px] font-pixel-arcade text-amber-300 shadow-[2px_2px_0_#000000] active:translate-y-[1px] active:shadow-none cursor-pointer select-none touch-manipulation"
+                aria-label="Hide Extra Buttons"
+                title="Hide extra buttons (keeps Hearts & player controls)"
+              >
+                <EyeOff className="w-3.5 h-3.5 text-amber-300" />
+                <span className="font-bold">HIDE UI</span>
+              </button>
+            )}
           </div>
         )}
 

@@ -62,6 +62,7 @@ export default function App() {
     if (typeof window === 'undefined') return false;
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024;
   });
+  const [hideMobileUI, setHideMobileUI] = useState<boolean>(false);
   const userToggledTouchRef = useRef<boolean>(false);
   const containerRef = useRef<HTMLElement | null>(null);
 
@@ -1648,6 +1649,14 @@ export default function App() {
             emoteTrayOpen={emoteTrayOpen}
             onToggleEmoteTray={() => setEmoteTrayOpen(prev => !prev)}
             onTriggerEmote={handleTriggerEmote}
+            hideUI={hideMobileUI}
+            onToggleHideUI={() => {
+              setHideMobileUI(prev => {
+                const next = !prev;
+                if (next) setEmoteTrayOpen(false);
+                return next;
+              });
+            }}
           />
 
           {/* On-Screen Touch / Click Controls */}
@@ -1661,6 +1670,14 @@ export default function App() {
               onPause={() => setScreen('PAUSED')}
               isFullscreen={isFullscreen}
               onToggleFullscreen={handleToggleFullscreen}
+              hideExtraUI={hideMobileUI}
+              onToggleHideUI={() => {
+                setHideMobileUI(prev => {
+                  const next = !prev;
+                  if (next) setEmoteTrayOpen(false);
+                  return next;
+                });
+              }}
             />
           )}
         </>

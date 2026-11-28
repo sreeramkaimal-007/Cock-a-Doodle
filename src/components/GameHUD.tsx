@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Music, Pause, Shield, Sword, Gamepad2, Home, LogOut, Maximize2, Minimize2, Lock, Smile } from 'lucide-react';
+import { Volume2, VolumeX, Music, Pause, Shield, Sword, Gamepad2, Home, LogOut, Maximize2, Minimize2, Lock, Smile, Eye, EyeOff } from 'lucide-react';
 import { GrowthStage, ArmorType, SwordType, EmoteId } from '../game/types';
 import { EMOTES } from '../game/emotes';
 import { PixelChick, PixelJuvenile, PixelRooster, PixelCrown } from './PixelIcons';
@@ -35,6 +35,8 @@ interface GameHUDProps {
   emoteTrayOpen?: boolean;
   onToggleEmoteTray?: () => void;
   onTriggerEmote?: (emoteId: EmoteId) => void;
+  hideUI?: boolean;
+  onToggleHideUI?: () => void;
 }
 
 // Retro 8-bit Pixelated Flame Icon Component
@@ -351,6 +353,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   emoteTrayOpen = false,
   onToggleEmoteTray,
   onTriggerEmote,
+  hideUI = false,
+  onToggleHideUI,
 }) => {
   const isFireResistActive = fireResistTimer > 0;
   const isPoisoned = poisonTimer > 0;
@@ -444,106 +448,141 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           )}
         </div>
 
-        {/* Top Right: Pixelated Coins Counter & Controls */}
+        {/* Top Right: Hide/Show UI Toggle + Pixelated Coins Counter & Controls */}
         <div className="flex items-center flex-wrap justify-end gap-1.5 sm:gap-2 pointer-events-auto">
-          {/* Pixel Coins Counter */}
-          <div className="flex items-center gap-1.5 bg-slate-900 border-[3px] border-black px-2.5 sm:px-3 py-1.5 shadow-[3px_3px_0_#000000]">
-            <PixelCoin className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-            <span className="font-pixel-arcade text-yellow-400 text-xs sm:text-sm font-bold tabular-nums drop-shadow-[0_2px_0_#3b1302]">
-              {coins}
-            </span>
-          </div>
-
-          {/* Audio & Control Buttons - Chunky 8-Bit Pixel Buttons */}
-          <button
-            onClick={onToggleSound}
-            className="w-8 h-8 sm:w-9 sm:h-9 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-yellow-400 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center shrink-0"
-            aria-label="Toggle Sound Effects"
-          >
-            {soundEnabled ? (
-              <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
-            ) : (
-              <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500" />
-            )}
-          </button>
-
-          <button
-            onClick={onToggleMusic}
-            className="w-8 h-8 sm:w-9 sm:h-9 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-yellow-400 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center shrink-0"
-            aria-label="Toggle Background Music"
-          >
-            <Music className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${musicEnabled ? 'text-yellow-400' : 'text-slate-500'}`} />
-          </button>
-
-          <button
-            onClick={onToggleTouchControls}
-            className={`w-8 h-8 sm:w-9 sm:h-9 border-[2.5px] border-black shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center shrink-0 ${
-              showTouchControls
-                ? 'bg-yellow-950 text-yellow-300'
-                : 'bg-slate-900 text-yellow-400 hover:bg-slate-800'
-            }`}
-            aria-label="Toggle On-Screen Touch Controls"
-            title="Toggle On-Screen Controls"
-          >
-            <Gamepad2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
-          </button>
-
-          {onToggleFullscreen && (
-            <button
-              onClick={onToggleFullscreen}
-              className={`h-8 sm:h-9 px-2 sm:px-2.5 border-[2.5px] border-black shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1 shrink-0 ${
-                isFullscreen
-                  ? 'bg-emerald-950 text-emerald-300 hover:bg-emerald-900'
-                  : 'bg-slate-900 text-yellow-400 hover:bg-slate-800'
-              }`}
-              aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-            >
-              {isFullscreen ? (
-                <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-300" />
-              ) : (
-                <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
+          {hideUI ? (
+            /* Clean Mobile Mode: ONLY a single compact SHOW button in top-right (Hearts & player controls stay visible!) */
+            onToggleHideUI && (
+              <button
+                type="button"
+                onClick={onToggleHideUI}
+                onPointerDown={e => e.stopPropagation()}
+                className="h-8 sm:h-9 px-2.5 bg-slate-900/80 hover:bg-slate-800 border-[2.5px] border-black text-yellow-300 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1.5 shrink-0 touch-manipulation"
+                aria-label="Show HUD Buttons"
+                title="Show HUD Buttons"
+              >
+                <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-300" />
+                <span className="font-pixel text-[7.5px] sm:text-[8px]">SHOW</span>
+              </button>
+            )
+          ) : (
+            <>
+              {/* Mobile/Screen Hide Extra UI Button (keeps Hearts + player control buttons only!) */}
+              {onToggleHideUI && (
+                <button
+                  type="button"
+                  onClick={onToggleHideUI}
+                  onPointerDown={e => e.stopPropagation()}
+                  className="h-8 sm:h-9 px-2 sm:px-2.5 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-amber-300 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1 shrink-0 touch-manipulation"
+                  aria-label="Hide Extra Buttons"
+                  title="Hide extra buttons (keeps Hearts & player controls)"
+                >
+                  <EyeOff className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300" />
+                  <span className="font-pixel text-[7.5px] sm:text-[8px]">HIDE</span>
+                </button>
               )}
-              <span className="font-pixel text-[7.5px] sm:text-[8px]">
-                {isFullscreen ? 'EXIT' : 'FULL'}
-              </span>
-            </button>
-          )}
 
-          <button
-            onClick={onPause}
-            className="w-8 h-8 sm:w-9 sm:h-9 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-yellow-400 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center shrink-0"
-            aria-label="Pause Game"
-            title="Pause Game"
-          >
-            <Pause className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
-          </button>
+              {/* Pixel Coins Counter */}
+              <div className="flex items-center gap-1.5 bg-slate-900 border-[3px] border-black px-2.5 sm:px-3 py-1.5 shadow-[3px_3px_0_#000000]">
+                <PixelCoin className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                <span className="font-pixel-arcade text-yellow-400 text-xs sm:text-sm font-bold tabular-nums drop-shadow-[0_2px_0_#3b1302]">
+                  {coins}
+                </span>
+              </div>
 
-          <button
-            onClick={onReturnToMenu}
-            className="h-8 sm:h-9 px-2 sm:px-2.5 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-yellow-400 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
-            aria-label="Back to Menu"
-            title="Back to Menu"
-          >
-            <Home className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
-            <span className="hidden md:inline font-pixel text-[8px] text-yellow-300">MENU</span>
-          </button>
+              {/* Audio & Control Buttons - Chunky 8-Bit Pixel Buttons */}
+              <button
+                onClick={onToggleSound}
+                className="w-8 h-8 sm:w-9 sm:h-9 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-yellow-400 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center shrink-0"
+                aria-label="Toggle Sound Effects"
+              >
+                {soundEnabled ? (
+                  <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
+                ) : (
+                  <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500" />
+                )}
+              </button>
 
-          {onLogOut && (
-            <button
-              onClick={onLogOut}
-              className="h-8 sm:h-9 px-2 sm:px-2.5 bg-red-950 border-[2.5px] border-black hover:bg-red-900 text-red-200 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
-              aria-label="Log Out"
-              title="Log Out"
-            >
-              <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-300" />
-              <span className="hidden sm:inline font-pixel text-[8px] text-red-200">LOG OUT</span>
-            </button>
+              <button
+                onClick={onToggleMusic}
+                className="w-8 h-8 sm:w-9 sm:h-9 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-yellow-400 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center shrink-0"
+                aria-label="Toggle Background Music"
+              >
+                <Music className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${musicEnabled ? 'text-yellow-400' : 'text-slate-500'}`} />
+              </button>
+
+              <button
+                onClick={onToggleTouchControls}
+                className={`w-8 h-8 sm:w-9 sm:h-9 border-[2.5px] border-black shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center shrink-0 ${
+                  showTouchControls
+                    ? 'bg-yellow-950 text-yellow-300'
+                    : 'bg-slate-900 text-yellow-400 hover:bg-slate-800'
+                }`}
+                aria-label="Toggle On-Screen Touch Controls"
+                title="Toggle On-Screen Controls"
+              >
+                <Gamepad2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
+              </button>
+
+              {onToggleFullscreen && (
+                <button
+                  onClick={onToggleFullscreen}
+                  className={`h-8 sm:h-9 px-2 sm:px-2.5 border-[2.5px] border-black shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1 shrink-0 ${
+                    isFullscreen
+                      ? 'bg-emerald-950 text-emerald-300 hover:bg-emerald-900'
+                      : 'bg-slate-900 text-yellow-400 hover:bg-slate-800'
+                  }`}
+                  aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+                  title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+                >
+                  {isFullscreen ? (
+                    <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-300" />
+                  ) : (
+                    <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
+                  )}
+                  <span className="font-pixel text-[7.5px] sm:text-[8px]">
+                    {isFullscreen ? 'EXIT' : 'FULL'}
+                  </span>
+                </button>
+              )}
+
+              <button
+                onClick={onPause}
+                className="w-8 h-8 sm:w-9 sm:h-9 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-yellow-400 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center shrink-0"
+                aria-label="Pause Game"
+                title="Pause Game"
+              >
+                <Pause className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
+              </button>
+
+              <button
+                onClick={onReturnToMenu}
+                className="h-8 sm:h-9 px-2 sm:px-2.5 bg-slate-900 border-[2.5px] border-black hover:bg-slate-800 text-yellow-400 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+                aria-label="Back to Menu"
+                title="Back to Menu"
+              >
+                <Home className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
+                <span className="hidden md:inline font-pixel text-[8px] text-yellow-300">MENU</span>
+              </button>
+
+              {onLogOut && (
+                <button
+                  onClick={onLogOut}
+                  className="h-8 sm:h-9 px-2 sm:px-2.5 bg-red-950 border-[2.5px] border-black hover:bg-red-900 text-red-200 shadow-[2px_2px_0_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-transform cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+                  aria-label="Log Out"
+                  title="Log Out"
+                >
+                  <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-300" />
+                  <span className="hidden sm:inline font-pixel text-[8px] text-red-200">LOG OUT</span>
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
 
-      {/* Row 2: Stage/Gear Stack on Left, Interactive Pixel Emote Quickbar on Right */}
+      {/* Row 2: Stage/Gear Stack on Left, Interactive Pixel Emote Quickbar on Right (hidden in Clean Mobile Mode) */}
+      {!hideUI && (
       <div className="w-full flex items-start justify-between gap-2 pointer-events-none mt-2.5 sm:mt-3.5 md:mt-4.5">
         <div className="flex flex-col items-start gap-2 sm:gap-2.5 pointer-events-auto">
           {/* Stage Button with Chunky Pixelated Border & 3D Shadow */}
@@ -692,6 +731,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </div>
         )}
       </div>
+      )}
       </div>
     </>
   );
